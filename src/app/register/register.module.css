@@ -1,5 +1,5 @@
-/* 登录页面容器 */
-.loginContainer {
+/* 注册页面容器 */
+.registerContainer {
     position: fixed;
     top: 0;
     left: 0;
@@ -16,12 +16,12 @@
 }
 
 /* 确保页面完全覆盖 */
-.loginContainer * {
+.registerContainer * {
     box-sizing: border-box;
 }
 
 /* 背景渐变效果 */
-.loginBackground {
+.registerBackground {
     position: absolute;
     top: 0;
     left: 0;
@@ -31,12 +31,12 @@
     z-index: 1;
 }
 
-/* 登录卡片容器 */
-.loginCard {
+/* 注册卡片容器 */
+.registerCard {
     position: relative;
     z-index: 2;
     width: 100%;
-    max-width: 400px;
+    max-width: 450px;
     padding: 20px;
     margin: 0;
 }
@@ -53,8 +53,8 @@
     margin: 0;
 }
 
-/* 登录头部 */
-.loginHeader {
+/* 注册头部 */
+.registerHeader {
     text-align: center;
     margin-bottom: 24px;
     padding: 0;
@@ -88,8 +88,8 @@
     font-size: 14px;
 }
 
-/* 登录表单 */
-.loginForm {
+/* 注册表单 */
+.registerForm {
     margin-top: 24px;
 }
 
@@ -192,8 +192,8 @@
     color: rgba(159, 44, 255, 0.7) !important;
 }
 
-/* 登录按钮 */
-.loginButton {
+/* 注册按钮 */
+.registerButton {
     height: 48px !important;
     background: linear-gradient(135deg, #9f2cff 0%, #7c3aed 100%) !important;
     border: none !important;
@@ -204,13 +204,13 @@
     transition: all 0.3s ease !important;
 }
 
-.loginButton:hover {
+.registerButton:hover {
     background: linear-gradient(135deg, #8b1aff 0%, #6d28d9 100%) !important;
     box-shadow: 0 6px 16px rgba(159, 44, 255, 0.4) !important;
     transform: translateY(-1px) !important;
 }
 
-.loginButton:active {
+.registerButton:active {
     transform: translateY(0) !important;
 }
 
@@ -220,13 +220,13 @@
     border-radius: 8px;
 }
 
-/* 注册链接 */
-.registerLink {
+/* 登录链接 */
+.loginLink {
     margin-bottom: 0 !important;
     text-align: center;
 }
 
-.registerLinkText {
+.loginLinkText {
     color: rgba(255, 255, 255, 0.7) !important;
     font-size: 14px;
 }
@@ -256,11 +256,11 @@
     white-space: pre;
 }
 
-
 /* 响应式设计 */
 @media (max-width: 480px) {
-    .loginCard {
+    .registerCard {
         padding: 16px;
+        max-width: 100%;
     }
 
     .title {
@@ -268,7 +268,7 @@
     }
 
     .input,
-    .loginButton,
+    .registerButton,
     .select {
         height: 44px !important;
     }
@@ -299,3 +299,4 @@
 .card {
     animation: fadeInUp 0.6s ease-out;
 }
+
