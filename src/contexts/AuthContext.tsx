@@ -103,7 +103,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         // 跳转到登录页
-        router.push('/login');
+        router.push('/management/login');
     };
 
     const value: AuthContextType = {

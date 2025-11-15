@@ -1,0 +1,87 @@
+.portalLayout {
+    position: relative;
+    min-height: 100vh;
+    background: radial-gradient(circle at 15% 20%, #3c4fa5 0%, transparent 45%),
+        linear-gradient(180deg, #1f2758 0%, #090f2c 100%);
+    color: #fff;
+    padding: 0 48px;
+    overflow: hidden;
+}
+
+.portalBackdrop {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 20%, rgba(159, 44, 255, 0.45), transparent 45%),
+        radial-gradient(circle at 80% 0%, rgba(0, 229, 255, 0.4), transparent 50%),
+        linear-gradient(120deg, rgba(255, 255, 255, 0.08), transparent 60%);
+    filter: blur(70px);
+    opacity: 0.95;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 32px 0;
+    background: transparent;
+}
+
+.logo {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #fff;
+    text-decoration: none;
+}
+
+.nav {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+}
+
+.navLink {
+    color: rgba(255, 255, 255, 0.75);
+    text-decoration: none;
+    font-size: 14px;
+    transition: color 0.2s ease;
+}
+
+.navLink:hover {
+    color: #fff;
+}
+
+.headerButton {
+    box-shadow: 0 10px 30px rgba(159, 44, 255, 0.35);
+}
+
+.main {
+    position: relative;
+    z-index: 1;
+    padding-bottom: 64px;
+}
+
+.footer {
+    position: relative;
+    z-index: 1;
+    padding: 32px 0 48px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 13px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    margin-top: 48px;
+}
+
+@media (max-width: 1024px) {
+    .portalLayout {
+        padding: 0 24px;
+    }
+    .nav {
+        display: none;
+    }
+}

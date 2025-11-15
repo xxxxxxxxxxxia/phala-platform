@@ -5,8 +5,8 @@ import React, { useState, useCallback, useMemo, useEffect } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import AuthGuard from "@/components/AuthGuard";
 import DataCard from "@/components/DataCard";
-import LineByLinePre from "@/app/tee-verification/LineByLinePre";
-import CharByCharPre from "@/app/tee-verification/CharByCharPre";
+import LineByLinePre from "@/app/management/tee-verification/LineByLinePre";
+import CharByCharPre from "@/app/management/tee-verification/CharByCharPre";
 import { Row, Col, Button, List, Card, Space, Spin, Steps, message, Typography, Skeleton, Tag } from "antd";
 import {
     CheckCircleOutlined,

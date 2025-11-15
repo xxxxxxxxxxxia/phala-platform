@@ -175,6 +175,7 @@ const nextConfig = {
         source: '/api/vm/:path*',
         destination: 'http://8.147.107.221:3001/api/vm/:path*',
       },
+      // /api/scheduling/* 和 /api/contracts/* 由本地Next.js API路由处理，不需要rewrite
     ];
   },
   

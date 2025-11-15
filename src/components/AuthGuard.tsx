@@ -15,7 +15,7 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
 
     useEffect(() => {
         if (!loading && !isLoggedIn) {
-            router.push('/login');
+            router.push('/management/login');
         }
     }, [isLoggedIn, loading, router]);
 

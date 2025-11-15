@@ -23,15 +23,15 @@ const { darkAlgorithm } = theme;
 
 // 菜单项已按您的要求更新
 const menuItems = [
-  { label: '系统总览', key: '/', icon: <PieChartOutlined /> },
-  { label: '可信验证', key: '/tee-verification', icon: <SafetyCertificateOutlined /> },
-  { label: '安全调度', key: '/scheduling', icon: <ThunderboltOutlined /> },
-  { label: '响应监控', key: '/monitoring', icon: <MonitorOutlined /> },
-  { label: '密钥管理', key: '/key-rotation', icon: <KeyOutlined /> },
-  { label: '激励机制', key: '/incentives', icon: <TrophyOutlined /> },
-  { label: '隐私合约', key: '/contracts', icon: <FileProtectOutlined /> },
-  { label: '开发接口', key: '/tools', icon: <CodeOutlined /> },
-  { label: '系统帮助', key: '/docs', icon: <QuestionCircleOutlined /> },
+  { label: '系统总览', key: '/management', icon: <PieChartOutlined /> },
+  { label: '可信验证', key: '/management/tee-verification', icon: <SafetyCertificateOutlined /> },
+  { label: '安全调度', key: '/management/scheduling', icon: <ThunderboltOutlined /> },
+  { label: '响应监控', key: '/management/monitoring', icon: <MonitorOutlined /> },
+  { label: '密钥管理', key: '/management/key-rotation', icon: <KeyOutlined /> },
+  { label: '激励机制', key: '/management/incentives', icon: <TrophyOutlined /> },
+  { label: '隐私合约', key: '/management/contracts', icon: <FileProtectOutlined /> },
+  { label: '开发接口', key: '/management/tools', icon: <CodeOutlined /> },
+  { label: '系统帮助', key: '/management/docs', icon: <QuestionCircleOutlined /> },
 ];
 
 // 2. 最佳实践修正：将 children 的类型修正为 React.ReactNode
@@ -42,16 +42,16 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
 
   // 页面标题映射已同步更新
   const pageTitles: { [key: string]: string } = {
-    '/': '系统总览',
-    '/workers': '节点管理',
-    '/tee-verification': '可信验证',
-    '/scheduling': '安全调度',
-    '/monitoring': '响应监控',
-    '/contracts': '隐私合约',
-    '/key-rotation': '密钥管理',
-    '/incentives': '激励机制',
-    '/tools': '开发接口',
-    '/docs': '系统帮助',
+    '/management': '系统总览',
+    '/management/workers': '节点管理',
+    '/management/tee-verification': '可信验证',
+    '/management/scheduling': '安全调度',
+    '/management/monitoring': '响应监控',
+    '/management/contracts': '隐私合约',
+    '/management/key-rotation': '密钥管理',
+    '/management/incentives': '激励机制',
+    '/management/tools': '开发接口',
+    '/management/docs': '系统帮助',
   };
   const pageTitle = pageTitles[pathname] || '链计算隐私平台';
 
@@ -114,7 +114,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
               justifyContent: 'center',
               padding: '8px'
             }}>
-              <Link href="/" style={{ color: 'white', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
+              <Link href="/management" style={{ color: 'white', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}>
                 <Image
                   src="/whitelogo.png"
                   alt="链计算平台"

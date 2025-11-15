@@ -1,0 +1,264 @@
+.portalContent {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    padding-bottom: 48px;
+}
+
+.hero {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    padding: 48px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    position: relative;
+    overflow: hidden;
+}
+
+.heroBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(0, 229, 255, 0.15);
+    color: #00e5ff;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+.heroTitle {
+    font-size: 48px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #fff;
+}
+
+.heroHighlight {
+    color: #61ffea;
+}
+
+.heroSubtitle {
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.75);
+    margin-bottom: 32px;
+    max-width: 720px;
+}
+
+.heroActions {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+}
+
+.heroStats {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.heroStat {
+    flex: 1;
+    min-width: 180px;
+    padding: 16px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.heroStatValue {
+    font-size: 32px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.heroStatLabel {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 14px;
+}
+
+.cardsSection,
+.section {
+    background: linear-gradient(180deg, rgba(41, 53, 109, 0.78), rgba(15, 24, 62, 0.95));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 24px;
+    padding: 36px;
+    box-shadow: 0 16px 40px rgba(6, 8, 18, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    color: #eef3ff;
+}
+
+.sectionTitle {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #ffffff !important;
+}
+
+.sectionDescription {
+    color: rgba(255, 255, 255, 0.82) !important;
+    margin-bottom: 24px;
+    font-size: 15px;
+}
+
+.portalCard {
+    height: 100%;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    background: linear-gradient(135deg, rgba(86, 111, 196, 0.35), rgba(17, 23, 55, 0.92)) !important;
+    backdrop-filter: blur(10px);
+    color: #f3f6ff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 12px 28px rgba(1, 3, 13, 0.35);
+}
+
+.cardTitle {
+    color: #f6f7ff !important;
+    margin-bottom: 12px !important;
+}
+
+.cardDescription {
+    color: rgba(243, 246, 255, 0.75) !important;
+}
+
+.cardIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 24px;
+    box-shadow: 0 8px 20px rgba(1, 3, 12, 0.4);
+}
+
+.cardIcon :global(.anticon) {
+    color: #f6f7ff;
+}
+
+.cardFooter {
+    margin-top: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cardTag {
+    background: rgba(0, 229, 255, 0.1);
+    color: #00e5ff;
+    border: 1px solid rgba(0, 229, 255, 0.2);
+}
+
+.infoGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.infoCard {
+    padding: 16px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.infoLabel {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.infoValue {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.listItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.listItem:last-child {
+    border-bottom: none;
+}
+
+.listLabel {
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 14px;
+}
+
+.listValue {
+    font-weight: 600;
+    color: #fff;
+}
+
+.placeholderPanel {
+    border: 1px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    padding: 32px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.placeholderTitle {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #fff;
+}
+
+.stepsWhite :global(.ant-steps-item-title),
+.stepsWhite :global(.ant-steps-item-description) {
+    color: #ffffff !important;
+}
+
+.stepsWhite :global(.ant-steps-item-icon) {
+    background: rgba(255, 255, 255, 0.24) !important;
+    border: none !important;
+    border-radius: 50% !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.stepsWhite :global(.ant-steps-item-icon .ant-steps-icon) {
+    background: transparent !important;
+    color: #0d1845 !important;
+    font-weight: 600;
+}
+
+.stepsWhite :global(.ant-steps-item-tail::after) {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+@media (max-width: 768px) {
+    .hero {
+        padding: 32px;
+    }
+    .heroTitle {
+        font-size: 36px;
+    }
+    .cardsSection,
+    .section {
+        padding: 24px;
+    }
+    .cardFooter {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}
