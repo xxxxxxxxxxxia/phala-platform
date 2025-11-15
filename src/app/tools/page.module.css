@@ -1,0 +1,31 @@
+/* src/app/tools/page.module.css */
+
+.codeBlock {
+    background-color: #000;
+    border: 1px solid rgba(159, 44, 255, 0.4);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'Courier New', Courier, monospace;
+    color: #e0e0e0;
+    position: relative;
+}
+
+.codeBlock pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.copyButton {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.copyButton:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}

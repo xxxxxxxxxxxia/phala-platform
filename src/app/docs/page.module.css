@@ -1,0 +1,23 @@
+/* src/app/docs/page.module.css */
+
+.heroSection {
+    padding: 48px;
+    text-align: center;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, rgba(159, 44, 255, 0.2), rgba(0, 229, 255, 0.2));
+}
+
+.docCard {
+    transition: all 0.3s ease;
+}
+
+.docCard:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 20px rgba(159, 44, 255, 0.3);
+}
+
+.timelineIcon {
+    font-size: 20px !important;
+    padding-top: 4px; /* 微调图标位置 */
+}

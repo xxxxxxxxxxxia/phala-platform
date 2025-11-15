@@ -1,0 +1,76 @@
+/* src/app/page.module.css (最终版) */
+
+/* --- 表格样式 --- */
+.taskTypeCell {
+    display: flex;
+    align-items: center;
+}
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    box-shadow: 0 0 5px currentColor;
+}
+.dotAI { color: #0A55E7; }
+.dotBigData { color: #0096FF; }
+.dotDeFi { color: #39D6FE; }
+.dotMetaverse { color: #2CF5F7; }
+.dotScience { color: #63FFD0; }
+
+/* --- 通用信息列表样式 --- */
+.infoList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.infoListItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+    font-size: 14px;
+}
+.infoListItem:last-child {
+    margin-bottom: 0;
+}
+.infoListLabel {
+    display: flex;
+    align-items: center;
+    color: rgba(255, 255, 255, 0.8);
+}
+.infoListValue {
+    font-weight: bold;
+    color: #fff;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+/* --- 算力贡献列表的进度条样式 --- */
+.progressBar {
+    width: 100%;
+    height: 6px; /* 调细一点更精致 */
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    margin-top: 4px;
+    overflow: hidden; /* 确保内部条的圆角生效 */
+}
+.progressBarInner {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(to right, #9f2cff, #00e5ff);
+    box-shadow: 0 0 8px #00e5ff;
+}
+
+
+/* --- 底部图例/摘要区域样式 --- */
+.legendContainer {
+    display: flex;
+    justify-content: space-around;
+    padding-top: 10px;
+    margin-top: 10px;
+    border-top: 1px solid rgba(0, 229, 255, 0.2);
+}

@@ -1,0 +1,40 @@
+/* src/app/contracts/page.module.css */
+
+.interactionCard {
+    background-color: #000c17; /* 深邃的背景色 */
+    border: 1px solid rgba(159, 44, 255, 0.4);
+    border-radius: 8px;
+    margin-top: 24px;
+}
+
+.terminalHeader {
+    background-color: rgba(159, 44, 255, 0.2);
+    padding: 8px 16px;
+    border-bottom: 1px solid rgba(159, 44, 255, 0.4);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    color: #fff;
+    font-family: monospace;
+}
+
+.terminalBody {
+    padding: 24px;
+}
+
+.resultBox {
+    margin-top: 20px;
+    background-color: #000;
+    border: 1px solid rgba(0, 229, 255, 0.3);
+    border-radius: 4px;
+    padding: 16px;
+    min-height: 100px;
+    color: #00e5ff;
+    font-family: monospace;
+    white-space: pre-wrap; /* 保持换行和空格 */
+    word-break: break-all;
+}
+
+.resultPrompt {
+    color: #9f2cff;
+    font-weight: bold;
+}

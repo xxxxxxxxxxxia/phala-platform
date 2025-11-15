@@ -1,0 +1,22 @@
+/* src/app/key-rotation/page.module.css */
+
+.dangerZone {
+    border: 2px solid #ff4d4f; /* 醒目的红色边框 */
+    border-radius: 8px;
+    padding: 24px;
+    background-color: rgba(255, 77, 79, 0.1); /* 淡淡的红色背景 */
+}
+
+.dangerZone h3 {
+    color: #ff4d4f; /* 红色标题 */
+    margin: 0;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+}
+
+.dangerZone p {
+    color: #f0f0f0;
+    line-height: 1.6;
+    margin-bottom: 24px;
+}

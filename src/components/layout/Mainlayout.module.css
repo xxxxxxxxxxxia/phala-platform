@@ -1,0 +1,47 @@
+/* 自定义菜单的容器 */
+.customMenu {
+    display: flex; /* 启用 Flexbox 布局 */
+    flex-direction: column; /* 垂直排列 */
+    justify-content: space-around; /* 核心：均匀分布项目，自动产生间距 */
+    padding: 16px 12px; /* 调整一下内边距，让按钮离边缘远一点 */
+    height: 100%; /* 关键：确保容器占满其父元素的所有可用高度 */
+}
+
+/* 菜单项的基础样式 - 胶囊形状 */
+.menuItem {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px; /* 调整内边距，让按钮更饱满 */
+    color: rgba(255, 255, 255, 0.75);
+    border-radius: 50px; /* 关键：超大圆角形成胶囊形状 */
+    transition: all 0.3s ease; /* 让所有变化的过渡更平滑 */
+    text-decoration: none;
+    border: 1px solid transparent; /* 预留一个透明边框，用于悬停和激活效果 */
+}
+
+/* 鼠标悬停时的效果 */
+.menuItem:hover {
+    background-color: rgba(159, 44, 255, 0.3);
+    color: #FFFFFF;
+    border-color: rgba(159, 44, 255, 0.5); /* 悬停时显示一个半透明边框 */
+}
+
+/* 当前激活菜单项的样式 */
+.menuItem.active {
+    background-color: #9f2cff;
+    color: #FFFFFF;
+    font-weight: 600;
+    box-shadow: 0 0 12px rgba(159, 44, 255, 0.8);
+    border-color: #9f2cff; /* 激活时显示实色边框 */
+}
+
+/* 菜单项中的图标样式 */
+.menuIcon {
+    font-size: 18px;
+    margin-right: 16px;
+}
+
+/* 菜单项中的文字样式 */
+.menuLabel {
+    font-size: 14px;
+}

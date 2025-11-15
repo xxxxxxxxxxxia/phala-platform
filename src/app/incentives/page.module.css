@@ -1,0 +1,15 @@
+/* src/app/page.module.css */
+
+.incentiveRoot {
+    /* 之前的大部分样式都由 antd 全局样式和组件提供，这里不再需要 */
+}
+
+.monospace {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+}
+
+.dataTable td,
+.dataTable th {
+    /* antd 会处理好大部分样式 */
+}
