@@ -9,7 +9,6 @@
     "allowJs": true,
     "skipLibCheck": true,
     "noImplicitAny": false,
-    "suppressImplicitAnyIndexErrors": true,
     "strict": false,
     "allowSyntheticDefaultImports": true,
     "noEmit": true,

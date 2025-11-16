@@ -1,17 +1,21 @@
 'use client';
 
-import React from 'react';
-import { Button, Card, Col, Row, Steps, Typography } from 'antd';
+import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button, Card, Col, Row, Steps, Typography, message } from 'antd';
 import { CodeOutlined, ApiOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import PortalLayout from '@/components/layout/PortalLayout';
 import styles from '../portal.module.css';
 
 const { Title, Paragraph } = Typography;
 
+// API 基础地址配置 - 可根据需要修改
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001';
+
 const sdkList = [
     { name: 'Phala JS SDK', version: 'v0.5.x', desc: '在浏览器或 Node.js 中快速调度 TEE 任务。' },
     { name: 'Rust Worker Toolkit', version: 'v1.2.x', desc: '面向链上合约与 Worker 扩展的工具集。' },
-    { name: 'REST OpenAPI', version: '2025.04', desc: '通过 HTTP / WebSocket 访问调度中间件。' },
+    // { name: 'REST OpenAPI', version: '2025.04', desc: '通过 HTTP / WebSocket 访问调度中间件。' },
 ];
 
 const quickStartSteps = [
@@ -21,13 +25,49 @@ const quickStartSteps = [
     '在门户查看日志、度量与奖励',
 ];
 
-const apiHighlights = [
-    { label: '任务提交', value: 'POST /api/tasks' },
-    { label: '会话查询', value: 'GET /api/sessions/:id' },
-    { label: '激励记录', value: 'GET /api/incentives/:account' },
-];
+// const apiHighlights = [
+//     { label: '任务提交', value: 'POST /api/tasks' },
+//     { label: '会话查询', value: 'GET /api/sessions/:id' },
+//     { label: '激励记录', value: 'GET /api/incentives/:account' },
+// ];
 
 export default function DevelopersPage() {
+    const router = useRouter();
+    const [loading, setLoading] = useState(false);
+
+    const handleStartBuild = async () => {
+        try {
+            setLoading(true);
+            message.loading('正在调度最佳资源...', 0);
+
+            const response = await fetch(`${API_BASE_URL}/api/host/best`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const data = await response.json();
+            message.destroy();
+
+            if (data.success && data.bestHostIp) {
+                // 将 bestHostIp 保存到 localStorage
+                localStorage.setItem('bestHostIp', data.bestHostIp);
+                message.success(`已找到最佳主机: ${data.bestHostIp}`);
+                // 导航到 start 页面
+                router.push('/developers/start');
+            } else {
+                message.error(data.message || '未找到可用主机');
+            }
+        } catch (error: any) {
+            message.destroy();
+            message.error(`获取最佳主机失败: ${error.message || '网络错误'}`);
+            console.error('获取最佳主机时发生错误:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <PortalLayout>
             <div className={styles.portalContent}>
@@ -36,24 +76,29 @@ export default function DevelopersPage() {
                         <CodeOutlined /> 应用开发者中心
                     </div>
                     <Title level={2} className={styles.heroTitle}>
-                        SDK · API · 工程模板一站式交付
+                        国产TEE · 机密虚拟机 · 容器化应用程序一键部署
                     </Title>
                     <Paragraph className={styles.heroSubtitle}>
-                        通过官方 SDK、OpenAPI 以及 CLI 工具，几分钟内完成链计算集成，获得端到端的调试、监控与交付体验。
+                        通过安全调度算法选择最佳资源地址，一键部署属于自己的应用程序，获得定制化的安全计算服务体验。
                     </Paragraph>
                     <div className={styles.heroActions}>
-                        <Button type="primary" size="large">
-                            立即下载 SDK
+                        <Button 
+                            type="primary" 
+                            size="large"
+                            loading={loading}
+                            onClick={handleStartBuild}
+                        >
+                            开始构建{/* 调度最佳资源 */}
                         </Button>
                         <Button size="large">
-                            查看 API 文档
+                            部署示例
                         </Button>
                     </div>
                 </section>
 
                 <section className={styles.section}>
                     <Title level={3} className={styles.sectionTitle}>
-                        开发套件
+                        资源监控
                     </Title>
                     <Row gutter={[24, 24]}>
                         {sdkList.map((sdk) => (
@@ -75,7 +120,7 @@ export default function DevelopersPage() {
 
                 <section className={styles.section}>
                     <Title level={3} className={styles.sectionTitle}>
-                        快速上手流程
+                        快速入门
                     </Title>
                     <Steps
                         className={styles.stepsWhite}
@@ -87,9 +132,9 @@ export default function DevelopersPage() {
                     />
                 </section>
 
-                <section className={styles.section}>
+                {/* <section className={styles.section}>
                     <Title level={3} className={styles.sectionTitle}>
-                        核心 API 摘要
+                        RPC API
                     </Title>
                     <Row gutter={[24, 24]}>
                         {apiHighlights.map((api) => (
@@ -105,7 +150,7 @@ export default function DevelopersPage() {
                             </Col>
                         ))}
                     </Row>
-                </section>
+                </section> */}
             </div>
         </PortalLayout>
     );

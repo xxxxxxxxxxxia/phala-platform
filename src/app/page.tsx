@@ -51,7 +51,6 @@ const entryCards = [
         href: '/polkadot-wall',
         actionText: '立即预览',
         icon: <RadarChartOutlined />,
-        tag: '建设中',
     },
 ];
 
