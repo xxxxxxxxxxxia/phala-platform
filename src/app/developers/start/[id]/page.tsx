@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import { useRouter, useParams } from 'next/navigation';
-import { Button, Card, Col, Row, Tag, Typography, Space, Menu, type MenuProps, Dropdown, Modal, Form, InputNumber, Select, Input, message, Descriptions, Divider, Spin, Empty } from 'antd';
+import { Button, Card, Col, Row, Tag, Typography, Space, Menu, type MenuProps, Dropdown, Modal, Form, InputNumber, Select, Input, message, Descriptions, Divider, Spin, Empty, Alert, Switch } from 'antd';
 import {
     ArrowLeftOutlined,
     CloudServerOutlined,
@@ -109,6 +110,300 @@ const getFlags = (vm: any): string => {
     return flags.length > 0 ? flags.join('、') : '无';
 };
 
+type PrimitiveValue = string | number | boolean;
+
+const normalizeKey = (key?: string) => (key || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const primitiveToString = (value?: PrimitiveValue): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
+};
+
+const collectPrimitiveValues = (
+    input: any,
+    map = new Map<string, PrimitiveValue>(),
+): Map<string, PrimitiveValue> => {
+    if (input === null || input === undefined) {
+        return map;
+    }
+    if (Array.isArray(input)) {
+        input.forEach((item) => collectPrimitiveValues(item, map));
+        return map;
+    }
+    if (typeof input === 'object') {
+        Object.entries(input).forEach(([key, value]) => {
+            if (value === null || value === undefined) {
+                return;
+            }
+            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                const normalizedKey = normalizeKey(key);
+                if (normalizedKey && !map.has(normalizedKey)) {
+                    map.set(normalizedKey, value);
+                }
+            } else if (typeof value === 'object') {
+                collectPrimitiveValues(value, map);
+            }
+        });
+    }
+    return map;
+};
+
+const toPortNumber = (value?: string | number | null): number | undefined => {
+    if (value === null || value === undefined) return undefined;
+    const parsed = typeof value === 'number' ? value : Number(String(value).trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const extractHostPortFromPortsConfig = (ports?: Array<{ host_port?: number | null }>): number | undefined => {
+    if (!Array.isArray(ports)) return undefined;
+    for (const port of ports) {
+        const hostPort = toPortNumber(port?.host_port);
+        if (hostPort !== undefined) {
+            return hostPort;
+        }
+    }
+    return undefined;
+};
+
+const removeInlineComment = (value: string): string => {
+    const hashIndex = value.indexOf('#');
+    return (hashIndex >= 0 ? value.slice(0, hashIndex) : value).trim();
+};
+
+const parseInlinePortValue = (value: string): number | undefined => {
+    const cleaned = removeInlineComment(value).replace(/^['"]|['"]$/g, '');
+    if (!cleaned) return undefined;
+    const [base] = cleaned.split(/\s+/);
+    const withoutProtocol = base.split('/')[0];
+    const segments = withoutProtocol.split(':').filter((segment) => segment.length > 0);
+    if (segments.length >= 2) {
+        return toPortNumber(segments[segments.length - 2]);
+    }
+    if (segments.length === 1) {
+        return toPortNumber(segments[0]);
+    }
+    return undefined;
+};
+
+const extractHostPortFromComposeText = (composeText?: string): number | undefined => {
+    if (!composeText) return undefined;
+    const portsBlockRegex = /ports\s*:\s*((?:\r?\n[ \t]+.*)+)/i;
+    const blockMatch = composeText.match(portsBlockRegex);
+    if (blockMatch) {
+        const block = blockMatch[1];
+        const inlineMatch = block.match(/-\s*["']?([^\s'"]+)["']?/);
+        if (inlineMatch) {
+            const inlinePort = parseInlinePortValue(inlineMatch[1]);
+            if (inlinePort !== undefined) {
+                return inlinePort;
+            }
+        }
+        const publishedMatch = block.match(/published\s*:\s*['"]?(\d+)['"]?/i);
+        if (publishedMatch) {
+            return toPortNumber(publishedMatch[1]);
+        }
+        const hostPortMatch = block.match(/host_port\s*:\s*['"]?(\d+)['"]?/i);
+        if (hostPortMatch) {
+            return toPortNumber(hostPortMatch[1]);
+        }
+    }
+
+    const fallbackMatch =
+        composeText.match(/published\s*:\s*['"]?(\d+)['"]?/i) ||
+        composeText.match(/host_port\s*:\s*['"]?(\d+)['"]?/i);
+    return fallbackMatch ? toPortNumber(fallbackMatch[1]) : undefined;
+};
+
+const buildEndpointUrlWithPort = (baseUrl?: string, port?: number): string | undefined => {
+    if (!baseUrl || !port) return undefined;
+    try {
+        const url = new URL(baseUrl);
+        const host = url.hostname;
+        const firstDotIndex = host.indexOf('.');
+        if (firstDotIndex === -1) return undefined;
+        const firstLabel = host.slice(0, firstDotIndex);
+        const hyphenIndex = firstLabel.lastIndexOf('-');
+        if (hyphenIndex === -1) return undefined;
+        const newFirstLabel = `${firstLabel.slice(0, hyphenIndex + 1)}${port}`;
+        const newHost = `${newFirstLabel}${host.slice(firstDotIndex)}`;
+        return `${url.protocol}//${newHost}${url.port ? `:${url.port}` : ''}${url.pathname}${url.search}${url.hash}`;
+    } catch (error) {
+        console.warn('Failed to build endpoint URL:', error);
+        return undefined;
+    }
+};
+
+const formatTimestampNumber = (timestamp: number): string | undefined => {
+    if (!Number.isFinite(timestamp)) return undefined;
+    const ms = timestamp > 1e12 ? timestamp : timestamp * 1000;
+    const date = new Date(ms);
+    if (Number.isNaN(date.getTime())) return timestamp.toString();
+    return date.toLocaleString();
+};
+
+const formatTimestampValue = (value?: PrimitiveValue): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value === 'number') {
+        return formatTimestampNumber(value);
+    }
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    const numeric = Number(trimmed);
+    if (!Number.isNaN(numeric) && numeric > 0) {
+        return formatTimestampNumber(numeric) || trimmed;
+    }
+    const date = new Date(trimmed);
+    if (!Number.isNaN(date.getTime())) {
+        return date.toLocaleString();
+    }
+    return trimmed;
+};
+
+type AttestationEventLogEntry = {
+    label: string;
+    value: string;
+};
+
+const parseEventLogEntries = (raw: any): AttestationEventLogEntry[] => {
+    if (!raw) return [];
+    let data = raw;
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (!trimmed) return [];
+        if (
+            (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))
+        ) {
+            try {
+                data = JSON.parse(trimmed);
+            } catch {
+                return trimmed.split('\n').filter(Boolean).map((line, index) => ({
+                    label: `条目 ${index + 1}`,
+                    value: line.trim(),
+                }));
+            }
+        } else {
+            return trimmed.split('\n').filter(Boolean).map((line, index) => ({
+                label: `条目 ${index + 1}`,
+                value: line.trim(),
+            }));
+        }
+    }
+    if (Array.isArray(data)) {
+        return data
+            .map((item, index) => {
+                if (typeof item === 'string') {
+                    const [labelPart, ...rest] = item.split(':');
+                    if (rest.length > 0) {
+                        return { label: labelPart.trim(), value: rest.join(':').trim() };
+                    }
+                    return { label: `条目 ${index + 1}`, value: item };
+                }
+                if (item && typeof item === 'object') {
+                    const label = item.label || item.name || item.key || item.event || `条目 ${index + 1}`;
+                    const valueCandidate =
+                        item.value ?? item.hash ?? item.measurement ?? item.data ?? item.content;
+                    const value =
+                        typeof valueCandidate === 'string'
+                            ? valueCandidate
+                            : valueCandidate !== undefined
+                            ? JSON.stringify(valueCandidate)
+                            : JSON.stringify(item);
+                    return { label, value };
+                }
+                return null;
+            })
+            .filter(Boolean) as AttestationEventLogEntry[];
+    }
+    if (typeof data === 'object') {
+        return Object.entries(data).map(([key, value]) => ({
+            label: key,
+            value:
+                typeof value === 'string'
+                    ? value
+                    : value !== undefined
+                    ? JSON.stringify(value)
+                    : '',
+        }));
+    }
+    return [];
+};
+
+const findNestedValue = (source: any, candidateKeys: string[]): any => {
+    if (!source || typeof source !== 'object') return undefined;
+    const normalizedTargets = candidateKeys.map((key) => normalizeKey(key)).filter(Boolean);
+    if (normalizedTargets.length === 0) return undefined;
+
+    const queue: any[] = [source];
+    const visited = new WeakSet<object>();
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current || typeof current !== 'object') {
+            continue;
+        }
+        if (visited.has(current)) {
+            continue;
+        }
+        visited.add(current);
+
+        if (Array.isArray(current)) {
+            current.forEach((item) => {
+                if (item && typeof item === 'object') {
+                    queue.push(item);
+                }
+            });
+            continue;
+        }
+
+        for (const [key, value] of Object.entries(current)) {
+            if (normalizedTargets.includes(normalizeKey(key))) {
+                return value;
+            }
+            if (value && typeof value === 'object') {
+                queue.push(value);
+            }
+        }
+    }
+
+    return undefined;
+};
+
+const extractLatestHandshake = (wgInfo?: string): string | undefined => {
+    if (!wgInfo) return undefined;
+    const englishMatch = wgInfo.match(/latest handshake[:：]?\s*(.+)/i);
+    if (englishMatch?.[1]) {
+        return englishMatch[1].trim();
+    }
+    const chineseMatch = wgInfo.match(/最新握手[:：]?\s*(.+)/i);
+    return chineseMatch?.[1]?.trim();
+};
+
+const DEFAULT_ATTESTATION_DATA = {
+    status: '示例：等待可信报告',
+    provider: 'Dstack Trust Center',
+    type: 'RTMR3 Application (TDX)',
+    generated_at: '2024-06-18T10:15:00Z',
+    report_id: 'demo-attestation-report',
+    measurements: {
+        mrtd: 'aaded09f8466c41c8e3006df812c7e9f62de2092bb7b63fc43a4e35d88a39649',
+        rootfs_hash: '7c7dfaced98dfe250d88f1defe4a8df08c102747085625c49b72e90fd4f71f50',
+        rtmr0: 'a1aa2228611324817f6f7113ab8392db1ced9f533b184fa05aa76f6018ca06f7',
+        rtmr1: '4b611477bd94a3b58fc563dfc06b19474b0ad875facf44a0a16213dd36d35e12',
+        rtmr2: '14c6900c3fbd69ec2380a84662f12d58b8b27c3c8266fa3fe6a4478c5d5ff248',
+        rtmr3: '2ab0f6dde5658fe89779c229040fcd52955c1dfa81662bcf64eca3325710c167',
+    },
+    event_log: [
+        { label: 'rootfs-hash', value: 'a11336d3612d47a5061875c679dd06d15ad54350ce6a75b09bcbfc3bc0c950d8' },
+        { label: 'app-id', value: 'cbdfd3c259eb161c80436f5445901d3e1c9dbd22929d9c5b05a59dcda14b50b4' },
+        { label: 'compose-hash', value: 'da956a7d17306d33b992f46118d4297a1c90afe916473ceb309acdf96d8d2050' },
+        { label: 'ca-cert-hash', value: '2dddf8209f463c626a2bec35361586609c529a87116de1cdc9149a544ac3cb35' },
+    ],
+} as const;
+
+const DEFAULT_ATTESTATION_VALUE_MAP = collectPrimitiveValues(DEFAULT_ATTESTATION_DATA);
+
 export default function VmDetailPage() {
     const router = useRouter();
     const params = useParams();
@@ -136,6 +431,23 @@ export default function VmDetailPage() {
     const [availableImages, setAvailableImages] = useState<Array<{ name: string; version?: string }>>([]);
     const [environmentPublicKey, setEnvironmentPublicKey] = useState<string>('');
     const [environmentSalt, setEnvironmentSalt] = useState<string>('');
+    const [vmNameInput, setVmNameInput] = useState<string>('');
+    const [isSavingName, setIsSavingName] = useState<boolean>(false);
+    const [selectedImage, setSelectedImage] = useState<string>('');
+    const [isUpdatingImage, setIsUpdatingImage] = useState<boolean>(false);
+    type VisibilityKey = 'public_logs' | 'public_sysinfo' | 'public_tcbinfo';
+    const [visibilitySettings, setVisibilitySettings] = useState<Record<VisibilityKey, boolean>>({
+        public_logs: true,
+        public_sysinfo: true,
+        public_tcbinfo: true,
+    });
+    const [visibilityUpdatingKey, setVisibilityUpdatingKey] = useState<VisibilityKey | null>(null);
+
+    const attestationData = vmDetails?.attestation || vmDetails?.tcb_info;
+    const attestationValueMap = useMemo(() => {
+        if (!attestationData) return null;
+        return collectPrimitiveValues(attestationData);
+    }, [attestationData]);
 
     const copyTextToClipboard = async (content?: string, label?: string) => {
         if (!content) {
@@ -281,6 +593,22 @@ export default function VmDetailPage() {
         }
     };
 
+    const handleOpenDashboard = () => {
+        if (!vmDetails?.app_url) {
+            messageApi.warning('暂无可用的 Dashboard URL');
+            return;
+        }
+        window.open(vmDetails.app_url, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleCopyDashboardUrl = () => {
+        if (!vmDetails?.app_url) {
+            messageApi.warning('暂无可复制的 Dashboard URL');
+            return;
+        }
+        copyTextToClipboard(vmDetails.app_url, 'Dashboard URL');
+    };
+
     useEffect(() => {
         if (bestHostIp && vmId) {
             loadDetails();
@@ -319,6 +647,25 @@ export default function VmDetailPage() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vmDetails]);
+
+    const currentVmName = vmDetails?.appCompose?.name ?? vmDetails?.name ?? '';
+    const vmDisplayName = currentVmName || '虚拟机';
+
+    useEffect(() => {
+        setVmNameInput(currentVmName);
+    }, [currentVmName]);
+
+    useEffect(() => {
+        setSelectedImage(vmDetails?.configuration?.image || '');
+    }, [vmDetails?.configuration?.image]);
+
+    useEffect(() => {
+        setVisibilitySettings({
+            public_logs: vmDetails?.appCompose?.public_logs ?? true,
+            public_sysinfo: vmDetails?.appCompose?.public_sysinfo ?? true,
+            public_tcbinfo: vmDetails?.appCompose?.public_tcbinfo ?? true,
+        });
+    }, [vmDetails?.appCompose]);
 
     // 加载可用镜像列表
     const loadImages = async () => {
@@ -815,189 +1162,317 @@ export default function VmDetailPage() {
             networkInfo?.gateways?.map((gw: any) => gw?.address || gw)?.join('\n') || '';
         const hasInterfaces = !!networkInfo?.interfaces?.length;
         const hasWireGuardInfo = !!networkInfo?.wg_info;
+        const primaryInterface =
+            networkInfo?.interfaces?.find((iface: any) => iface?.name?.toLowerCase() === 'wg0') ||
+            networkInfo?.interfaces?.[0];
+        const primaryAddress = primaryInterface?.addresses?.[0];
+        const primaryIp = primaryAddress
+            ? `${primaryAddress.address}${primaryAddress.prefix ? `/${primaryAddress.prefix}` : ''}`
+            : undefined;
+        const latestHandshake = extractLatestHandshake(networkInfo?.wg_info);
+        const dashboardUrl = vmDetails?.app_url || '';
+        const dashboardEnabled = !!dashboardUrl;
+        const composeFileFallback = vmDetails?.configuration?.compose_file;
+        const composeText =
+            vmDetails?.appCompose?.docker_compose_file ||
+            (typeof composeFileFallback === 'string' ? composeFileFallback : '');
+        const endpointPort =
+            extractHostPortFromPortsConfig(vmDetails?.configuration?.ports) ||
+            extractHostPortFromComposeText(composeText);
+        const endpointUrl =
+            dashboardUrl && endpointPort ? buildEndpointUrlWithPort(dashboardUrl, endpointPort) || '' : '';
+        const endpointEnabled = !!endpointUrl;
+        const handleOpenEndpoint = () => {
+            if (!endpointEnabled) {
+                messageApi.warning('暂无可用的 Endpoint URL');
+                return;
+            }
+            window.open(endpointUrl, '_blank', 'noopener,noreferrer');
+        };
+        const handleCopyEndpointUrl = () => {
+            if (!endpointEnabled) {
+                messageApi.warning('暂无可复制的 Endpoint URL');
+                return;
+            }
+            copyTextToClipboard(endpointUrl, 'Endpoint URL');
+        };
+        const dashboardSummary = [
+            { label: '内部 IP', value: primaryIp || '点击刷新以获取' },
+            // { label: '网络接口', value: primaryInterface?.name || '未知' },
+            { label: '最新握手', value: latestHandshake || '暂无' },
+            // { label: '运行时长', value: formatUptime(vmDetails?.uptime) || '暂无' },
+        ];
+        const featureSummary = [
+            { label: 'App 名称', value: vmDetails?.appCompose?.name || vmDetails?.name || '未知' },
+            { label: 'Runner', value: vmDetails?.appCompose?.runner || 'docker-compose' },
+            {
+                label: '网关',
+                value:
+                    vmDetails?.appCompose?.gateway_enabled || vmDetails?.appCompose?.tproxy_enabled
+                        ? '已启用'
+                        : '未启用',
+            },
+            { label: '特性', value: getFlags(vmDetails || {}) || '无' },
+        ];
 
         return (
-            // <Card title="仪表盘">
-            //     <div>
-            //     </div>
-            // </Card>
-            <Card
-                bordered={false}
-                style={{ borderRadius: 16 }}
-                title="网络信息"
-                extra={
-                    <Button icon={<ReloadOutlined />} onClick={loadNetwork} loading={loadingNetwork}>
-                        刷新
-                    </Button>
-                }
-            >
-                {loadingNetwork ? (
-                    <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                        <Spin />
-                    </div>
-                ) : networkInfo ? (
-                    <Space direction="vertical" size={24} style={{ width: '100%' }}>
-                        <Row gutter={[24, 24]}>
-                            <Col xs={24} md={12}>
-                                <div>
-                                    <Title level={5} style={{ margin: 0 }}>
-                                        DNS 服务器
-                                    </Title>
-                                    <div style={{ marginTop: 12 }}>
-                                        <Input.TextArea
-                                            value={dnsServersText}
-                                            readOnly
-                                            autoSize={{ minRows: 1, maxRows: 4 }}
-                                            placeholder="暂无"
-                                            style={{ width: '100%', background: '#f7f9fc' }}
-                                        />
-                                    </div>
-                                </div>
-                            </Col>
-                            <Col xs={24} md={12}>
-                                <div>
-                                    <Title level={5} style={{ margin: 0 }}>
-                                        网关
-                                    </Title>
-                                    <div style={{ marginTop: 12 }}>
-                                        <Input.TextArea
-                                            value={gatewaysText}
-                                            readOnly
-                                            autoSize={{ minRows: 1, maxRows: 4 }}
-                                            placeholder="暂无"
-                                            style={{ width: '100%', background: '#f7f9fc' }}
-                                        />
-                                    </div>
-                                </div>
-                            </Col>
-                        </Row>
+            <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                <Card
+                    bordered={false}
+                    style={{ borderRadius: 16 }}
+                    title="控制台"
 
-                        {hasInterfaces && (
-                            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                                {networkInfo.interfaces?.map((iface: any, index: number) => {
-                                    const addressList =
-                                        iface?.addresses
-                                            ?.map(
-                                                (addr: any) =>
-                                                    `${addr?.address ?? ''}${
-                                                        addr?.prefix ? `/${addr.prefix}` : ''
-                                                    }`.trim(),
-                                            )
-                                            .filter(Boolean) || [];
-                                    const renderTraffic = (
-                                        bytes?: number,
-                                        errors?: number,
-                                        emptyText = '暂无',
-                                    ) =>
-                                        typeof bytes === 'number'
-                                            ? `${bytes.toLocaleString()} 字节（${errors ?? 0} 错误）`
-                                            : `${emptyText}（${errors ?? 0} 错误）`;
-                                    return (
-                                        <div
-                                            key={iface?.name || index}
-                                            style={{
-                                                border: '1px solid #e6ebf1',
-                                                borderRadius: 12,
-                                                padding: '16px 20px',
-                                                background: '#fbfdff',
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    flexWrap: 'wrap',
-                                                    gap: 8,
-                                                }}
-                                            >
-                                                <Space align="center" size={8}>
-                                                    <Title level={5} style={{ margin: 0 }}>
-                                                        网络接口 {iface?.name || '未知'}
-                                                    </Title>
-                                                    {iface?.state && (
-                                                        <Tag
-                                                            color={iface.state === 'up' ? 'green' : 'default'}
-                                                            style={{ borderRadius: 999 }}
-                                                        >
-                                                            {iface.state.toUpperCase()}
-                                                        </Tag>
-                                                    )}
-                                                </Space>
-                                                {typeof iface?.mtu === 'number' && (
-                                                    <Text type="secondary">MTU {iface.mtu}</Text>
-                                                )}
-                                            </div>
-                                            <div style={{ marginTop: 12 }}>
-                                                {addressList.length > 0 ? (
-                                                    <Space size={8} wrap>
-                                                        {addressList.map((addr: string, idx: number) => (
-                                                            <Tag
-                                                                key={`${iface?.name || index}-addr-${idx}`}
-                                                                color="blue"
-                                                                style={{ borderRadius: 12, padding: '2px 10px' }}
-                                                            >
-                                                                {addr}
-                                                            </Tag>
-                                                        ))}
-                                                    </Space>
-                                                ) : (
-                                                    <Text type="secondary">暂无 IP 地址</Text>
-                                                )}
-                                            </div>
-                                            <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
-                                                    <Col xs={24} md={12}>
-                                                        <div>
-                                                            <Text type="secondary">接收</Text>
-                                                            <div style={{ fontWeight: 500, marginTop: 4 }}>
-                                                                {renderTraffic(iface?.rx_bytes, iface?.rx_errors)}
-                                                            </div>
-                                                        </div>
-                                                    </Col>
-                                                    <Col xs={24} md={12}>
-                                                        <div>
-                                                            <Text type="secondary">发送</Text>
-                                                            <div style={{ fontWeight: 500, marginTop: 4 }}>
-                                                                {renderTraffic(iface?.tx_bytes, iface?.tx_errors)}
-                                                            </div>
-                                                        </div>
-                                                    </Col>
-                                            </Row>
-                                        </div>
-                                    );
-                                })}
-                            </Space>
-                        )}
-
-                        {hasWireGuardInfo && (
-                            <>
-                                <Divider style={{ margin: '12px 0 4px' }} />
-                                <div>
-                                    <Title level={5} style={{ margin: 0 }}>
-                                        WireGuard 信息
-                                    </Title>
-                                    <pre
+                >
+                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                        <Row gutter={[16, 16]}>
+                            {dashboardSummary.map((item) => (
+                                <Col xs={24} md={12} key={item.label}>
+                                    <div
                                         style={{
-                                            whiteSpace: 'pre-wrap',
-                                            fontSize: 12,
-                                            maxHeight: 320,
-                                            overflow: 'auto',
-                                            background: '#f7f9fc',
+                                            border: '1px solid #f0f0f0',
                                             borderRadius: 12,
                                             padding: 12,
-                                            marginTop: 12,
+                                            background: '#fafafa',
+                                            height: '100%',
                                         }}
                                     >
-                                        {networkInfo.wg_info}
-                                    </pre>
-                                </div>
-                            </>
-                        )}
+                                        <Text type="secondary">{item.label}</Text>
+                                        <div style={{ marginTop: 4, fontWeight: 600 }}>{item.value}</div>
+                                    </div>
+                                </Col>
+                            ))}
+                        </Row>
+                        <div>
+                            <Text type="secondary">Dashboard URL</Text>
+                            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                                <Input
+                                    readOnly
+                                    value={dashboardEnabled ? dashboardUrl : '暂无可用 Dashboard URL'}
+                                    style={{ background: '#f7f9fc', flex: 1 }}
+                                />
+                                <Button
+                                    icon={<CopyOutlined />}
+                                    disabled={!dashboardEnabled}
+                                    onClick={handleCopyDashboardUrl}
+                                >
+                                    复制
+                                </Button>
+                                <Button
+                                    type="primary"
+                                    icon={<ExportOutlined />}
+                                    disabled={!dashboardEnabled}
+                                    onClick={handleOpenDashboard}
+                                >
+                                    打开
+                                </Button>
+                            </div>
+                        </div>
+                        <div>
+                            <Text type="secondary">Endpoint URL</Text>
+                            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                                <Input
+                                    readOnly
+                                    value={endpointEnabled ? endpointUrl : '暂无可用 Endpoint URL'}
+                                    style={{ background: '#f7f9fc', flex: 1 }}
+                                />
+                                <Button
+                                    icon={<CopyOutlined />}
+                                    disabled={!endpointEnabled}
+                                    onClick={handleCopyEndpointUrl}
+                                >
+                                    复制
+                                </Button>
+                                <Button
+                                    type="primary"
+                                    icon={<ExportOutlined />}
+                                    disabled={!endpointEnabled}
+                                    onClick={handleOpenEndpoint}
+                                >
+                                    打开
+                                </Button>
+                            </div>
+                        </div>
                     </Space>
-                ) : (
-                    <Empty description="未获取到网络信息" />
-                )}
-            </Card>
+                </Card>
+
+                <Card
+                    bordered={false}
+                    style={{ borderRadius: 16 }}
+                    title="网络信息"
+                    extra={
+                        <Button icon={<ReloadOutlined />} onClick={loadNetwork} loading={loadingNetwork}>
+                            刷新
+                        </Button>
+                    }
+                >
+                    {loadingNetwork ? (
+                        <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                            <Spin />
+                        </div>
+                    ) : networkInfo ? (
+                        <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                            <Row gutter={[24, 24]}>
+                                <Col xs={24} md={12}>
+                                    <div>
+                                        <Title level={5} style={{ margin: 0 }}>
+                                            DNS 服务器
+                                        </Title>
+                                        <div style={{ marginTop: 12 }}>
+                                            <Input.TextArea
+                                                value={dnsServersText}
+                                                readOnly
+                                                autoSize={{ minRows: 1, maxRows: 4 }}
+                                                placeholder="暂无"
+                                                style={{ width: '100%', background: '#f7f9fc' }}
+                                            />
+                                        </div>
+                                    </div>
+                                </Col>
+                                <Col xs={24} md={12}>
+                                    <div>
+                                        <Title level={5} style={{ margin: 0 }}>
+                                            网关
+                                        </Title>
+                                        <div style={{ marginTop: 12 }}>
+                                            <Input.TextArea
+                                                value={gatewaysText}
+                                                readOnly
+                                                autoSize={{ minRows: 1, maxRows: 4 }}
+                                                placeholder="暂无"
+                                                style={{ width: '100%', background: '#f7f9fc' }}
+                                            />
+                                        </div>
+                                    </div>
+                                </Col>
+                            </Row>
+
+                            {hasInterfaces && (
+                                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                                    {networkInfo.interfaces?.map((iface: any, index: number) => {
+                                        const addressList =
+                                            iface?.addresses
+                                                ?.map(
+                                                    (addr: any) =>
+                                                        `${addr?.address ?? ''}${
+                                                            addr?.prefix ? `/${addr.prefix}` : ''
+                                                        }`.trim(),
+                                                )
+                                                .filter(Boolean) || [];
+                                        const renderTraffic = (
+                                            bytes?: number,
+                                            errors?: number,
+                                            emptyText = '暂无',
+                                        ) =>
+                                            typeof bytes === 'number'
+                                                ? `${bytes.toLocaleString()} 字节（${errors ?? 0} 错误）`
+                                                : `${emptyText}（${errors ?? 0} 错误）`;
+                                        return (
+                                            <div
+                                                key={iface?.name || index}
+                                                style={{
+                                                    border: '1px solid #e6ebf1',
+                                                    borderRadius: 12,
+                                                    padding: '16px 20px',
+                                                    background: '#fbfdff',
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        flexWrap: 'wrap',
+                                                        gap: 8,
+                                                    }}
+                                                >
+                                                    <Space align="center" size={8}>
+                                                        <Title level={5} style={{ margin: 0 }}>
+                                                            网络接口 {iface?.name || '未知'}
+                                                        </Title>
+                                                        {iface?.state && (
+                                                            <Tag
+                                                                color={iface.state === 'up' ? 'green' : 'default'}
+                                                                style={{ borderRadius: 999 }}
+                                                            >
+                                                                {iface.state.toUpperCase()}
+                                                            </Tag>
+                                                        )}
+                                                    </Space>
+                                                    {typeof iface?.mtu === 'number' && (
+                                                        <Text type="secondary">MTU {iface.mtu}</Text>
+                                                    )}
+                                                </div>
+                                                <div style={{ marginTop: 12 }}>
+                                                    {addressList.length > 0 ? (
+                                                        <Space size={8} wrap>
+                                                            {addressList.map((addr: string, idx: number) => (
+                                                                <Tag
+                                                                    key={`${iface?.name || index}-addr-${idx}`}
+                                                                    color="blue"
+                                                                    style={{ borderRadius: 12, padding: '2px 10px' }}
+                                                                >
+                                                                    {addr}
+                                                                </Tag>
+                                                            ))}
+                                                        </Space>
+                                                    ) : (
+                                                        <Text type="secondary">暂无 IP 地址</Text>
+                                                    )}
+                                                </div>
+                                                <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
+                                                        <Col xs={24} md={12}>
+                                                            <div>
+                                                                <Text type="secondary">接收</Text>
+                                                                <div style={{ fontWeight: 500, marginTop: 4 }}>
+                                                                    {renderTraffic(iface?.rx_bytes, iface?.rx_errors)}
+                                                                </div>
+                                                            </div>
+                                                        </Col>
+                                                        <Col xs={24} md={12}>
+                                                            <div>
+                                                                <Text type="secondary">发送</Text>
+                                                                <div style={{ fontWeight: 500, marginTop: 4 }}>
+                                                                    {renderTraffic(iface?.tx_bytes, iface?.tx_errors)}
+                                                                </div>
+                                                            </div>
+                                                        </Col>
+                                                </Row>
+                                            </div>
+                                        );
+                                    })}
+                                </Space>
+                            )}
+
+                            {hasWireGuardInfo && (
+                                <>
+                                    <Divider style={{ margin: '12px 0 4px' }} />
+                                    <div>
+                                        <Title level={5} style={{ margin: 0 }}>
+                                            WireGuard 信息
+                                        </Title>
+                                        <pre
+                                            style={{
+                                                whiteSpace: 'pre-wrap',
+                                                fontSize: 12,
+                                                maxHeight: 320,
+                                                overflow: 'auto',
+                                                background: '#f7f9fc',
+                                                borderRadius: 12,
+                                                padding: 12,
+                                                marginTop: 12,
+                                            }}
+                                        >
+                                            {networkInfo.wg_info}
+                                        </pre>
+                                    </div>
+                                </>
+                            )}
+                        </Space>
+                    ) : (
+                        <Empty description="未获取到网络信息" />
+                    )}
+                </Card>
+            </Space>
         );
     };
 
@@ -1040,15 +1515,263 @@ export default function VmDetailPage() {
     );
 
     const renderAttestationsContent = () => {
-        const attestation = vmDetails?.attestation || vmDetails?.tcb_info;
+        const hasRealAttestation = !!attestationData;
+        const attestation = hasRealAttestation ? attestationData : DEFAULT_ATTESTATION_DATA;
+        const valueMap = hasRealAttestation ? attestationValueMap : DEFAULT_ATTESTATION_VALUE_MAP;
+
+        const getValueByKeys = (keys: string[]): PrimitiveValue | undefined => {
+            if (!valueMap) return undefined;
+            for (const key of keys) {
+                const normalized = normalizeKey(key);
+                if (valueMap.has(normalized)) {
+                    return valueMap.get(normalized);
+                }
+            }
+            return undefined;
+        };
+
+        const measurementFields = [
+            { label: 'MRTD', keys: ['mrtd', 'mr_td'] },
+            { label: 'RootFS Hash', keys: ['rootfs_hash', 'rootfs', 'rootfshash'] },
+            { label: 'RTMR0', keys: ['rtmr0', 'rt_mr0'] },
+            { label: 'RTMR1', keys: ['rtmr1', 'rt_mr1'] },
+            { label: 'RTMR2', keys: ['rtmr2', 'rt_mr2'] },
+            { label: 'RTMR3', keys: ['rtmr3', 'rt_mr3'] },
+        ];
+
+        const measurements = measurementFields
+            .map((field) => {
+                const rawValue = getValueByKeys(field.keys);
+                const value = primitiveToString(rawValue);
+                if (!value) return null;
+                return { label: field.label, value };
+            })
+            .filter(Boolean) as Array<{ label: string; value: string }>;
+
+        const summaryCandidates: Array<{
+            label: string;
+            keys: string[];
+            formatter?: (value?: PrimitiveValue) => string | undefined;
+        }> = [
+            { label: '验证状态', keys: ['status', 'verification_status', 'tcbstatus', 'truststatus'] },
+            { label: '报告提供方', keys: ['provider', 'attestation_provider', 'verified_by', 'verifiedby'] },
+            { label: '类型', keys: ['type', 'attestation_type', 'quote_type', 'tee'] },
+            {
+                label: '报告时间',
+                keys: ['generated_at', 'timestamp', 'updated_at', 'created_at'],
+                formatter: (value) => formatTimestampValue(value),
+            },
+            { label: '报告 ID', keys: ['report_id', 'quote_id', 'id'] },
+        ];
+
+        const summaryItems = summaryCandidates
+            .map((item) => {
+                const rawValue = getValueByKeys(item.keys);
+                const displayValue = item.formatter ? item.formatter(rawValue) : primitiveToString(rawValue);
+                if (!displayValue) return null;
+                return { label: item.label, value: displayValue };
+            })
+            .filter(Boolean) as Array<{ label: string; value: string }>;
+
+        const eventLogSource =
+            (attestation as any)?.event_log ??
+            (attestation as any)?.eventLog ??
+            (attestation as any)?.events ??
+            findNestedValue(attestation, ['event_log', 'eventlog', 'events']);
+
+        const eventLogEntries = parseEventLogEntries(eventLogSource);
+        const attestationJson = JSON.stringify(attestation, null, 2);
+
         return (
-            <Card bordered={false} style={{ borderRadius: 16 }} title="可信证明">
-                {attestation ? (
-                    <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{JSON.stringify(attestation, null, 2)}</pre>
-                ) : (
-                    <Text type="secondary">该虚拟机暂无可显示的 TCB/Attestation 数据。</Text>
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                {!hasRealAttestation && (
+                    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                        <Alert
+                            type="info"
+                            showIcon
+                            message="展示示例可信证明数据"
+                            description="该虚拟机暂未返回真实的 TCB/Attestation 结果，以下内容为默认示例，方便产品演示。启用 public_tcbinfo 并稍后刷新即可查看真实数据。"
+                        />
+                    </Space>
                 )}
-            </Card>
+                <Card bordered={false} style={{ borderRadius: 16 }} title="可信实例概览">
+                    <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                        <div>
+                            <Text strong>可信中心</Text>
+                            {summaryItems.length > 0 ? (
+                                <div
+                                    style={{
+                                        marginTop: 12,
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                                        gap: 12,
+                                    }}
+                                >
+                                    {summaryItems.map((item) => (
+                                        <div
+                                            key={item.label}
+                                            style={{
+                                                border: '1px solid #e6ebf1',
+                                                borderRadius: 12,
+                                                padding: '12px 16px',
+                                                background: '#fbfdff',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: 8,
+                                            }}
+                                        >
+                                            <Text type="secondary">{item.label}</Text>
+                                            <span style={{ wordBreak: 'break-all' }}>{item.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                                    暂无摘要信息，稍后重试或检查 pRuntime 配置。
+                                </Text>
+                            )}
+                        </div>
+
+                        <Divider style={{ margin: 0 }} />
+
+                        <Text type="secondary">
+                            若需要完整的可信报告，请确保镜像版本最新并启用相关公开选项。
+                        </Text>
+
+                        <div>
+                            <Text strong>TCB 度量</Text>
+                            {measurements.length > 0 ? (
+                                <div
+                                    style={{
+                                        marginTop: 12,
+                                        border: '1px solid #e6ebf1',
+                                        borderRadius: 12,
+                                        overflow: 'hidden',
+                                    }}
+                                >
+                                    {measurements.map((item, index) => (
+                                        <div
+                                            key={item.label}
+                                            style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: '140px 1fr auto',
+                                                gap: 16,
+                                                padding: '12px 16px',
+                                                background: index % 2 === 0 ? '#fbfdff' : '#ffffff',
+                                                alignItems: 'center',
+                                                borderBottom:
+                                                    index === measurements.length - 1
+                                                        ? 'none'
+                                                        : '1px solid #f0f2f5',
+                                            }}
+                                        >
+                                            <Text type="secondary" style={{ fontSize: 13 }}>
+                                                {item.label}
+                                            </Text>
+                                            <div
+                                                style={{
+                                                    wordBreak: 'break-all',
+                                                    fontFamily: 'monospace',
+                                                    fontSize: 12,
+                                                    color: '#0f172a',
+                                                }}
+                                            >
+                                                {item.value}
+                                            </div>
+                                            <Button
+                                                type="text"
+                                                size="small"
+                                                icon={<CopyOutlined />}
+                                                onClick={() => copyTextToClipboard(item.value, item.label)}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                                    未找到 TCB 度量信息。
+                                </Text>
+                            )}
+                        </div>
+                    </Space>
+                </Card>
+
+                <Card bordered={false} style={{ borderRadius: 16 }} title="事件日志">
+                    {eventLogEntries.length > 0 ? (
+                        <div
+                            style={{
+                                border: '1px solid #e6ebf1',
+                                borderRadius: 12,
+                                overflow: 'hidden',
+                            }}
+                        >
+                            {eventLogEntries.map((entry, index) => (
+                                <div
+                                    key={`${entry.label}-${index}`}
+                                    style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '160px 1fr auto',
+                                        gap: 16,
+                                        padding: '12px 16px',
+                                        alignItems: 'center',
+                                        background: index % 2 === 0 ? '#fcfcfd' : '#ffffff',
+                                        borderBottom:
+                                            index === eventLogEntries.length - 1
+                                                ? 'none'
+                                                : '1px solid #f0f2f5',
+                                    }}
+                                >
+                                    <Text strong style={{ fontSize: 13 }}>
+                                        {entry.label}
+                                    </Text>
+                                    <div
+                                        style={{
+                                            fontFamily: 'monospace',
+                                            wordBreak: 'break-all',
+                                            fontSize: 12,
+                                            color: '#0f172a',
+                                        }}
+                                    >
+                                        {entry.value}
+                                    </div>
+                                    <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<CopyOutlined />}
+                                        onClick={() => copyTextToClipboard(entry.value, entry.label)}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <Text type="secondary">未找到事件日志，可能尚未生成可信事件。</Text>
+                    )}
+                </Card>
+
+                <Card bordered={false} style={{ borderRadius: 16 }} title="原始数据">
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                        <Button
+                            icon={<CopyOutlined />}
+                            onClick={() => copyTextToClipboard(attestationJson, 'Attestation JSON')}
+                        >
+                            复制 JSON
+                        </Button>
+                    </div>
+                    <pre
+                        style={{
+                            whiteSpace: 'pre-wrap',
+                            fontSize: 12,
+                            background: '#0f172a',
+                            color: '#e2e8f0',
+                            borderRadius: 12,
+                            padding: 16,
+                            overflowX: 'auto',
+                        }}
+                    >
+                        {attestationJson}
+                    </pre>
+                </Card>
+            </Space>
         );
     };
 
@@ -1056,6 +1779,7 @@ export default function VmDetailPage() {
         if (!vmDetails) {
             messageApi.warning('虚拟机详情未加载');
             return;
+        
         }
         const kmsEnabled =
             vmDetails.appCompose?.kms_enabled || vmDetails.appCompose?.features?.includes('kms');
@@ -1230,13 +1954,147 @@ export default function VmDetailPage() {
     const renderSettingsContent = () => (
         <Card bordered={false} style={{ borderRadius: 16 }}>
             <Title level={4} style={{ marginBottom: 12 }}>设置</Title>
-            <Descriptions column={1} colon={false}>
-                <Descriptions.Item label="标记">{getFlags(vmDetails || {})}</Descriptions.Item>
-                <Descriptions.Item label="最佳主机 IP">{bestHostIp || '暂无'}</Descriptions.Item>
-                <Descriptions.Item label="状态">{statusText}</Descriptions.Item>
-            </Descriptions>
-            <Divider />
-            <Text type="secondary">如需修改配置，请使用更新代码或调整配置对话框。</Text>
+            <Space direction="vertical" size={24} style={{ width: '100%' }}>
+                <Card bordered style={{ borderRadius: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                        <div>
+                            <Title level={5} style={{ margin: 0 }}>
+                                CVM 信息
+                            </Title>
+                            <Text type="secondary">更新实例名称并查看关键标识。</Text>
+                        </div>
+                        <Space>
+                            <Button
+                                disabled={
+                                    !vmDetails?.appCompose ||
+                                    !vmNameInput.trim() ||
+                                    vmNameInput.trim() === currentVmName.trim()
+                                }
+                                loading={isSavingName}
+                                type="primary"
+                                onClick={handleSaveVmName}
+                            >
+                                保存
+                            </Button>
+                        </Space>
+                    </div>
+                    <Input
+                        placeholder="请输入实例名称"
+                        value={vmNameInput}
+                        onChange={(e) => setVmNameInput(e.target.value)}
+                        style={{ marginBottom: 16 }}
+                        disabled={!vmDetails?.appCompose}
+                    />
+                    <Descriptions column={2} colon={false} size="small">
+                        <Descriptions.Item label="状态">
+                            <Tag color={statusColor} style={{ borderRadius: 12 }}>
+                                {statusText || '暂无'}
+                            </Tag>
+                        </Descriptions.Item>
+                        <Descriptions.Item label="最佳主机 IP">{bestHostIp || '未知'}</Descriptions.Item>
+                        <Descriptions.Item label="特性标记">{getFlags(vmDetails || {})}</Descriptions.Item>
+                    </Descriptions>
+                </Card>
+
+                <Card bordered style={{ borderRadius: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+                        <div>
+                            <Title level={5} style={{ margin: 0 }}>
+                                OS 镜像
+                            </Title>
+                            <Text type="secondary">虚拟机必须在关闭状态切换镜像。</Text>
+                        </div>
+                        <Space>
+                            <Button
+                                type="primary"
+                                ghost
+                                onClick={handleResize}
+                                disabled={disableUpdateAndResize}
+                            >
+                                配置镜像
+                            </Button>
+                        </Space>
+                    </div>
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Text type="secondary">选择镜像</Text>
+                        <Select
+                            placeholder="选择镜像"
+                            value={selectedImage || undefined}
+                            onChange={setSelectedImage}
+                            showSearch
+                            style={{ width: '100%' }}
+                            optionFilterProp="children"
+                        >
+                            {availableImages.map((image) => (
+                                <Select.Option key={image.name} value={image.name}>
+                                    {image.name}
+                                </Select.Option>
+                            ))}
+                        </Select>
+                        <Descriptions column={2} size="small" colon={false} style={{ marginTop: 12 }}>
+                            {/* <Descriptions.Item label="当前镜像">{vmDetails?.configuration?.image || '未知'}</Descriptions.Item> */}
+                            <Descriptions.Item label="镜像版本">{vmDetails?.image_version || '未知'}</Descriptions.Item>
+                            <Descriptions.Item label="vCPU">{vmDetails?.configuration?.vcpu ?? '未知'}</Descriptions.Item>
+                            <Descriptions.Item label="内存">{formatMemory(vmDetails?.configuration?.memory)}</Descriptions.Item>
+                            <Descriptions.Item label="磁盘大小">
+                                {vmDetails?.configuration?.disk_size ? `${vmDetails.configuration.disk_size} GB` : '未知'}
+                            </Descriptions.Item>
+                        </Descriptions>
+                    </Space>
+                </Card>
+
+                <Card bordered style={{ borderRadius: 16 }}>
+                    <div style={{ marginBottom: 12 }}>
+                        <Title level={5} style={{ margin: 0 }}>
+                            Worker Attestation 可见性
+                        </Title>
+                        <Text type="secondary">控制哪些信息对公共页面可见。</Text>
+                    </div>
+                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                        {[
+                            {
+                                key: 'public_sysinfo' as const,
+                                title: '公开系统信息',
+                                description: '使系统信息在公共仪表盘中可见。',
+                            },
+                            {
+                                key: 'public_logs' as const,
+                                title: '公开日志',
+                                description: '允许他人查看容器标准输出日志。',
+                            },
+                            {
+                                key: 'public_tcbinfo' as const,
+                                title: '公开 TCB 信息',
+                                description: '暴露 TCB 相关报告，便于第三方验证。',
+                            },
+                        ].map((item) => (
+                            <div
+                                key={item.key}
+                                style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '12px 16px',
+                                    borderRadius: 12,
+                                    border: '1px solid #f0f0f0',
+                                }}
+                            >
+                                <div>
+                                    <div style={{ fontWeight: 500 }}>{item.title}</div>
+                                    <Text type="secondary">{item.description}</Text>
+                                </div>
+                                <Switch
+                                    checked={visibilitySettings[item.key]}
+                                    disabled={!vmDetails?.appCompose}
+                                    loading={visibilityUpdatingKey === item.key}
+                                    onChange={(checked) => handleVisibilityToggle(item.key, checked)}
+                                />
+                            </div>
+                        ))}
+                    </Space>
+                </Card>
+            </Space>
         </Card>
     );
 
@@ -1278,7 +2136,7 @@ export default function VmDetailPage() {
         }
         modal.confirm({
             title: '请确认是否重启虚拟机?',
-            content: `您正在重启 "${vmDetails?.name || '虚拟机'}"。`,
+            content: `您正在重启 "${vmDisplayName}"。`,
             okText: '确认',
             cancelText: '取消',
             onOk: async () => {
@@ -1307,7 +2165,7 @@ export default function VmDetailPage() {
         }
         modal.confirm({
             title: '请确认是否关闭虚拟机?',
-            content: `您正在关闭 "${vmDetails?.name || '虚拟机'}"。`,
+            content: `您正在关闭 "${vmDisplayName}"。`,
             okText: '确认',
             cancelText: '取消',
             onOk: async () => {
@@ -1338,7 +2196,7 @@ export default function VmDetailPage() {
         }
         modal.confirm({
             title: '请确认是否强制停止虚拟机?',
-            content: `您正在强制停止 "${vmDetails?.name || '虚拟机'}"，这可能会导致数据损坏。`,
+            content: `您正在强制停止 "${vmDisplayName}"，这可能会导致数据损坏。`,
             okText: '确认',
             cancelText: '取消',
             okType: 'danger',
@@ -1425,6 +2283,116 @@ export default function VmDetailPage() {
         } catch (error) {
             console.error('Error resizing VM:', error);
             messageApi.error('调整大小失败');
+        }
+    };
+
+    const updateAppCompose = async (
+        updater: (current: Record<string, any>) => Record<string, any>,
+        successMessage: string,
+    ): Promise<boolean> => {
+        if (!bestHostIp || !vmId) {
+            messageApi.warning('请先设置最佳主机 IP');
+            return false;
+        }
+        if (!vmDetails?.appCompose) {
+            messageApi.warning('暂无可更新的应用配置');
+            return false;
+        }
+        try {
+            const currentCompose = vmDetails.appCompose;
+            const updatedCompose = updater({ ...currentCompose });
+            await rpcCall(bestHostIp, 'UpgradeApp', {
+                id: vmId,
+                compose_file: JSON.stringify(updatedCompose),
+                user_config: vmDetails?.configuration?.user_config || '',
+            });
+            messageApi.success(successMessage);
+            await loadDetails({ silent: true, skipLoadingState: true });
+            return true;
+        } catch (error) {
+            console.error('Error updating compose settings:', error);
+            messageApi.error('更新设置失败');
+            return false;
+        }
+    };
+
+    const handleSaveVmName = async () => {
+        const trimmedName = vmNameInput.trim();
+        if (!trimmedName) {
+            messageApi.warning('请输入有效的名称');
+            return;
+        }
+        if (trimmedName === currentVmName.trim()) {
+            messageApi.info('名称未发生变化');
+            return;
+        }
+        setIsSavingName(true);
+        const success = await updateAppCompose((current) => ({ ...current, name: trimmedName }), '名称已更新');
+        if (!success && currentVmName) {
+            setVmNameInput(currentVmName);
+        }
+        setIsSavingName(false);
+    };
+
+    const handleVisibilityToggle = async (key: VisibilityKey, value: boolean) => {
+        if (!vmDetails?.appCompose) {
+            messageApi.warning('暂无可更新的应用配置');
+            return;
+        }
+        const previousValue = visibilitySettings[key];
+        setVisibilitySettings((prev) => ({ ...prev, [key]: value }));
+        setVisibilityUpdatingKey(key);
+        const success = await updateAppCompose(
+            (current) => ({
+                ...current,
+                [key]: value,
+            }),
+            '可见性设置已更新',
+        );
+        if (!success) {
+            setVisibilitySettings((prev) => ({ ...prev, [key]: previousValue }));
+        }
+        setVisibilityUpdatingKey(null);
+    };
+
+    const handleUpdateOsImage = async () => {
+        if (!bestHostIp || !vmId) {
+            messageApi.warning('请先设置最佳主机 IP');
+            return;
+        }
+        if (!vmDetails?.configuration) {
+            messageApi.warning('暂无虚拟机配置，无法更新镜像');
+            return;
+        }
+        if (!selectedImage) {
+            messageApi.warning('请选择镜像');
+            return;
+        }
+        if (selectedImage === vmDetails.configuration.image) {
+            messageApi.info('镜像未发生变化');
+            return;
+        }
+        const { vcpu, memory, disk_size } = vmDetails.configuration;
+        if (!vcpu || !memory || !disk_size) {
+            messageApi.warning('缺少必要的配置参数，无法执行更新');
+            return;
+        }
+        setIsUpdatingImage(true);
+        try {
+            await rpcCall(bestHostIp, 'ResizeVm', {
+                id: vmId,
+                vcpu,
+                memory,
+                disk_size,
+                image: selectedImage,
+            });
+            messageApi.success('OS 镜像更新成功');
+            await loadDetails({ silent: true, skipLoadingState: true });
+        } catch (error) {
+            console.error('Error updating OS image:', error);
+            messageApi.error('更新 OS 镜像失败');
+        } finally {
+            setIsUpdatingImage(false);
         }
     };
 
@@ -1534,7 +2502,7 @@ export default function VmDetailPage() {
                                     }}
                                 />
                                 <Title level={4} style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>
-                                    {vmDetails?.name || '虚拟机'}
+                                    {vmDisplayName}
                                 </Title>
                                 <Tag color={statusColor} style={{ borderRadius: 12, padding: '2px 12px' }}>
                                     {statusText.toUpperCase()}

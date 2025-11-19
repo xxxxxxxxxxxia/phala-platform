@@ -26,7 +26,6 @@ export async function GET(request: NextRequest) {
             (key: any) => typeof key?.keyId === 'string' && key.keyId.startsWith('GK_')
         ).length;
         const keySamples = (rotationData?.keys || [])
-            .slice(0, 4)
             .map((key: any) => ({
                 id: key?.id || key?.keyId,
                 keyId: key?.keyId,

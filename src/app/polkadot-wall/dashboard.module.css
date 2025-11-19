@@ -65,6 +65,27 @@
     justify-content: center;
 }
 
+.topNav {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.topNavLink {
+    font-size: 14px;
+    font-weight: 500;
+    color: #ffffff;
+    text-decoration: none;
+    opacity: 0.9;
+    transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.topNavLink:hover {
+    opacity: 1;
+    color: #ffffff;
+    text-decoration: underline;
+}
+
 .heroBadge {
     display: inline-flex;
     align-items: center;
@@ -490,7 +511,7 @@
     background: rgba(0, 229, 255, 0.1) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
     color: rgba(255, 255, 255, 0.85) !important;
-    font-size: 10px;
+    font-size: 11px;
     padding: 4px 8px;
     font-weight: 500;
 }
@@ -547,10 +568,43 @@
     border-radius: 999px;
 }
 
+.softPurpleTag {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.26) !important;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
 .dualTables {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+}
+
+.dualTables > .tablePanel {
+    height: 100%;
+}
+
+/* 独立控制最新区块/最新交易的行高 */
+.blockTable :global(.ant-table-tbody > tr) {
+    height: 28px !important;
+}
+
+.blockTable .compactRow,
+.blockTable .compactRow td {
+    height: 28px;
+}
+
+.transactionTable :global(.ant-table-tbody > tr) {
+    height: 24px !important;
+}
+
+.transactionTable .compactRow,
+.transactionTable .compactRow td {
+    height: 24px;
 }
 
 .sectionHeader {
@@ -766,7 +820,7 @@
 .tablePanel {
     border: 1px solid rgba(0, 229, 255, 0.18);
     border-radius: 14px;
-    padding: 12px;
+    padding: 12px 12px 8px 12px;
     background: radial-gradient(circle at top, rgba(0, 229, 255, 0.12), transparent 55%),
         rgba(8, 16, 45, 0.45);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 20px rgba(0, 0, 0, 0.35);
@@ -923,6 +977,18 @@
     border-radius: 999px;
     margin: 0;
     border: none;
+}
+
+/* 统一检索结果中的标签尺寸与排版 */
+.resultTag,
+.sectionTag {
+    min-width: 64px;
+    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    padding: 0 10px;
 }
 
 .resultList {

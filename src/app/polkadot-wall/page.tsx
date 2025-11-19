@@ -14,6 +14,7 @@ import {
     ClockCircleOutlined,
     SearchOutlined,
 } from '@ant-design/icons';
+import Link from 'next/link';
 import Image from 'next/image';
 import DataCard from '@/components/DataCard';
 import dynamic from 'next/dynamic';
@@ -24,6 +25,14 @@ const { Title, Text } = Typography;
 
 // 动态导入图表组件
 const ReactECharts = dynamic(() => import('echarts-for-react'), { ssr: false });
+
+const topNavLinks = [
+    { label: '门户首页', href: '/' },
+    { label: '资源提供方', href: '/providers' },
+    { label: '应用开发者', href: '/developers' },
+    { label: '系统管理端', href: '/management/login' },
+    { label: '应用场景', href: '/#scenarios' },
+];
 
 interface DashboardData {
     blockchain: {
@@ -239,13 +248,13 @@ export default function PolkadotWallPage() {
                     key: 'blocks',
                     label: 'Blocks',
                     enabled: true,
-                    request: () => fetch('/api/dashboard/blocks/latest?limit=15'),
+                    request: () => fetch('/api/dashboard/blocks/latest?limit=16'),
                 },
                 {
                     key: 'transactions',
                     label: 'Transactions',
                     enabled: true,
-                    request: () => fetch('/api/dashboard/transactions/latest?limit=15'),
+                    request: () => fetch('/api/dashboard/transactions/latest?limit=14'),
                 },
                 {
                     key: 'workers',
@@ -592,7 +601,24 @@ export default function PolkadotWallPage() {
                     CSV: 'green',
                     AMD: 'orange',
                 };
-                return <Tag color={colors[type] || 'default'} style={{ fontSize: '11px', padding: '0 6px', margin: 0 }}>{type}</Tag>;
+                const textColors: { [key: string]: string } = {
+                    SGX: '#ffd6ff',
+                    CSV: '#e6fffb',
+                    AMD: '#fff7e6',
+                };
+                return (
+                    <Tag
+                        className={styles.softPurpleTag}
+                        style={{
+                            fontSize: '11px',
+                            padding: '0 6px',
+                            margin: 0,
+                            color: textColors[type] || '#f9f0ff',
+                        }}
+                    >
+                        {type}
+                    </Tag>
+                );
             },
         },
         {
@@ -611,7 +637,26 @@ export default function PolkadotWallPage() {
                     offline: '离线',
                     unresponsive: '无响应',
                 };
-                return <Tag color={colorMap[status]} style={{ fontSize: '11px', padding: '0 8px', margin: 0, minWidth: '60px', textAlign: 'center', display: 'inline-block' }}>{textMap[status] || status}</Tag>;
+                const textColorMap: { [key: string]: string } = {
+                    online: '#b7eb8f',
+                    offline: '#ffa39e',
+                    unresponsive: '#ffe58f',
+                };
+                return (
+                    <Tag
+                        className={styles.softPurpleTag}
+                        style={{
+                            fontSize: '11px',
+                            padding: '0 8px',
+                            margin: 0,
+                            minWidth: '60px',
+                            textAlign: 'center',
+                            color: textColorMap[status] || '#f9f0ff',
+                        }}
+                    >
+                        {textMap[status] || status}
+                    </Tag>
+                );
             },
         },
         {
@@ -1131,18 +1176,18 @@ export default function PolkadotWallPage() {
             <div className={styles.tablePanelHeader}>
                 <div className={styles.tablePanelTitle}>最新区块</div>
                 <Tag color="processing" style={{ borderRadius: 999, fontSize: 10, padding: '0 10px' }}>
-                    最近15条
+                    最近16条
                 </Tag>
             </div>
             {blocks.length > 0 ? (
                 <div className={`${styles.tableContainer} ${variant === 'full' ? styles.equalHeightTableFull : styles.equalHeightTable}`}>
                     <Table
-                        dataSource={blocks.slice(0, 15)}
+                        dataSource={blocks.slice(0, 16)}
                         columns={blockColumns}
                         rowKey="hash"
                         pagination={false}
                         size="small"
-                        className={`${styles.table} ${styles.compactTable}`}
+                        className={`${styles.table} ${styles.compactTable} ${styles.blockTable}`}
                         tableLayout="fixed"
                         rowClassName={compactRowClass}
                     />
@@ -1158,18 +1203,18 @@ export default function PolkadotWallPage() {
             <div className={styles.tablePanelHeader}>
                 <div className={styles.tablePanelTitle}>最新交易</div>
                 <Tag color="processing" style={{ borderRadius: 999, fontSize: 10, padding: '0 10px' }}>
-                    最近15条
+                    最近14条
                 </Tag>
             </div>
             {transactions.length > 0 ? (
                 <div className={`${styles.tableContainer} ${variant === 'full' ? styles.equalHeightTableFull : styles.equalHeightTable}`}>
                     <Table
-                        dataSource={transactions.slice(0, 15)}
+                        dataSource={transactions.slice(0, 14)}
                         columns={transactionColumns}
                         rowKey="hash"
                         pagination={false}
                         size="small"
-                        className={`${styles.table} ${styles.compactTable}`}
+                        className={`${styles.table} ${styles.compactTable} ${styles.transactionTable}`}
                         tableLayout="fixed"
                         rowClassName={compactRowClass}
                     />
@@ -1204,7 +1249,12 @@ export default function PolkadotWallPage() {
                     <div className={styles.resultTitle}>区块 #{detail.blockNumber}</div>
                     <div className={styles.resultSubtitle}>{new Date(detail.timestamp).toLocaleString()}</div>
                 </div>
-                <Tag color="success" className={styles.resultTag}>{detail.status}</Tag>
+                <Tag
+                    className={`${styles.resultTag} ${styles.softPurpleTag}`}
+                    style={{ color: '#b7eb8f' }}
+                >
+                    {detail.status}
+                </Tag>
             </div>
             <ExplorerMetaGrid
                 items={[
@@ -1218,7 +1268,13 @@ export default function PolkadotWallPage() {
             <div className={styles.resultSection}>
                 <div className={styles.resultSectionHeader}>
                     <span className={styles.resultSectionTitle}>包含交易</span>
-                    <Tag color="processing" className={styles.sectionTag}>{detail.extrinsics.length} 条</Tag>
+                    <Tag
+                        color="processing"
+                        className={`${styles.sectionTag} ${styles.softPurpleTag}`}
+                        style={{ color: '#e6fffb', width: 60 }}
+                    >
+                        {detail.extrinsics.length} 条
+                    </Tag>
                 </div>
                 {detail.extrinsics.length > 0 ? (
                     <div className={styles.resultList}>
@@ -1254,7 +1310,10 @@ export default function PolkadotWallPage() {
                         区块 #{detail.blockNumber} · {new Date(detail.timestamp).toLocaleString()}
                     </div>
                 </div>
-                <Tag color={detail.status === 'success' ? 'success' : 'error'} className={styles.resultTag}>
+                <Tag
+                    className={`${styles.resultTag} ${styles.softPurpleTag}`}
+                    style={{ color: detail.status === 'success' ? '#b7eb8f' : '#ffa39e' }}
+                >
                     {detail.status === 'success' ? '成功' : detail.status}
                 </Tag>
             </div>
@@ -1270,7 +1329,12 @@ export default function PolkadotWallPage() {
                 <div className={styles.resultSection}>
                     <div className={styles.resultSectionHeader}>
                         <span className={styles.resultSectionTitle}>参数</span>
-                        <Tag color="default" className={styles.sectionTag}>{detail.args.length} 项</Tag>
+                        <Tag
+                            className={`${styles.sectionTag} ${styles.softPurpleTag}`}
+                            style={{ color: '#ffe58f' }}
+                        >
+                            {detail.args.length} 项
+                        </Tag>
                     </div>
                     <div className={styles.resultList}>
                         {detail.args.map((arg, idx) => (
@@ -1291,7 +1355,12 @@ export default function PolkadotWallPage() {
                     <div className={styles.resultTitle}>账户 {truncateMiddle(detail.account.address, 10, 8)}</div>
                     <div className={styles.resultSubtitle}>最近交易 {detail.transactions.items.length} 条</div>
                 </div>
-                <Tag color="processing" className={styles.resultTag}>账户</Tag>
+                <Tag
+                    className={`${styles.resultTag} ${styles.softPurpleTag}`}
+                    style={{ color: '#e6fffb' }}
+                >
+                    账户
+                </Tag>
             </div>
             <ExplorerMetaGrid
                 items={[
@@ -1304,7 +1373,10 @@ export default function PolkadotWallPage() {
             <div className={styles.resultSection}>
                 <div className={styles.resultSectionHeader}>
                     <span className={styles.resultSectionTitle}>最近交易</span>
-                    <Tag color="processing" className={styles.sectionTag}>
+                    <Tag
+                        className={`${styles.sectionTag} ${styles.softPurpleTag}`}
+                        style={{ color: '#f9f0ff' }}
+                    >
                         第 {detail.transactions.page} 页
                     </Tag>
                 </div>
@@ -1372,6 +1444,15 @@ export default function PolkadotWallPage() {
                         链计算业务数据大屏
                     </Title>
                     {/* <Text className={styles.subtitle}>实时展示链上链下关键指标、拓扑态势与激励状态</Text> */}
+                </div>
+                <div className={styles.headerCenter}>
+                    <nav className={styles.topNav}>
+                        {topNavLinks.map((link) => (
+                            <Link key={link.href} href={link.href} className={styles.topNavLink}>
+                                {link.label}
+                            </Link>
+                        ))}
+                    </nav>
                 </div>
                 <div className={styles.headerRight}>
                     <div className={styles.refreshControls}>
@@ -1510,7 +1591,10 @@ export default function PolkadotWallPage() {
                                 <div className={styles.sectionSubtitle}>已连接 {totalIncentiveAccounts} 个账户</div>
                             </div>
                             {totalRewardFormatted && (
-                                <Tag color="processing" style={{ borderRadius: 999, padding: '0 12px', height: 24, lineHeight: '22px' }}>
+                                <Tag
+                                    className={styles.softPurpleTag}
+                                    style={{ borderRadius: 999, padding: '0 12px', height: 24, lineHeight: '22px', color: '#ffffff' }}
+                                >
                                     {totalRewardFormatted} CMC
                                 </Tag>
                             )}
@@ -1525,14 +1609,16 @@ export default function PolkadotWallPage() {
                                                 <span>{truncateMiddle(account.address, 8, 6)}</span>
                                             </Tooltip>
                                             <Tag
-                                                color={
-                                                    account.state === 'Ready' || account.state === 'WorkerIdle'
-                                                        ? 'success'
-                                                        : account.state === 'WorkerUnresponsive'
-                                                            ? 'error'
-                                                            : 'default'
-                                                }
-                                                style={{ margin: 0 }}
+                                                className={styles.softPurpleTag}
+                                                style={{
+                                                    margin: 0,
+                                                    color:
+                                                        account.state === 'Ready' || account.state === 'WorkerIdle'
+                                                            ? '#b7eb8f'
+                                                            : account.state === 'WorkerUnresponsive'
+                                                                ? '#ffe58f'
+                                                                : '#f9f0ff',
+                                                }}
                                             >
                                                 {account.state || '未知'}
                                             </Tag>
@@ -1589,46 +1675,96 @@ export default function PolkadotWallPage() {
                     </DataCard>
 
                     <DataCard
-                        title="TEE可信验证"
-                        titleIcon={<GlobalOutlined />}
+                        title="密钥轮换数据"
+                        titleIcon={<KeyOutlined />}
                         className={styles.dataCard}
                     >
-                        <div className={styles.snapshotGrid}>
-                            {['SGX', 'CSV'].map((type) => {
-                                const tee = dashboardData?.workers?.byTeeType?.[type as 'SGX' | 'CSV'];
-                                const total = tee?.total || 0;
-                                const online = tee?.online || 0;
-                                const ratio = total ? Math.round((online / total) * 100) : 0;
-                                return (
-                                    <div key={type} className={styles.snapshotCard}>
-                                        <span className={styles.snapshotLabel}>{type} Worker</span>
-                                        <span className={styles.snapshotValue}>
-                                            {online}/{total}
-                                        </span>
-                                        <span className={styles.snapshotDesc}>在线率 {ratio || '--'}%</span>
-                                    </div>
-                                );
-                            })}
+                        <div className={styles.statRow3}>
+                            <Statistic
+                                title="总密钥数"
+                                value={keyRotationData?.totalKeys || 0}
+                                valueStyle={{ color: '#ff7875', fontSize: '14px' }}
+                            />
+                            <Statistic
+                                title="活跃密钥"
+                                value={keyRotationData?.activeKeys || 0}
+                                valueStyle={{ color: '#52c41a', fontSize: '14px' }}
+                            />
+                            <Statistic
+                                title="轮换中"
+                                value={keyRotationData?.rotatingKeys || 0}
+                                valueStyle={{ color: '#69c0ff', fontSize: '14px' }}
+                            />
                         </div>
-                        <div className={styles.snapshotProgress}>
-                            {['SGX', 'CSV'].map((type) => {
-                                const tee = dashboardData?.workers?.byTeeType?.[type as 'SGX' | 'CSV'];
-                                const total = tee?.total || 0;
-                                const online = tee?.online || 0;
-                                const ratio = total ? Math.round((online / total) * 100) : 0;
-                                return (
-                                    <div key={type} className={styles.progressItem}>
-                                        <div className={styles.progressLabelRow}>
-                                            <span>{type} 在线率</span>
-                                            <span>{ratio || '--'}%</span>
+
+                        {keySamples.length > 0 && (
+                            <>
+                                <div className={styles.rotationKeyList}>
+                                    {pagedKeySamples.map((key: any) => (
+                                        <div key={key.id || key.keyId} className={styles.rotationKeyItem}>
+                                            <div className={styles.rotationKeyHeader}>
+                                                <Tooltip title={key.keyId}>
+                                                    <span>{key.keyId || '--'}</span>
+                                                </Tooltip>
+                                                <Tag
+                                                    className={styles.softPurpleTag}
+                                                    style={{
+                                                        margin: 0,
+                                                        minWidth: '70px',
+                                                        textAlign: 'center',
+                                                        color: (key.keyType || 'SR25519') === 'ECDSA' ? '#fff1f0' : '#e6fffb',
+                                                    }}
+                                                >
+                                                    {key.keyType || 'SR25519'}
+                                                </Tag>
+                                            </div>
+                                            <div className={styles.rotationKeyMeta}>
+                                                <span>{truncateMiddle(key.owner, 8, 6)}</span>
+                                                <span>消息 {key.pendingMessages ?? 0}</span>
+                                            </div>
                                         </div>
-                                        <div className={styles.progressTrack}>
-                                            <div className={styles.progressFill} style={{ width: `${ratio}%` }} />
-                                        </div>
+                                    ))}
+                                </div>
+                                {keySamples.length > KEY_SAMPLE_PAGE_SIZE && (
+                                    <div className={styles.rotationPagination}>
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            className={styles.paginationButton}
+                                            disabled={keySamplePage === 1}
+                                            onClick={() => setKeySamplePage((prev) => Math.max(1, prev - 1))}
+                                        >
+                                            上一页
+                                        </Button>
+                                        <span>第 {keySamplePage} / {keySampleTotalPages} 页</span>
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            className={styles.paginationButton}
+                                            disabled={keySamplePage === keySampleTotalPages}
+                                            onClick={() => setKeySamplePage((prev) => Math.min(keySampleTotalPages, prev + 1))}
+                                        >
+                                            下一页
+                                        </Button>
                                     </div>
-                                );
-                            })}
-                        </div>
+                                )}
+                            </>
+                        )}
+                        {recentRotations.length > 0 && (
+                            <div className={styles.timelineList}>
+                                {recentRotations.map((item) => (
+                                    <div key={`${item.epoch}-${item.blockNumber}`} className={styles.timelineItem}>
+                                        <div>
+                                            <div className={styles.timelineTitle}>Epoch {item.epoch}</div>
+                                            <div className={styles.timelineMeta}>区块 #{item.blockNumber}</div>
+                                        </div>
+                                        <Tag color={item.success ? 'success' : 'error'}>
+                                            {item.success ? '完成' : '失败'}
+                                        </Tag>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </DataCard>
                 </div>
 
@@ -1762,90 +1898,47 @@ export default function PolkadotWallPage() {
 
                 {/* 右侧列 */}
                 <div className={styles.rightColumn}>
-                    {/* 密钥轮换 */}
                     <DataCard
-                        title="密钥轮换数据"
-                        titleIcon={<KeyOutlined />}
+                        title="TEE可信验证"
+                        titleIcon={<GlobalOutlined />}
                         className={styles.dataCard}
                     >
-                        <div className={styles.statRow3}>
-                            <Statistic
-                                title="总密钥数"
-                                value={keyRotationData?.totalKeys || 0}
-                                valueStyle={{ color: '#ff7875', fontSize: '14px' }}
-                            />
-                            <Statistic
-                                title="活跃密钥"
-                                value={keyRotationData?.activeKeys || 0}
-                                valueStyle={{ color: '#52c41a', fontSize: '14px' }}
-                            />
-                            <Statistic
-                                title="轮换中"
-                                value={keyRotationData?.rotatingKeys || 0}
-                                valueStyle={{ color: '#69c0ff', fontSize: '14px' }}
-                            />
+                        <div className={styles.snapshotGrid}>
+                            {['SGX', 'CSV'].map((type) => {
+                                const tee = dashboardData?.workers?.byTeeType?.[type as 'SGX' | 'CSV'];
+                                const total = tee?.total || 0;
+                                const online = tee?.online || 0;
+                                const ratio = total ? Math.round((online / total) * 100) : 0;
+                                return (
+                                    <div key={type} className={styles.snapshotCard}>
+                                        <span className={styles.snapshotLabel}>{type} Worker</span>
+                                        <span className={styles.snapshotValue}>
+                                            {online}/{total}
+                                        </span>
+                                        <span className={styles.snapshotDesc}>在线率 {ratio || '--'}%</span>
+                                    </div>
+                                );
+                            })}
                         </div>
-
-                        {keySamples.length > 0 && (
-                            <>
-                                <div className={styles.rotationKeyList}>
-                                    {pagedKeySamples.map((key: any) => (
-                                        <div key={key.id || key.keyId} className={styles.rotationKeyItem}>
-                                            <div className={styles.rotationKeyHeader}>
-                                                <Tooltip title={key.keyId}>
-                                                    <span>{key.keyId || '--'}</span>
-                                                </Tooltip>
-                                                <Tag color={getKeyStatusColor(key.status)} style={{ margin: 0, minWidth: '70px', textAlign: 'center', display: 'inline-block' }}>
-                                                    {key.keyType || 'SR25519'}
-                                                </Tag>
-                                            </div>
-                                            <div className={styles.rotationKeyMeta}>
-                                                <span>{truncateMiddle(key.owner, 8, 6)}</span>
-                                                <span>消息 {key.pendingMessages ?? 0}</span>
-                                            </div>
+                        <div className={styles.snapshotProgress}>
+                            {['SGX', 'CSV'].map((type) => {
+                                const tee = dashboardData?.workers?.byTeeType?.[type as 'SGX' | 'CSV'];
+                                const total = tee?.total || 0;
+                                const online = tee?.online || 0;
+                                const ratio = total ? Math.round((online / total) * 100) : 0;
+                                return (
+                                    <div key={type} className={styles.progressItem}>
+                                        <div className={styles.progressLabelRow}>
+                                            <span>{type} 在线率</span>
+                                            <span>{ratio || '--'}%</span>
                                         </div>
-                                    ))}
-                                </div>
-                                {keySamples.length > KEY_SAMPLE_PAGE_SIZE && (
-                                    <div className={styles.rotationPagination}>
-                                        <Button
-                                            size="small"
-                                            type="primary"
-                                            className={styles.paginationButton}
-                                            disabled={keySamplePage === 1}
-                                            onClick={() => setKeySamplePage((prev) => Math.max(1, prev - 1))}
-                                        >
-                                            上一页
-                                        </Button>
-                                        <span>第 {keySamplePage} / {keySampleTotalPages} 页</span>
-                                        <Button
-                                            size="small"
-                                            type="primary"
-                                            className={styles.paginationButton}
-                                            disabled={keySamplePage === keySampleTotalPages}
-                                            onClick={() => setKeySamplePage((prev) => Math.min(keySampleTotalPages, prev + 1))}
-                                        >
-                                            下一页
-                                        </Button>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                        {recentRotations.length > 0 && (
-                            <div className={styles.timelineList}>
-                                {recentRotations.map((item) => (
-                                    <div key={`${item.epoch}-${item.blockNumber}`} className={styles.timelineItem}>
-                                        <div>
-                                            <div className={styles.timelineTitle}>Epoch {item.epoch}</div>
-                                            <div className={styles.timelineMeta}>区块 #{item.blockNumber}</div>
+                                        <div className={styles.progressTrack}>
+                                            <div className={styles.progressFill} style={{ width: `${ratio}%` }} />
                                         </div>
-                                        <Tag color={item.success ? 'success' : 'error'}>
-                                            {item.success ? '完成' : '失败'}
-                                        </Tag>
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                );
+                            })}
+                        </div>
                     </DataCard>
 
                     {/* 服务调度 */}

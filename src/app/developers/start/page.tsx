@@ -227,6 +227,8 @@ export const rpcCall = async (
 };
 
 // 获取 VM 列表
+type VMListItem = VMData & { displayName?: string };
+
 const loadVMList = async (
   bestHostIp: string,
   options?: {
@@ -248,6 +250,26 @@ const loadVMList = async (
   return await response.json();
 };
 
+const getComposeDisplayName = (vm: VMData): string | undefined => {
+  const composeSource = vm.configuration?.compose_file;
+  if (!composeSource) return undefined;
+  try {
+    if (typeof composeSource === "string") {
+      const parsed = JSON.parse(composeSource);
+      return parsed?.name;
+    }
+    if (typeof composeSource === "object") {
+      return (composeSource as any)?.name;
+    }
+  } catch (error) {
+    console.error("Failed to parse compose_file for VM:", vm.id, error);
+  }
+  return undefined;
+};
+
+const getVmDisplayName = (vm: VMListItem) =>
+  vm.displayName?.trim() || vm.name || "虚拟机";
+
 function StartPageContent() {
   const router = useRouter();
   const { modal } = App.useApp();
@@ -255,7 +277,7 @@ function StartPageContent() {
   const [searchText, setSearchText] = useState("");
   const [cvms] = useState<CVMData[]>(mockCVMData);
   const [bestHostIp, setBestHostIp] = useState<string | null>(null);
-  const [vms, setVms] = useState<VMData[]>([]);
+  const [vms, setVms] = useState<VMListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [totalVMs, setTotalVMs] = useState(0);
   const [showDeployModal, setShowDeployModal] = useState(false);
@@ -283,12 +305,17 @@ function StartPageContent() {
       }
       try {
         const data = await loadVMList(bestHostIp, {
-          brief: true,
+          brief: false,
           keyword: searchText,
           page: 1,
           page_size: 50,
         });
-        setVms(data.vms || []);
+        const enrichedVms =
+          data.vms?.map((vm) => ({
+            ...vm,
+            displayName: getComposeDisplayName(vm) || vm.name,
+          })) || [];
+        setVms(enrichedVms);
         setTotalVMs(data.total || data.vms?.length || 0);
         setPortMappingEnabled(data.port_mapping_enabled || false);
       } catch (error) {
@@ -549,14 +576,16 @@ function StartPageContent() {
   };
 
   // 停止 VM (强制停止)
-  const stopVm = async (vm: VMData) => {
+  const stopVm = async (vm: VMListItem) => {
     if (!bestHostIp) {
       message.warning("请先设置最佳主机 IP");
       return;
     }
     modal.confirm({
       title: "请确认是否强制停止 VM?",
-      content: `您正在强制停止 "${vm.name}"，这可能会导致数据损坏。`,
+      content: `您正在强制停止 "${getVmDisplayName(
+        vm
+      )}"，这可能会导致数据损坏。`,
       okText: "确认",
       cancelText: "取消",
       okType: "danger",
@@ -590,14 +619,14 @@ function StartPageContent() {
   };
 
   // 重启 VM (先停止再启动)
-  const restartVm = async (vm: VMData) => {
+  const restartVm = async (vm: VMListItem) => {
     if (!bestHostIp) {
       message.warning("请先设置最佳主机 IP");
       return;
     }
     modal.confirm({
       title: "请确认是否重启 VM?",
-      content: `您正在重启 "${vm.name}"。`,
+      content: `您正在重启 "${getVmDisplayName(vm)}"。`,
       okText: "确认",
       cancelText: "取消",
       onOk: async () => {
@@ -619,14 +648,14 @@ function StartPageContent() {
   };
 
   // 删除 VM
-  const removeVm = async (vm: VMData) => {
+  const removeVm = async (vm: VMListItem) => {
     if (!bestHostIp) {
       message.warning("请先设置最佳主机 IP");
       return;
     }
     modal.confirm({
       title: "确认删除 VM",
-      content: `您正在删除 "${vm.name}"。此操作无法撤销。`,
+      content: `您正在删除 "${getVmDisplayName(vm)}"。此操作无法撤销。`,
       okText: "确认删除",
       cancelText: "取消",
       okType: "danger",
@@ -1407,7 +1436,9 @@ fi`,
   // 过滤 VM 列表
   const filteredVMs = vms.filter(
     (vm) =>
-      vm.name?.toLowerCase().includes(searchText.toLowerCase()) ||
+      getVmDisplayName(vm)
+        .toLowerCase()
+        .includes(searchText.toLowerCase()) ||
       vm.app_id?.toLowerCase().includes(searchText.toLowerCase()) ||
       vm.instance_id?.toLowerCase().includes(searchText.toLowerCase()) ||
       vm.id?.toLowerCase().includes(searchText.toLowerCase())
@@ -2354,7 +2385,7 @@ fi`,
                               lineHeight: "1.4",
                             }}
                           >
-                            {vm.name || "Unnamed VM"}
+                            {getVmDisplayName(vm)}
                           </Title>
                         </div>
                       </div>
