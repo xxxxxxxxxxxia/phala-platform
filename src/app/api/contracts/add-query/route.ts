@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ApiPromise, WsProvider, Keyring } from '@polkadot/api';
-import { options, OnChainRegistry, signCertificate, PinkContractPromise } from '@phala/sdk';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
+
+const execAsync = promisify(exec);
 
 function toNumber(value: string | null, fallback = 0) {
     if (value === null) return fallback;
@@ -11,8 +13,6 @@ function toNumber(value: string | null, fallback = 0) {
 }
 
 export async function GET(request: NextRequest) {
-    let api: ApiPromise | null = null;
-
     try {
         const params = request.nextUrl.searchParams;
         const contractAddress = params.get("contractAddress");
@@ -32,126 +32,175 @@ export async function GET(request: NextRequest) {
             console.log(`使用指定的 Worker 端点: ${workerEndpoint}`);
         }
 
-        // 获取节点和worker URL
-        const nodeUrl = getNodeUrl();
-        const pruntimeUrl = workerEndpoint || getPruntimeUrl();
-
-        console.log(`连接到节点: ${nodeUrl}`);
-        console.log(`使用 Pruntime: ${pruntimeUrl}`);
-
-        // 连接到Polkadot节点
-        api = await ApiPromise.create(
-            options({
-                provider: new WsProvider(nodeUrl),
-                noInitWarn: true,
-            }) as any
-        );
-        await api.isReady;
-        console.log('✅ 已连接到 Phala 节点');
-
-        // 创建keyring和证书
-        const keyring = new Keyring({ type: 'sr25519' });
-        const deployer = keyring.addFromUri('//Alice');
-        const cert = await signCertificate({ pair: deployer });
-        console.log(`👤 使用账户: ${deployer.address}`);
-
-        // 查找集群
-        const defaultCluster = '0x0000000000000000000000000000000000000000000000000000000000000001';
-        let clusterId = defaultCluster;
-
-        try {
-            const clusterInfo = await api.query.phalaPhatContracts.clusters(defaultCluster);
-            if (clusterInfo && clusterInfo.toString() !== '') {
-                console.log('✅ 找到默认集群');
-            } else {
-                throw new Error('默认集群不存在');
-            }
-        } catch (error) {
-            console.log('⚠️ 默认集群不存在，尝试查找其他集群...');
-            const allClusters = await api.query.phalaPhatContracts.clusters.entries();
-            if (allClusters.length === 0) {
-                throw new Error('没有找到任何集群');
-            }
-            const [clusterIdHex] = allClusters[0];
-            clusterId = clusterIdHex.toHex();
-            console.log(`✅ 使用集群: ${clusterId}`);
-        }
-
-        // 获取集群中的worker
-        const clusterWorkersResult = await api.query.phalaPhatContracts.clusterWorkers(clusterId);
-        let workerId: string | undefined = undefined;
-        if (clusterWorkersResult && clusterWorkersResult.toString() !== '') {
-            // 尝试转换为数组
-            const workers = clusterWorkersResult as any;
-            if (Array.isArray(workers)) {
-                workerId = workers.length > 0 ? workers[0].toHex() : undefined;
-            } else if (workers.toArray) {
-                const workersArray = workers.toArray();
-                workerId = workersArray.length > 0 ? workersArray[0].toHex() : undefined;
-            }
-        }
-
-        // 创建OnChainRegistry
-        const registry = await OnChainRegistry.create(api as any, {
-            clusterId,
-            workerId,
-            pruntimeURL: pruntimeUrl,
-            skipCheck: true,
-        });
-        console.log('✅ 已连接到 Pruntime');
-
-        // 查找合约metadata文件
+        // 查找setup目录
         const possiblePaths = [
-            '/root/tmp/phala-blockchain-setup/src/phat_hello_add.contract',
-            '/root/tmp/phala-blockchain-setup/src/phat_hello.contract',
-            '/home/user1/Desktop/tmp/phala-blockchain/phala-blockchain-setup/src/phat_hello_add.contract',
-            '/app/phala-blockchain-setup/src/phat_hello_add.contract',
-            './phala-blockchain-setup/src/phat_hello_add.contract',
-            '../phala-blockchain-setup/src/phat_hello_add.contract',
+            '/root/tmp/phala-blockchain-setup',
+            '/home/user1/Desktop/tmp/phala-blockchain/phala-blockchain-setup',
+            '/app/phala-blockchain-setup',
+            './phala-blockchain-setup',
+            '../phala-blockchain-setup'
         ];
 
-        let contractMetadataPath = null;
+        let setupPath = null;
         for (const path of possiblePaths) {
-            if (existsSync(path)) {
-                contractMetadataPath = path;
+            if (existsSync(path) && existsSync(`${path}/package.json`)) {
+                setupPath = path;
                 break;
             }
         }
 
-        if (!contractMetadataPath) {
-            throw new Error(`找不到 phat_hello_add.contract 文件。检查的路径: ${possiblePaths.join(', ')}`);
+        if (!setupPath) {
+            throw new Error(`找不到phala-blockchain-setup目录。检查的路径: ${possiblePaths.join(', ')}`);
         }
 
-        console.log(`📄 加载合约metadata: ${contractMetadataPath}`);
-        const contractMetadata = JSON.parse(readFileSync(contractMetadataPath, 'utf8'));
+        console.log(`使用路径: ${setupPath}`);
 
-        // 创建合约实例
-        const contract = new PinkContractPromise(api, registry, contractMetadata, contractAddress);
-        console.log(`📞 调用 add(${a}, ${b}) 方法...`);
+        // 检查调用脚本是否存在（优先使用test-phat-hello-add-query.js）
+        const scriptPath = `${setupPath}/src/test-phat-hello-add-query.js`;
+        const fallbackScriptPath = `${setupPath}/src/call-phat-hello-add.js`;
 
-        // 调用add方法（查询方法）
-        // query.add的参数：origin, options, a, b
-        const queryResult = await contract.query.add(deployer.address, { cert }, a, b) as any;
-        const { output } = queryResult;
-
-        if (output.isErr) {
-            throw new Error(`合约调用失败: ${output.asErr}`);
+        let useTestScript = false;
+        if (existsSync(scriptPath)) {
+            useTestScript = true;
+            console.log(`使用脚本: ${scriptPath}`);
+        } else if (existsSync(fallbackScriptPath)) {
+            console.log(`使用备用脚本: ${fallbackScriptPath}`);
+        } else {
+            throw new Error(`找不到查询脚本。检查的路径: ${scriptPath}, ${fallbackScriptPath}`);
         }
 
-        const result = output.asOk.toPrimitive();
-        console.log(`✅ 调用成功！结果: ${JSON.stringify(result)}`);
+        // 检查合约文件是否存在
+        const possibleContractPaths = [
+            `${setupPath}/res/phat_hello_add.contract`,
+            `${setupPath}/src/phat_hello_add.contract`,
+            `${setupPath}/phat_hello_add.contract`,
+        ];
+
+        let contractPath = null;
+        for (const path of possibleContractPaths) {
+            if (existsSync(path)) {
+                contractPath = path;
+                break;
+            }
+        }
+
+        if (!contractPath) {
+            throw new Error(`找不到phat_hello_add.contract文件。检查的路径: ${possibleContractPaths.join(', ')}`);
+        }
+
+        // 计算相对路径（从setup目录）
+        const relativeContractPath = contractPath.replace(setupPath + '/', './');
+        console.log(`使用合约文件: ${contractPath} (相对路径: ${relativeContractPath})`);
+
+        // 读取.env文件获取endpoint和worker
+        const envFilePath = `${setupPath}/.env`;
+        let endpoint = '';
+        let worker = '';
+
+        if (existsSync(envFilePath)) {
+            console.log(`读取.env文件: ${envFilePath}`);
+            const envContent = readFileSync(envFilePath, 'utf-8');
+            const envLines = envContent.split('\n');
+            for (const line of envLines) {
+                const trimmed = line.trim();
+                if (trimmed && !trimmed.startsWith('#')) {
+                    const [key, ...valueParts] = trimmed.split('=');
+                    const value = valueParts.join('=').trim();
+                    if (key === 'ENDPOINT') {
+                        endpoint = value;
+                    } else if (key === 'WORKERS') {
+                        worker = value.split(',')[0].trim();
+                    }
+                }
+            }
+            console.log(`从.env读取: ENDPOINT=${endpoint}, WORKER=${worker}`);
+        }
+
+        // 执行调用脚本
+        const scriptName = useTestScript ? 'src/test-phat-hello-add-query.js' : 'src/call-phat-hello-add.js';
+        const command = `cd "${setupPath}" && node ${scriptName}`;
+        console.log('执行命令:', command);
+
+        const env = {
+            ...process.env,
+            PATH: process.env.PATH || '',
+            NODE_ENV: process.env.NODE_ENV || 'production',
+            CONTRACT_ADDRESS: contractAddress,
+            CONTRACT_PATH: relativeContractPath,
+            NODE_OPTIONS: '--dns-result-order=ipv4first',
+            ...(endpoint && { ENDPOINT: endpoint }),
+            ...(workerEndpoint && { WORKER: workerEndpoint }),
+            ...(worker && !workerEndpoint && { WORKER: worker }),
+            // test-phat-hello-add-query.js 会测试多个用例，我们需要修改它只测试一个用例
+            // 或者创建一个包装脚本
+            ...(useTestScript ? { A: a.toString(), B: b.toString() } : { A: a.toString(), B: b.toString() })
+        };
+
+        const { stdout, stderr } = await execAsync(command, {
+            timeout: 60000, // 60秒超时
+            cwd: setupPath,
+            shell: '/bin/sh',
+            env
+        });
+
+        console.log('脚本输出:', stdout);
+        if (stderr) {
+            console.error('脚本错误:', stderr);
+        }
+
+        // 解析脚本结果
+        const resultMatch = stdout.match(/SCRIPT_RESULT: (.+)/);
+        const errorMatch = stdout.match(/SCRIPT_ERROR: (.+)/);
+
+        if (errorMatch) {
+            return NextResponse.json({
+                success: false,
+                error: `合约调用失败: ${errorMatch[1]}`,
+                details: stderr
+            }, { status: 500 });
+        }
+
+        if (resultMatch) {
+            try {
+                const result = JSON.parse(resultMatch[1]);
+                if (result.success) {
+                    // 提取result中的值（可能是{"ok":30}格式）
+                    let finalResult = result.result;
+                    if (result.result && typeof result.result === 'object' && 'ok' in result.result) {
+                        finalResult = result.result.ok;
+                    }
+
+                    return NextResponse.json({
+                        success: true,
+                        data: {
+                            a: result.a,
+                            b: result.b,
+                            result: finalResult,
+                            contractAddress: result.contractAddress,
+                            executedAt: Date.now()
+                        },
+                        message: "phat_hello_add 查询完成",
+                    });
+                } else {
+                    return NextResponse.json({
+                        success: false,
+                        error: result.error || '合约调用失败'
+                    }, { status: 500 });
+                }
+            } catch (parseError) {
+                return NextResponse.json({
+                    success: false,
+                    error: '解析脚本结果失败',
+                    details: stdout
+                }, { status: 500 });
+            }
+        }
 
         return NextResponse.json({
-            success: true,
-            data: {
-                a,
-                b,
-                result: result,
-                contractAddress: contractAddress,
-                executedAt: Date.now()
-            },
-            message: "phat_hello_add 查询完成",
-        });
+            success: false,
+            error: '脚本执行失败，无法解析结果',
+            details: stdout
+        }, { status: 500 });
 
     } catch (error) {
         console.error('查询失败:', error);
@@ -160,11 +209,5 @@ export async function GET(request: NextRequest) {
             error: `查询失败: ${error instanceof Error ? error.message : '未知错误'}`,
             details: error instanceof Error ? error.stack : undefined
         }, { status: 500 });
-    } finally {
-        // 断开连接
-        if (api && api.isConnected) {
-            await api.disconnect();
-            console.log('🔌 已断开连接');
-        }
     }
 }

@@ -1,6 +1,7 @@
 import { spawn, ChildProcessWithoutNullStreams, exec } from "child_process";
 import { constants as fsConstants } from "fs";
 import { access } from "fs/promises";
+import { existsSync } from "fs";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
@@ -59,7 +60,34 @@ function getBaseUrl() {
 }
 
 function getBinaryPath() {
-    return process.env.SFQ_BIN_PATH || SFQ_DEFAULT_BIN;
+    // 如果环境变量指定了路径，直接使用
+    if (process.env.SFQ_BIN_PATH) {
+        return process.env.SFQ_BIN_PATH;
+    }
+
+    // 定义多个可能的路径（参考隐私合约的路径查找方式）
+    const possiblePaths = [
+        "/root/tmp/phala-platform/bin/sfq-test",
+        "/app/phala-platform/bin/sfq-test",
+        "./bin/sfq-test",
+        "../bin/sfq-test",
+        "bin/sfq-test",
+        process.cwd() + "/bin/sfq-test",
+        __dirname + "/../../bin/sfq-test",
+        __dirname + "/../../../bin/sfq-test",
+    ];
+
+    // 遍历查找存在的文件
+    for (const path of possiblePaths) {
+        if (existsSync(path)) {
+            console.log(`[SFQ] 找到二进制文件: ${path}`);
+            return path;
+        }
+    }
+
+    // 如果都找不到，返回默认路径（让后续的错误处理来提示）
+    console.warn(`[SFQ] 未找到二进制文件，尝试使用默认路径: ${SFQ_DEFAULT_BIN}`);
+    return SFQ_DEFAULT_BIN;
 }
 
 function getSpawnEnv() {
@@ -86,9 +114,34 @@ async function sleep(ms: number) {
 }
 
 async function checkPortAvailable(host: string, port: string): Promise<{ available: boolean; isSfqServer?: boolean }> {
+    console.log(`[SFQ PortCheck] 检查端口 ${host}:${port}...`);
     try {
+        // 首先使用lsof检查端口是否真的被占用
+        let portInUse = false;
+        let pid = "";
+        try {
+            const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
+            pid = stdout.trim();
+            portInUse = !!pid;
+            if (portInUse) {
+                console.log(`[SFQ PortCheck] 端口被占用，PID: ${pid}`);
+            } else {
+                console.log(`[SFQ PortCheck] 端口未被占用`);
+            }
+        } catch (err) {
+            console.warn(`[SFQ PortCheck] lsof检查失败:`, err);
+            // 忽略lsof失败，继续检查
+        }
+
+        // 如果lsof没有检测到端口被占用，直接返回可用
+        if (!portInUse) {
+            console.log(`[SFQ PortCheck] ✅ 端口可用`);
+            return { available: true };
+        }
+
+        // 端口被占用，尝试访问SFQ服务器API验证
         const baseUrl = `http://${host}:${port}`;
-        // 使用更可靠的方式检查端口，带超时控制
+        console.log(`[SFQ PortCheck] 尝试连接SFQ API: ${baseUrl}/test/dump`);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2000);
 
@@ -98,52 +151,72 @@ async function checkPortAvailable(host: string, port: string): Promise<{ availab
                 signal: controller.signal,
             });
             clearTimeout(timeoutId);
+            console.log(`[SFQ PortCheck] HTTP响应: ${response.status} ${response.statusText}`);
 
             // 如果能连接并响应OK，说明端口被SFQ服务器占用
             if (response.ok) {
                 // 验证响应内容是否是SFQ dump格式
                 const text = await response.text();
+                console.log(`[SFQ PortCheck] 响应内容预览: ${text.substring(0, 100)}...`);
                 if (text.includes("V time") || text.includes("Flow stats") || text.includes("Serving")) {
+                    console.log(`[SFQ PortCheck] ✅ 确认为SFQ服务器`);
                     return { available: false, isSfqServer: true };
                 }
+                // 端口被占用但不是SFQ服务器
+                console.log(`[SFQ PortCheck] ❌ 端口被占用但不是SFQ服务器（响应内容不匹配）`);
                 return { available: false, isSfqServer: false };
             }
+            // 响应不OK，端口被占用但不是SFQ服务器
+            console.log(`[SFQ PortCheck] ❌ 端口被占用但不是SFQ服务器（HTTP ${response.status}）`);
             return { available: false, isSfqServer: false };
         } catch (fetchErr: any) {
             clearTimeout(timeoutId);
-            // 如果是超时或网络错误，但端口可能仍被占用，尝试使用lsof验证
-            try {
-                const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
-                if (stdout.trim()) {
-                    // 端口被占用，但无法确认是否为SFQ服务器
-                    return { available: false, isSfqServer: false };
-                }
-            } catch {
-                // 忽略lsof失败
-            }
-            // 连接失败且端口未被占用，说明端口可用
-            return { available: true };
+            // fetch失败，但lsof检测到端口被占用
+            // 可能是其他服务占用了端口，或者SFQ服务器启动中
+            // 保守处理：认为端口被占用但不是SFQ服务器
+            console.warn(`[SFQ PortCheck] ❌ 端口 ${port} 被占用但无法访问SFQ API: ${fetchErr?.message || "unknown"}`);
+            console.warn(`[SFQ PortCheck] 错误类型: ${fetchErr?.name || "unknown"}, 错误代码: ${fetchErr?.code || "N/A"}`);
+            return { available: false, isSfqServer: false };
         }
     } catch (err) {
-        // 其他错误，保守地认为端口可用
+        // 其他错误，保守地认为端口可用（允许尝试启动）
+        console.warn(`[SFQ PortCheck] ⚠️ 检查端口 ${port} 时出错: ${err instanceof Error ? err.message : String(err)}`);
         return { available: true };
     }
 }
 
 async function waitUntilReady(baseUrl: string, timeoutMs = 15000) {
     const deadline = Date.now() + timeoutMs;
+    const startTime = Date.now();
+    let attemptCount = 0;
+    console.log(`[SFQ WaitReady] 等待服务器就绪: ${baseUrl} (超时: ${timeoutMs}ms)`);
+
     while (Date.now() < deadline) {
+        attemptCount++;
+        const elapsed = Date.now() - startTime;
         try {
-            const response = await fetch(`${baseUrl}/test/dump`);
+            const response = await fetch(`${baseUrl}/test/dump`, {
+                cache: "no-store",
+                signal: AbortSignal.timeout(2000),
+            });
             if (response.ok) {
+                console.log(`[SFQ WaitReady] ✅ 服务器就绪 (尝试 ${attemptCount} 次, 耗时 ${elapsed}ms)`);
                 return true;
+            } else {
+                if (attemptCount % 5 === 0) {
+                    console.log(`[SFQ WaitReady] 等待中... (尝试 ${attemptCount}, 耗时 ${elapsed}ms, HTTP ${response.status})`);
+                }
             }
-        } catch (err) {
-            // ignore
+        } catch (err: any) {
+            if (attemptCount % 5 === 0) {
+                console.log(`[SFQ WaitReady] 等待中... (尝试 ${attemptCount}, 耗时 ${elapsed}ms, 错误: ${err?.message || "unknown"})`);
+            }
         }
         await sleep(500);
     }
-    throw new Error("SFQ 服务启动超时");
+    const elapsed = Date.now() - startTime;
+    console.error(`[SFQ WaitReady] ❌ 等待超时 (尝试 ${attemptCount} 次, 耗时 ${elapsed}ms)`);
+    throw new Error(`SFQ 服务启动超时 (${timeoutMs}ms)`);
 }
 
 function parseNumber(input?: string) {
@@ -247,7 +320,12 @@ class SfqProcessManager {
     }
 
     async start(): Promise<StartResult> {
+        console.log(`[SFQ Start] 开始启动SFQ服务器...`);
+        console.log(`[SFQ Start] 当前工作目录: ${process.cwd()}`);
+        console.log(`[SFQ Start] __dirname: ${__dirname}`);
+
         if (this.isRunning() && this.child?.pid) {
+            console.log(`[SFQ Start] SFQ服务器已在运行 (PID: ${this.child.pid})`);
             return {
                 pid: this.child.pid,
                 startedAt: this.startedAt || Date.now(),
@@ -257,13 +335,18 @@ class SfqProcessManager {
 
         // 检查端口是否已被占用
         const port = resolvePort();
-        const portCheck = await checkPortAvailable(SFQ_DEFAULT_HOST, port);
+        const host = SFQ_DEFAULT_HOST;
+        console.log(`[SFQ Start] 检查端口 ${host}:${port} 是否可用...`);
+
+        const portCheck = await checkPortAvailable(host, port);
+        console.log(`[SFQ Start] 端口检查结果: available=${portCheck.available}, isSfqServer=${portCheck.isSfqServer}`);
 
         if (!portCheck.available) {
             if (portCheck.isSfqServer) {
                 // 端口被SFQ服务器占用（可能是外部启动的）
                 // 如果能连接，说明SFQ服务器已经在运行，直接返回成功
                 const baseUrl = getBaseUrl();
+                console.log(`[SFQ Start] 检测到端口被SFQ服务器占用，尝试连接: ${baseUrl}`);
                 try {
                     // 快速检查服务器是否正常响应
                     const response = await fetch(`${baseUrl}/test/dump`, {
@@ -272,52 +355,117 @@ class SfqProcessManager {
                     });
                     if (response.ok) {
                         // SFQ服务器已经在运行，接受现有服务器
-                        console.warn(
-                            `[SFQ] 检测到端口 ${port} 上已有SFQ服务器在运行（可能由外部进程启动），将使用该服务器。`
-                        );
+                        console.log(`[SFQ Start] ✅ 检测到端口 ${port} 上已有SFQ服务器在运行（可能由外部进程启动），将使用该服务器。`);
                         // 尝试获取PID（通过lsof命令，可选）
+                        try {
+                            const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
+                            const pid = stdout.trim();
+                            console.log(`[SFQ Start] 外部SFQ服务器PID: ${pid || "未知"}`);
+                        } catch {
+                            // 忽略获取PID失败
+                        }
                         return {
                             pid: 0, // 无法确定PID
                             startedAt: Date.now(), // 使用当前时间作为近似值
                             baseUrl,
                         };
+                    } else {
+                        console.error(`[SFQ Start] ❌ SFQ服务器响应异常: ${response.status} ${response.statusText}`);
                     }
                 } catch (err) {
                     // 连接失败，但之前检测到是SFQ服务器，可能是临时问题
+                    console.error(`[SFQ Start] ❌ 无法连接到SFQ服务器:`, err);
                     throw new Error(
-                        `端口 ${port} 被SFQ服务器占用，但无法正常访问。请检查服务器状态或先停止现有进程。`
+                        `端口 ${port} 被SFQ服务器占用，但无法正常访问。请检查服务器状态或先停止现有进程。错误: ${err instanceof Error ? err.message : String(err)}`
                     );
                 }
             } else {
+                console.error(`[SFQ Start] ❌ 端口 ${port} 已被占用，但不是SFQ服务器`);
+                // 尝试获取占用端口的进程信息
+                try {
+                    const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
+                    const pid = stdout.trim();
+                    if (pid) {
+                        console.error(`[SFQ Start] 占用端口的进程PID: ${pid}`);
+                        try {
+                            const { stdout: psOut } = await execAsync(`ps -p ${pid} -o cmd= 2>/dev/null || echo ""`);
+                            console.error(`[SFQ Start] 进程命令: ${psOut.trim() || "无法获取"}`);
+                        } catch {
+                            // 忽略
+                        }
+                    }
+                } catch {
+                    // 忽略
+                }
                 throw new Error(
                     `端口 ${port} 已被占用，但不是SFQ服务器。请先释放端口或检查是否有其他进程在使用。`
                 );
             }
         }
 
+        console.log(`[SFQ Start] 端口可用，准备启动SFQ服务器...`);
         const binPath = getBinaryPath();
-        await ensureExecutable(binPath);
+        console.log(`[SFQ Start] 二进制文件路径: ${binPath}`);
 
+        try {
+            await ensureExecutable(binPath);
+            console.log(`[SFQ Start] ✅ 二进制文件可执行`);
+        } catch (error) {
+            console.error(`[SFQ Start] ❌ 二进制文件检查失败:`, error);
+            throw error;
+        }
+
+        const spawnEnv = getSpawnEnv();
+        console.log(`[SFQ Start] 启动环境变量:`, {
+            ROCKET_ADDRESS: spawnEnv.ROCKET_ADDRESS,
+            ROCKET_PORT: spawnEnv.ROCKET_PORT,
+            PATH: (spawnEnv as any).PATH ? String((spawnEnv as any).PATH).substring(0, 50) + '...' : 'N/A',
+        });
+
+        console.log(`[SFQ Start] 执行命令: ${binPath}`);
         const child = spawn(binPath, [], {
-            env: getSpawnEnv(),
+            env: spawnEnv,
             stdio: "ignore",
         });
 
+        if (!child.pid) {
+            throw new Error("无法启动SFQ进程，spawn返回的进程没有PID");
+        }
+
+        console.log(`[SFQ Start] ✅ 进程已启动 (PID: ${child.pid})`);
         this.child = child;
         this.startedAt = Date.now();
 
         const cleanup = () => {
             if (this.child === child) {
+                console.log(`[SFQ Start] 清理进程引用 (PID: ${child.pid})`);
                 this.child = null;
                 this.startedAt = null;
             }
         };
-        child.once("exit", cleanup);
+        child.once("exit", (code, signal) => {
+            console.log(`[SFQ Start] 进程退出 (PID: ${child.pid}, code: ${code}, signal: ${signal})`);
+            cleanup();
+        });
 
+        child.on("error", (error) => {
+            console.error(`[SFQ Start] ❌ 进程错误 (PID: ${child.pid}):`, error);
+        });
+
+        const baseUrl = getBaseUrl();
+        console.log(`[SFQ Start] 等待服务器就绪: ${baseUrl}`);
         try {
-            await waitUntilReady(getBaseUrl());
+            await waitUntilReady(baseUrl);
+            console.log(`[SFQ Start] ✅ SFQ服务器启动成功 (PID: ${child.pid}, URL: ${baseUrl})`);
         } catch (error) {
+            console.error(`[SFQ Start] ❌ 等待服务器就绪失败:`, error);
+            console.log(`[SFQ Start] 尝试终止进程...`);
             child.kill("SIGTERM");
+            await sleep(1000);
+            if (!child.killed) {
+                console.log(`[SFQ Start] 进程未响应SIGTERM，发送SIGKILL...`);
+                child.kill("SIGKILL");
+            }
             cleanup();
             throw error;
         }
@@ -325,87 +473,139 @@ class SfqProcessManager {
         return {
             pid: child.pid ?? 0,
             startedAt: this.startedAt,
-            baseUrl: getBaseUrl(),
+            baseUrl,
         };
     }
 
     async stop(): Promise<StopResult> {
+        console.log(`[SFQ Stop] 开始停止SFQ服务器...`);
+
         // 如果管理器有自己的进程，先停止它
         if (this.child) {
             const child = this.child;
+            const pid = child.pid;
+            console.log(`[SFQ Stop] 停止管理的进程 (PID: ${pid})`);
+
             return new Promise<StopResult>((resolve) => {
-                child.once("exit", () => {
+                const timeout = setTimeout(() => {
+                    if (!child.killed) {
+                        console.log(`[SFQ Stop] 进程 ${pid} 未响应SIGTERM，发送SIGKILL...`);
+                        child.kill("SIGKILL");
+                    }
+                }, 5000);
+
+                child.once("exit", (code, signal) => {
+                    clearTimeout(timeout);
+                    console.log(`[SFQ Stop] ✅ 进程已退出 (PID: ${pid}, code: ${code}, signal: ${signal})`);
                     this.child = null;
                     this.startedAt = null;
                     resolve({ stopped: true });
                 });
-                child.kill("SIGTERM");
-                setTimeout(() => {
-                    if (!child.killed) {
-                        child.kill("SIGKILL");
-                    }
-                }, 5000);
+
+                console.log(`[SFQ Stop] 发送SIGTERM信号到进程 ${pid}...`);
+                try {
+                    child.kill("SIGTERM");
+                } catch (error) {
+                    console.error(`[SFQ Stop] ❌ 发送SIGTERM失败:`, error);
+                    clearTimeout(timeout);
+                    resolve({ stopped: false });
+                }
             });
         }
 
         // 如果没有管理的进程，检查端口是否被SFQ服务器占用
         const port = resolvePort();
-        const portCheck = await checkPortAvailable(SFQ_DEFAULT_HOST, port);
+        const host = SFQ_DEFAULT_HOST;
+        console.log(`[SFQ Stop] 没有管理的进程，检查端口 ${host}:${port}...`);
+
+        const portCheck = await checkPortAvailable(host, port);
+        console.log(`[SFQ Stop] 端口检查结果: available=${portCheck.available}, isSfqServer=${portCheck.isSfqServer}`);
 
         if (!portCheck.available && portCheck.isSfqServer) {
             // 端口被SFQ服务器占用，尝试通过lsof找到进程并关闭
             try {
                 // 使用lsof查找占用端口的进程PID
+                console.log(`[SFQ Stop] 查找占用端口 ${port} 的进程...`);
                 const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
                 const pid = stdout.trim();
 
                 if (pid) {
-                    console.log(`[SFQ] 检测到外部SFQ服务器进程 (PID: ${pid})，尝试关闭...`);
+                    console.log(`[SFQ Stop] 检测到外部SFQ服务器进程 (PID: ${pid})，尝试关闭...`);
                     try {
+                        // 先检查进程是否存在
+                        try {
+                            await execAsync(`kill -0 ${pid} 2>/dev/null`);
+                            console.log(`[SFQ Stop] 进程 ${pid} 存在，准备关闭...`);
+                        } catch {
+                            console.log(`[SFQ Stop] 进程 ${pid} 不存在，可能已经退出`);
+                            return { stopped: false };
+                        }
+
                         // 先发送SIGTERM信号
+                        console.log(`[SFQ Stop] 发送SIGTERM到进程 ${pid}...`);
                         await execAsync(`kill -TERM ${pid} 2>/dev/null || true`);
-                        // 等待2秒
-                        await sleep(2000);
+                        // 等待3秒（增加等待时间）
+                        await sleep(3000);
                         // 检查进程是否还在运行
                         try {
                             await execAsync(`kill -0 ${pid} 2>/dev/null`);
                             // 如果还在运行，发送SIGKILL
-                            console.log(`[SFQ] 进程 ${pid} 未响应SIGTERM，发送SIGKILL...`);
+                            console.log(`[SFQ Stop] 进程 ${pid} 未响应SIGTERM，发送SIGKILL...`);
                             await execAsync(`kill -KILL ${pid} 2>/dev/null || true`);
-                            await sleep(1000);
+                            await sleep(2000);
+                            // 再次检查，如果还在运行，尝试强制杀死整个进程组
+                            try {
+                                await execAsync(`kill -0 ${pid} 2>/dev/null`);
+                                console.log(`[SFQ Stop] 进程 ${pid} 仍未退出，尝试杀死进程组...`);
+                                // 尝试杀死进程组（包括子进程）
+                                await execAsync(`pkill -P ${pid} 2>/dev/null || true`);
+                                await execAsync(`kill -9 ${pid} 2>/dev/null || true`);
+                                await sleep(1000);
+                            } catch {
+                                // 进程已退出
+                            }
                         } catch {
                             // kill -0 失败说明进程已不存在，成功
+                            console.log(`[SFQ Stop] ✅ 进程 ${pid} 已退出`);
                         }
 
                         // 验证端口是否已释放
                         await sleep(500);
-                        const finalCheck = await checkPortAvailable(SFQ_DEFAULT_HOST, port);
+                        console.log(`[SFQ Stop] 验证端口 ${port} 是否已释放...`);
+                        const finalCheck = await checkPortAvailable(host, port);
                         if (finalCheck.available) {
-                            console.log(`[SFQ] 外部SFQ服务器进程已成功关闭`);
+                            console.log(`[SFQ Stop] ✅ 外部SFQ服务器进程已成功关闭，端口已释放`);
                             return { stopped: true };
                         } else {
+                            console.error(`[SFQ Stop] ❌ 进程已发送关闭信号，但端口 ${port} 仍被占用`);
                             throw new Error(`进程已发送关闭信号，但端口 ${port} 仍被占用`);
                         }
                     } catch (killError: any) {
+                        console.error(`[SFQ Stop] ❌ 关闭进程失败:`, killError);
                         throw new Error(`无法关闭进程 ${pid}: ${killError.message}`);
                     }
                 } else {
+                    console.log(`[SFQ Stop] 未找到占用端口的进程`);
                     return { stopped: false };
                 }
             } catch (error: any) {
                 // lsof或kill命令失败
-                console.error(`[SFQ] 关闭外部进程失败:`, error.message);
+                console.error(`[SFQ Stop] ❌ 关闭外部进程失败:`, error);
                 throw new Error(`无法关闭外部SFQ服务器: ${error.message}`);
             }
         }
 
         // 端口未被占用或不是SFQ服务器
+        console.log(`[SFQ Stop] 端口未被SFQ服务器占用，无需停止`);
         return { stopped: false };
     }
 
     async status(): Promise<StatusResult> {
+        console.log(`[SFQ Status] 检查SFQ服务器状态...`);
+
         // 先检查自己管理的进程
         if (this.isRunning() && this.child?.pid) {
+            console.log(`[SFQ Status] ✅ 管理的进程正在运行 (PID: ${this.child.pid})`);
             return {
                 running: true,
                 pid: this.child.pid,
@@ -416,20 +616,28 @@ class SfqProcessManager {
 
         // 如果没有管理的进程，先检查端口是否被占用
         const port = resolvePort();
+        const host = SFQ_DEFAULT_HOST;
+        console.log(`[SFQ Status] 没有管理的进程，检查端口 ${host}:${port}...`);
+
         let pid: number | null = null;
         try {
             const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
             const pidStr = stdout.trim();
             if (pidStr) {
                 pid = parseInt(pidStr, 10);
+                console.log(`[SFQ Status] 端口被占用，PID: ${pid}`);
+            } else {
+                console.log(`[SFQ Status] 端口未被占用`);
             }
-        } catch {
+        } catch (err) {
+            console.warn(`[SFQ Status] 获取PID失败:`, err);
             // 忽略获取PID失败
         }
 
         // 如果端口被占用，尝试访问SFQ服务器API验证
         if (pid) {
             const baseUrl = getBaseUrl();
+            console.log(`[SFQ Status] 尝试连接SFQ API: ${baseUrl}/test/dump`);
             try {
                 // 使用超时控制器
                 const controller = new AbortController();
@@ -442,11 +650,12 @@ class SfqProcessManager {
                         signal: controller.signal,
                     });
                     clearTimeout(timeoutId);
+                    console.log(`[SFQ Status] HTTP响应: ${response.status} ${response.statusText}`);
                 } catch (fetchErr: any) {
                     clearTimeout(timeoutId);
                     // 即使fetch失败，如果端口被占用且PID存在，也认为服务器可能在运行
                     // 可能是网络配置问题，但进程确实存在
-                    console.log(`[SFQ] Fetch失败但端口被占用 (PID: ${pid}): ${fetchErr?.message || "unknown"}`);
+                    console.warn(`[SFQ Status] ⚠️ Fetch失败但端口被占用 (PID: ${pid}): ${fetchErr?.message || "unknown"}`);
                     // 保守处理：端口被占用但没有验证，返回运行中
                     return {
                         running: true,

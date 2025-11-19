@@ -77,13 +77,34 @@ async function getRealContracts(api: ApiPromise) {
     console.log(`phalaRegistry中找到 ${registryContracts.length} 个合约`);
 
     for (const [key, value] of registryContracts) {
-      const contractKey = key.toString();
+      // 从存储键中提取合约ID（key.args[0] 是解码后的合约ID）
+      let contractId = '';
+      if (key && (key as any).args && (key as any).args.length > 0) {
+        const contractIdArg = (key as any).args[0];
+        if (contractIdArg && contractIdArg.toHex) {
+          contractId = contractIdArg.toHex();
+        } else if (contractIdArg && contractIdArg.toString) {
+          const str = contractIdArg.toString();
+          contractId = str.startsWith('0x') ? str : `0x${str}`;
+        } else {
+          contractId = String(contractIdArg);
+        }
+      } else {
+        // 如果无法从args提取，跳过这个条目
+        continue;
+      }
+      
       const contractInfo = value.toString();
+      
+      // 使用合约ID的后8位作为显示名称
+      const displayName = contractId.length >= 10 
+        ? contractId.substring(contractId.length - 8) 
+        : contractId.substring(2, 10);
 
       contracts.push({
-        id: `contract-${contractKey.substring(0, 16)}`,
-        name: `Contract ${contractKey.substring(contractKey.length - 8)}`,
-        address: contractKey,
+        id: `contract-${contractId.substring(2, 18)}`,
+        name: `Contract ${displayName}`,
+        address: contractId, // 使用真实的合约ID
         type: 'SGX',
         status: 'active',
         gasUsed: Math.floor(Math.random() * 1000000) + 100000,

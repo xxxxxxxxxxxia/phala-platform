@@ -145,6 +145,8 @@ export default function TEEVerificationPage() {
   const [currentSgxWorker, setCurrentSgxWorker] = useState<SGXWorker | null>(null);
   const [csvReportSuccessModalVisible, setCsvReportSuccessModalVisible] = useState(false);
   const [csvReportSuccessWorker, setCsvReportSuccessWorker] = useState<CSVWorker | null>(null);
+  const [csvVerifySuccessModalVisible, setCsvVerifySuccessModalVisible] = useState(false);
+  const [csvVerifySuccessWorker, setCsvVerifySuccessWorker] = useState<CSVWorker | null>(null);
   
   // SGX成功提示Modal状态
   const [sgxQuoteSuccessModalVisible, setSgxQuoteSuccessModalVisible] = useState(false);
@@ -289,7 +291,9 @@ export default function TEEVerificationPage() {
       setCsvVerifyReportData(prev => ({ ...prev, [worker.key]: verifyReportData }));
       setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'verified' }));
       
-      message.success('认证报告验证成功');
+      // 显示验证成功Modal
+      setCsvVerifySuccessWorker(worker);
+      setCsvVerifySuccessModalVisible(true);
     } catch (error: any) {
       setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'failed' }));
       message.error(error.response?.data?.message || '验证认证报告失败');
@@ -680,96 +684,59 @@ export default function TEEVerificationPage() {
     {
       title: '操作',
       key: 'action',
-      width: 180,
+      width: 140,
       render: (_: any, record: CSVWorker) => {
         const isLoading = csvLoading[record.key];
         const reportStatus = csvReportStatus[record.key] || 'idle';
         const verifyStatus = csvVerifyStatus[record.key] || 'idle';
         const params = csvParams[record.key];
 
-    // 下载认证文件菜单
-    const downloadAttestationMenu = {
-      items: [
-        {
-          key: 'report.cert',
-          label: '下载 report.cert',
-          icon: <DownloadOutlined />,
-          disabled: reportStatus !== 'generated',
-          onClick: () => handleDownloadCSVFile(record, 'report.cert'),
-        },
-        {
-          key: 'nonce.bin',
-          label: '下载 nonce.bin',
-          icon: <DownloadOutlined />,
-          disabled: reportStatus !== 'generated',
-          onClick: () => handleDownloadCSVFile(record, 'nonce.bin'),
-        },
-      ],
-    };
+        const buttonStyle = { 
+          width: '140px',
+          minWidth: '140px',
+          maxWidth: '140px'
+        };
 
-    return (
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        {/* 第一行：查询参数 */}
-                                        <Button
-          size="small"
-          icon={<SearchOutlined />}
-          loading={isLoading}
-          onClick={() => handleQueryCSVParams(record)}
-          disabled={record.status !== 'running'}
-                                            block
-        >
-          查询参数
-        </Button>
-        
-        {/* 第二行：生成认证报告 */}
-        <Button
-          size="small"
-                                            type="primary"
-          icon={<SafetyCertificateOutlined />}
-          loading={reportStatus === 'generating'}
-          onClick={() => handleGenerateCSVReport(record)}
-          disabled={record.status !== 'running'}
-          block
-        >
-          生成认证报告
-                                        </Button>
-        
-        {/* 第三行：下载认证文件 */}
-        <Dropdown menu={downloadAttestationMenu} trigger={['click']}>
-                                        <Button
-            size="small"
-            icon={<DownloadOutlined />}
-            disabled={reportStatus !== 'generated'}
-                                            block
-          >
-            下载认证文件 <DownOutlined />
-          </Button>
-        </Dropdown>
-        
-        {/* 第四行：验证和下载验证报告 */}
-        <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-          <Button
-            size="small"
-            icon={<FileProtectOutlined />}
-            loading={verifyStatus === 'verifying'}
-            onClick={() => handleVerifyCSVReport(record)}
-            disabled={reportStatus !== 'generated'}
-            style={{ flex: 1, minWidth: 0 }}
-          >
-            验证报告
-          </Button>
-          <Button
-            size="small"
-            icon={<DownloadOutlined />}
-            disabled={verifyStatus !== 'verified'}
-            onClick={() => handleDownloadCSVVerifyReport(record)}
-            style={{ flex: 1, minWidth: 0 }}
-          >
-            下载验证报告
-          </Button>
-        </div>
-      </Space>
-    );
+        return (
+          <Space direction="vertical" size={6} align="start">
+            {/* 查询参数 */}
+            <Button
+              size="small"
+              icon={<SearchOutlined />}
+              loading={isLoading}
+              onClick={() => handleQueryCSVParams(record)}
+              disabled={record.status !== 'running'}
+              style={buttonStyle}
+            >
+              查询参数
+            </Button>
+            
+            {/* 生成认证报告 */}
+            <Button
+              size="small"
+              type="primary"
+              icon={<SafetyCertificateOutlined />}
+              loading={reportStatus === 'generating'}
+              onClick={() => handleGenerateCSVReport(record)}
+              disabled={record.status !== 'running'}
+              style={buttonStyle}
+            >
+              生成认证报告
+            </Button>
+            
+            {/* 验证报告 */}
+            <Button
+              size="small"
+              icon={<FileProtectOutlined />}
+              loading={verifyStatus === 'verifying'}
+              onClick={() => handleVerifyCSVReport(record)}
+              disabled={reportStatus !== 'generated'}
+              style={buttonStyle}
+            >
+              验证报告
+            </Button>
+          </Space>
+        );
       },
     },
   ];
@@ -813,119 +780,72 @@ export default function TEEVerificationPage() {
       render: (_: any, record: SGXWorker) => {
         const isLoading = sgxLoading[record.id];
         return (
-                                <Button
+          <Button
             size="small"
-                                    icon={<SearchOutlined />}
+            icon={<SearchOutlined />}
             loading={isLoading}
             onClick={() => handleQuerySGXParams(record)}
           >
             查询
-                                </Button>
+          </Button>
         );
       },
     },
     {
       title: '操作',
       key: 'action',
-      width: 200,
+      width: 140,
       render: (_: any, record: SGXWorker) => {
-        const isLoading = sgxLoading[record.id];
         const reportStatus = sgxReportStatus[record.id] || {
           quote: 'idle',
           collateral: 'idle',
           verification: 'idle',
         };
-        const params = sgxParams[record.id];
 
-        // 下载文件菜单 - 显示所有已生成/获取的文件
-        const downloadMenuItems: any[] = [];
-        if (reportStatus.quote === 'generated' && reportStatus.quoteFilename && reportStatus.quoteData) {
-          downloadMenuItems.push({
-            key: 'quote',
-            label: '下载 Quote',
-            icon: <DownloadOutlined />,
-            onClick: () => handleDownloadSGXFile(record, 'quote'),
-          });
-        }
-        if (reportStatus.collateral === 'fetched' && reportStatus.collateralFilename && reportStatus.collateralFileData) {
-          downloadMenuItems.push({
-            key: 'collateral',
-            label: '下载 Collateral',
-            icon: <DownloadOutlined />,
-            onClick: () => handleDownloadSGXFile(record, 'collateral'),
-          });
-        }
-        if (reportStatus.verification === 'generated' && reportStatus.verificationFilename && reportStatus.verificationFileData) {
-          downloadMenuItems.push({
-            key: 'verification',
-            label: '下载验证报告',
-            icon: <DownloadOutlined />,
-            onClick: () => handleDownloadSGXFile(record, 'verification'),
-          });
-        }
-
-        const downloadMenu = downloadMenuItems.length > 0 ? { items: downloadMenuItems } : null;
+        const buttonStyle = { 
+          width: '140px',
+          minWidth: '140px',
+          maxWidth: '140px'
+        };
 
         return (
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            {/* 第一行：生成认证报告 */}
+          <Space direction="vertical" size={6} align="start">
+            {/* 生成认证报告 */}
             <Button
-                                                size="small"
-                                            type="primary"
+              size="small"
+              type="primary"
               icon={<SafetyCertificateOutlined />}
               loading={reportStatus.quote === 'generating'}
               onClick={() => handleGenerateSGXQuote(record)}
-              block
+              style={buttonStyle}
             >
               生成认证报告
-                                        </Button>
+            </Button>
             
-            {/* 第三行：获取Collateral */}
-                                        <Button
+            {/* 获取Collateral */}
+            <Button
               size="small"
               icon={<DatabaseOutlined />}
               loading={reportStatus.collateral === 'fetching'}
               onClick={() => handleGetCollateral(record)}
               disabled={reportStatus.quote !== 'generated'}
-              block
+              style={buttonStyle}
             >
               获取Collateral
-                                        </Button>
+            </Button>
             
-            {/* 第四行：生成验证报告 */}
-                                        <Button
+            {/* 生成验证报告 */}
+            <Button
               size="small"
               icon={<FileProtectOutlined />}
               loading={reportStatus.verification === 'generating'}
               onClick={() => handleGenerateSGXVerification(record)}
               disabled={reportStatus.quote !== 'generated' || reportStatus.collateral !== 'fetched'}
-              block
+              style={buttonStyle}
             >
               生成验证报告
-                                        </Button>
-            
-            {/* 第五行：下载文件 */}
-            {downloadMenu ? (
-              <Dropdown menu={downloadMenu} trigger={['click']}>
-                                        <Button
-                  size="small"
-                  icon={<DownloadOutlined />}
-                  block
-                >
-                  下载文件 <DownOutlined />
-                                        </Button>
-              </Dropdown>
-            ) : (
-                                        <Button
-                size="small"
-                icon={<DownloadOutlined />}
-                disabled
-                block
-              >
-                下载文件 <DownOutlined />
-                                        </Button>
-            )}
-                                    </Space>
+            </Button>
+          </Space>
         );
       },
     },
@@ -1084,9 +1004,32 @@ export default function TEEVerificationPage() {
           open={csvReportSuccessModalVisible}
           onCancel={() => setCsvReportSuccessModalVisible(false)}
           footer={[
-            <Button key="close" type="primary" onClick={() => setCsvReportSuccessModalVisible(false)}>
-              确定
-            </Button>
+            <Button key="close" onClick={() => setCsvReportSuccessModalVisible(false)}>
+              关闭
+            </Button>,
+            <Button 
+              key="download-nonce" 
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (csvReportSuccessWorker) {
+                  handleDownloadCSVFile(csvReportSuccessWorker, 'nonce.bin');
+                }
+              }}
+            >
+              下载 nonce.bin
+            </Button>,
+            <Button 
+              key="download-report" 
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (csvReportSuccessWorker) {
+                  handleDownloadCSVFile(csvReportSuccessWorker, 'report.cert');
+                }
+              }}
+            >
+              下载 report.cert
+            </Button>,
           ]}
           width={500}
         >
@@ -1101,6 +1044,46 @@ export default function TEEVerificationPage() {
                             </div>
         </Modal>
 
+        {/* CSV Worker 验证报告成功提示Modal */}
+        <Modal
+          title={
+            <Space>
+              <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '20px' }} />
+              <span>验证报告生成成功</span>
+            </Space>
+          }
+          open={csvVerifySuccessModalVisible}
+          onCancel={() => setCsvVerifySuccessModalVisible(false)}
+          footer={[
+            <Button key="close" onClick={() => setCsvVerifySuccessModalVisible(false)}>
+              关闭
+            </Button>,
+            <Button 
+              key="download-verify" 
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (csvVerifySuccessWorker) {
+                  handleDownloadCSVVerifyReport(csvVerifySuccessWorker);
+                }
+              }}
+            >
+              下载验证报告
+            </Button>,
+          ]}
+          width={500}
+        >
+          <div style={{ padding: '20px 0', textAlign: 'center' }}>
+            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+              {csvVerifySuccessWorker?.name} 的验证报告已成功生成
+            </Typography.Title>
+            <Text type="secondary">
+              您现在可以下载验证报告文件。
+            </Text>
+          </div>
+        </Modal>
+
         {/* SGX Worker 生成认证报告（Quote）成功提示Modal */}
         <Modal
           title={
@@ -1112,9 +1095,21 @@ export default function TEEVerificationPage() {
           open={sgxQuoteSuccessModalVisible}
           onCancel={() => setSgxQuoteSuccessModalVisible(false)}
           footer={[
-            <Button key="close" type="primary" onClick={() => setSgxQuoteSuccessModalVisible(false)}>
-              确定
-            </Button>
+            <Button key="close" onClick={() => setSgxQuoteSuccessModalVisible(false)}>
+              关闭
+            </Button>,
+            <Button 
+              key="download-quote" 
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (sgxSuccessWorker) {
+                  handleDownloadSGXFile(sgxSuccessWorker, 'quote');
+                }
+              }}
+            >
+              下载 Quote
+            </Button>,
           ]}
           width={500}
         >
@@ -1140,9 +1135,21 @@ export default function TEEVerificationPage() {
           open={sgxCollateralSuccessModalVisible}
           onCancel={() => setSgxCollateralSuccessModalVisible(false)}
           footer={[
-            <Button key="close" type="primary" onClick={() => setSgxCollateralSuccessModalVisible(false)}>
-              确定
-            </Button>
+            <Button key="close" onClick={() => setSgxCollateralSuccessModalVisible(false)}>
+              关闭
+            </Button>,
+            <Button 
+              key="download-collateral" 
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (sgxSuccessWorker) {
+                  handleDownloadSGXFile(sgxSuccessWorker, 'collateral');
+                }
+              }}
+            >
+              下载 Collateral
+            </Button>,
           ]}
           width={500}
         >
@@ -1168,9 +1175,49 @@ export default function TEEVerificationPage() {
           open={sgxVerificationSuccessModalVisible}
           onCancel={() => setSgxVerificationSuccessModalVisible(false)}
           footer={[
-            <Button key="close" type="primary" onClick={() => setSgxVerificationSuccessModalVisible(false)}>
-              确定
-            </Button>
+            <Button key="close" onClick={() => setSgxVerificationSuccessModalVisible(false)}>
+              关闭
+            </Button>,
+            <Button 
+              key="download-quote" 
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (sgxSuccessWorker) {
+                  const status = sgxReportStatus[sgxSuccessWorker.id];
+                  if (status?.quote === 'generated') {
+                    handleDownloadSGXFile(sgxSuccessWorker, 'quote');
+                  }
+                }
+              }}
+            >
+              下载 Quote
+            </Button>,
+            <Button 
+              key="download-collateral" 
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (sgxSuccessWorker) {
+                  const status = sgxReportStatus[sgxSuccessWorker.id];
+                  if (status?.collateral === 'fetched') {
+                    handleDownloadSGXFile(sgxSuccessWorker, 'collateral');
+                  }
+                }
+              }}
+            >
+              下载 Collateral
+            </Button>,
+            <Button 
+              key="download-verification" 
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => {
+                if (sgxSuccessWorker) {
+                  handleDownloadSGXFile(sgxSuccessWorker, 'verification');
+                }
+              }}
+            >
+              下载验证报告
+            </Button>,
           ]}
           width={500}
         >

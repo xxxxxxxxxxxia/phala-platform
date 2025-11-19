@@ -3,7 +3,7 @@
 echo "🔧 修复依赖冲突问题..."
 
 # 进入项目目录
-cd /root/tmp/my-phala-platform
+cd /root/tmp/phala-platform
 
 echo "📦 清理现有的 node_modules..."
 rm -rf node_modules

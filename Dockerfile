@@ -1,15 +1,11 @@
 # 多阶段构建 - 构建阶段
-FROM node:18-alpine AS builder
+# 使用基础镜像 chain-base（包含已安装的依赖）
+FROM chain-base:latest AS builder
 
 # 设置工作目录
 WORKDIR /app
 
-# 复制package文件
-COPY package*.json ./
-COPY pnpm-lock.yaml* ./
-
-# 安装依赖 - 使用legacy-peer-deps解决依赖冲突
-RUN npm install --legacy-peer-deps
+# 依赖已经在基础镜像中安装，这里不需要再安装
 
 # 复制源代码
 COPY . .

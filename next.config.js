@@ -57,10 +57,7 @@ const nextConfig = {
   },
   
   // 强制刷新配置
-  experimental: {
-    // 启用更严格的HMR
-    esmExternals: false,
-  },
+  // 注意：esmExternals 已移除，Next.js 不推荐修改此选项
   
   // 优化webpack
   webpack: (config, { dev, isServer }) => {
@@ -96,8 +93,8 @@ const nextConfig = {
           '**/src/app/management/register/**',
           '**/src/app/management/tools/**',
           '**/src/app/management/page.tsx', // 管理端首页
-          // 忽略其他页面
-          '**/src/app/polkadot-wall/**',
+          // 忽略其他页面（已恢复大屏编译）
+          // '**/src/app/polkadot-wall/**', // 已恢复，不再忽略
           // '**/src/app/developers/**',
           '**/src/app/providers/**',
           '**/src/app/scenarios/**',
@@ -191,7 +188,7 @@ const nextConfig = {
   },
   
   // 减少输出文件大小
-  outputFileTracingRoot: '/home/user1/Desktop/tmp/phala-blockchain/my-phala-platform',
+  // outputFileTracingRoot 已移除，让 Next.js 自动检测（在 Docker 中工作目录为 /app）
   
   // 启用压缩
   compress: true,

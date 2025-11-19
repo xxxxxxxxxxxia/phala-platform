@@ -205,7 +205,7 @@ export default function PortalPage() {
                         链计算 · TEE
                     </div>
                     <Title level={1} className={styles.heroTitle}>
-                        构建下一代 <span className={styles.heroHighlight}>隐私计算门户</span>
+                        构建下一代 <span className={styles.heroHighlight}>分布式、高可信、多链接的先进计算平台</span>
                     </Title>
                     <Paragraph className={styles.heroSubtitle}>
                         连接区块链、TEE 与多方应用生态，为管理员、资源提供方、应用开发者以及业务场景提供一站式入口，快速启用可信计算能力。
@@ -236,6 +236,14 @@ export default function PortalPage() {
                                             style={{
                                                 height: '100%',
                                                 textAlign: 'center',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                            }}
+                                            bodyStyle={{
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                flex: 1,
+                                                padding: '24px',
                                             }}
                                         >
                                             <div style={{
@@ -265,12 +273,23 @@ export default function PortalPage() {
                                             <Paragraph style={{
                                                 fontSize: 14,
                                                 color: '#6b7280',
-                                                marginBottom: 12,
-                                                minHeight: 40
+                                                marginBottom: 0,
+                                                flex: 1,
+                                                display: 'flex',
+                                                alignItems: 'flex-start',
+                                                justifyContent: 'center',
+                                                minHeight: 48
                                             }}>
                                                 {card.description}
                                             </Paragraph>
-                                            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'center',
+                                                gap: 8,
+                                                alignItems: 'center',
+                                                flexWrap: 'wrap',
+                                                marginTop: '16px'
+                                            }}>
                                                 {card.tag && (
                                                     <Tag style={{
                                                         background: '#eff6ff',
@@ -294,13 +313,21 @@ export default function PortalPage() {
                                             </div>
                                         </Card>
                                     ) : (
-                                        <Link href={card.href}>
+                                        <Link href={card.href} style={{ height: '100%', display: 'block' }}>
                                             <Card
                                                 hoverable
                                                 className={styles.portalCard}
                                                 style={{
                                                     height: '100%',
                                                     textAlign: 'center',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                }}
+                                                bodyStyle={{
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    flex: 1,
+                                                    padding: '24px',
                                                 }}
                                             >
                                                 <div style={{
@@ -330,12 +357,23 @@ export default function PortalPage() {
                                                 <Paragraph style={{
                                                     fontSize: 14,
                                                     color: '#6b7280',
-                                                    marginBottom: 12,
-                                                    minHeight: 40
+                                                    marginBottom: 0,
+                                                    flex: 1,
+                                                    display: 'flex',
+                                                    alignItems: 'flex-start',
+                                                    justifyContent: 'center',
+                                                    minHeight: 48
                                                 }}>
                                                     {card.description}
                                                 </Paragraph>
-                                                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'center',
+                                                    gap: 8,
+                                                    alignItems: 'center',
+                                                    flexWrap: 'wrap',
+                                                    marginTop: '16px'
+                                                }}>
                                                     {card.tag && (
                                                         <Tag style={{
                                                             background: '#eff6ff',

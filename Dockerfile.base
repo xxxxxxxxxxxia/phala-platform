@@ -1,0 +1,18 @@
+# 基础镜像 - 包含 Node.js 和已安装的依赖
+# 这个镜像只会在 package.json 或 package-lock.json 变化时重新构建
+FROM node:18-alpine
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制 package 文件
+COPY package*.json ./
+COPY package-lock.json* ./
+
+# 安装所有依赖（包括开发依赖，因为构建时需要）
+RUN npm install --legacy-peer-deps && npm cache clean --force
+
+# 标记为基础镜像
+LABEL image.type="base"
+LABEL image.name="chain-base"
+

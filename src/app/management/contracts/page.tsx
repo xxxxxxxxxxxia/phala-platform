@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Button, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Modal, Descriptions, Badge, Tooltip, Timeline, Rate, Switch, Upload, message, Form, Input, InputNumber, Select } from 'antd';
+import { Card, Row, Col, Statistic, Button, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Modal, Descriptions, Badge, Tooltip, Timeline, Switch, Upload, message, Form, Input, InputNumber, Select } from 'antd';
 import DeployApp from '@/components/App';
 import { FileProtectOutlined, LockOutlined, SafetyCertificateOutlined, CodeOutlined, ReloadOutlined, EyeOutlined, InfoCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, UploadOutlined, PlusOutlined, FileTextOutlined, ApiOutlined, MonitorOutlined } from '@ant-design/icons';
 // import ReactECharts from 'echarts-for-react'; // 移除复杂图表组件
@@ -149,7 +149,7 @@ export default function ContractsPage() {
     try {
       // 先尝试真实API，如果超时则回退到快速API
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超时
 
       try {
         const response = await fetch('/api/contracts/real', {
@@ -571,16 +571,9 @@ export default function ContractsPage() {
         };
         const statusInfo = statusMap[status] || { color: 'default', text: status.toUpperCase() };
         return (
-          <Space direction="vertical" size="small">
-            <Tag color={statusInfo.color}>
-              {statusInfo.text}
-            </Tag>
-            {isTokenomicContract(record) && (
-              <Tag color="cyan" style={{ fontSize: '10px' }}>
-                🚀 支持调用
-              </Tag>
-            )}
-          </Space>
+          <Tag color={statusInfo.color}>
+            {statusInfo.text}
+          </Tag>
         );
       },
     },
@@ -853,9 +846,6 @@ export default function ContractsPage() {
                     selectedContract.status === 'inactive' ? '已停止' :
                       selectedContract.status === 'pending' ? '等待中' : '错误'}
                 </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="安全评分">
-                <Rate disabled defaultValue={(selectedContract.securityScore || 0) / 20} count={5} />
               </Descriptions.Item>
               <Descriptions.Item label="合约所有者">{selectedContract.owner}</Descriptions.Item>
               <Descriptions.Item label="版本">{selectedContract.version}</Descriptions.Item>

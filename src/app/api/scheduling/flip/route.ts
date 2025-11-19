@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
     const action = request.nextUrl.searchParams.get("action");
+    console.log(`[SFQ Flip API] 收到请求: action=${action}`);
 
     if (action !== "sfq-status") {
         return NextResponse.json(
@@ -19,12 +20,16 @@ export async function GET(request: NextRequest) {
 
     const manager = getSfqManager();
     const status = await manager.status();
+    console.log(`[SFQ Flip API] 管理器状态:`, status);
 
     try {
         if (!status.running) {
+            console.log(`[SFQ Flip API] 服务器未运行，返回未运行状态`);
             throw new Error("SFQ 服务器未运行");
         }
+        console.log(`[SFQ Flip API] 服务器运行中，获取dump数据...`);
         const dump = await getSfqDumpData();
+        console.log(`[SFQ Flip API] ✅ 返回运行中状态`);
         return NextResponse.json({
             success: true,
             available: true,
@@ -37,6 +42,7 @@ export async function GET(request: NextRequest) {
         });
     } catch (error: any) {
         const running = status.running && !/未运行/.test(error?.message || "");
+        console.log(`[SFQ Flip API] 错误处理: running=${running}, error=${error?.message}`);
         const payload = {
             success: false,
             available: false,
@@ -52,6 +58,7 @@ export async function GET(request: NextRequest) {
                 },
         };
 
+        console.log(`[SFQ Flip API] 返回状态: available=${payload.available}, status=${payload.status}`);
         return NextResponse.json(payload, { status: running ? 500 : 200 });
     }
 }

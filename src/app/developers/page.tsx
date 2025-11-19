@@ -111,39 +111,44 @@ export default function DevelopersPage() {
                 </section>
 
                 <section className={styles.section}>
-                    <Title level={3} className={styles.sectionTitle}>
-                        资源列表
-                    </Title>
-                    <Row gutter={[24, 24]}>
-                        {sdkList.map((sdk) => (
-                            <Col xs={24} md={8} key={sdk.name}>
-                                <Card className={styles.portalCard}>
-                                    <Title level={4} className={developersStyles.developersCardTitle}>
-                                        {sdk.name}
-                                    </Title>
-                                    <Paragraph className={developersStyles.developersCardVersion}>{sdk.version}</Paragraph>
-                                    <Paragraph className={developersStyles.developersCardDesc}>{sdk.desc}</Paragraph>
-                                    <Button type="link" className={developersStyles.developersCardLink}>
-                                        资源监控
-                                    </Button>
-                                </Card>
+                    <Card className={developersStyles.resourcesQuickStartCard}>
+                        <Row gutter={[32, 32]}>
+                            <Col xs={24} lg={12}>
+                                <Title level={3} className={developersStyles.resourcesQuickStartTitle}>
+                                    资源列表
+                                </Title>
+                                <Row gutter={[16, 16]}>
+                                    {sdkList.map((sdk, index) => (
+                                        <Col xs={24} key={sdk.name}>
+                                            <Card className={developersStyles.resourceItemCard} data-resource-index={index}>
+                                                <Title level={4} className={developersStyles.developersCardTitle}>
+                                                    {sdk.name}
+                                                </Title>
+                                                <Paragraph className={developersStyles.developersCardVersion}>{sdk.version}</Paragraph>
+                                                <Paragraph className={developersStyles.developersCardDesc}>{sdk.desc}</Paragraph>
+                                                <Button type="link" className={developersStyles.developersCardLink}>
+                                                    资源监控
+                                                </Button>
+                                            </Card>
+                                        </Col>
+                                    ))}
+                                </Row>
                             </Col>
-                        ))}
-                    </Row>
-                </section>
-
-                <section className={styles.section}>
-                    <Title level={3} className={styles.sectionTitle}>
-                        快速入门
-                    </Title>
-                    <Steps
-                        className={developersStyles.developersSteps}
-                        direction="vertical"
-                        items={quickStartSteps.map((s, index) => ({
-                            title: `Step ${index + 1}`,
-                            description: s,
-                        }))}
-                    />
+                            <Col xs={24} lg={12}>
+                                <Title level={3} className={developersStyles.resourcesQuickStartTitle}>
+                                    快速入门
+                                </Title>
+                                <Steps
+                                    className={developersStyles.developersSteps}
+                                    direction="vertical"
+                                    items={quickStartSteps.map((s, index) => ({
+                                        title: `Step ${index + 1}`,
+                                        description: s,
+                                    }))}
+                                />
+                            </Col>
+                        </Row>
+                    </Card>
                 </section>
 
                 {/* <section className={styles.section}>

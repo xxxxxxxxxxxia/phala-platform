@@ -358,6 +358,7 @@ export default function HomePage() {
   const [workerLoading, setWorkerLoading] = useState(false);
   const [scenarioRunning, setScenarioRunning] = useState<string | null>(null);
   const [scenarioResult, setScenarioResult] = useState<ScenarioResult | null>(null);
+  const [addContractAddress, setAddContractAddress] = useState<string>("");
   const [addInputs, setAddInputs] = useState({ a: 1, b: 2 });
   const [addWorkerEndpoint, setAddWorkerEndpoint] = useState<string | undefined>();
   const [addResult, setAddResult] = useState<any>(null);
@@ -526,11 +527,14 @@ export default function HomePage() {
   const loadSFQStatus = useCallback(async () => {
     setSfqLoading(true);
     try {
+      console.log("[前端] 开始加载SFQ状态...");
       const response = await fetch("/api/scheduling/flip?action=sfq-status");
       const data = await response.json();
+      console.log("[前端] SFQ状态响应:", data);
+      console.log("[前端] SFQ可用状态:", data.available);
       setSfqStatus(data);
     } catch (error) {
-      console.error("Error loading SFQ status:", error);
+      console.error("[前端] 加载SFQ状态失败:", error);
       setSfqStatus({ success: false, available: false, status: "SFQ服务器未运行" });
     } finally {
       setSfqLoading(false);
@@ -604,16 +608,39 @@ export default function HomePage() {
   const stopSFQServer = async () => {
     setSfqControlLoading(true);
     try {
+      console.log("[前端] 开始停止SFQ服务器...");
       const response = await fetch("/api/scheduling/sfq?action=stop");
       const data = await response.json();
+      console.log("[前端] 停止服务器响应:", data);
+
       if (data.success) {
-        message.success("SFQ 服务器已停止");
-        await loadSFQStatus();
+        const stopped = data.data?.stopped;
+        console.log("[前端] 停止结果:", stopped);
+
+        if (stopped) {
+          message.success("SFQ 服务器已停止");
+          // 等待一段时间确保进程完全停止
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          // 强制刷新状态
+          await loadSFQStatus();
+          // 再等待一下，再次刷新确保状态正确
+          await new Promise(resolve => setTimeout(resolve, 500));
+          await loadSFQStatus();
+        } else {
+          message.warning("SFQ 服务器未在运行或已停止");
+          await loadSFQStatus();
+        }
       } else {
+        console.error("[前端] 停止失败:", data.error);
         message.error(data.error || "SFQ 服务器停止失败");
+        // 即使失败也刷新状态
+        await loadSFQStatus();
       }
     } catch (error: any) {
+      console.error("[前端] 停止服务器异常:", error);
       message.error(error?.message || "SFQ 服务器停止失败");
+      // 异常时也刷新状态
+      await loadSFQStatus();
     } finally {
       setSfqControlLoading(false);
     }
@@ -648,10 +675,15 @@ export default function HomePage() {
   };
 
   const runAddQuery = async () => {
+    if (!addContractAddress || addContractAddress.trim() === "") {
+      message.error("请先输入合约地址");
+      return;
+    }
     setAddLoading(true);
     setAddResult(null);
     try {
       const params = new URLSearchParams({
+        contractAddress: addContractAddress.trim(),
         a: addInputs.a.toString(),
         b: addInputs.b.toString(),
       });
@@ -660,13 +692,19 @@ export default function HomePage() {
       }
       const response = await fetch(`/api/contracts/add-query?${params.toString()}`);
       if (!response.ok) {
-        throw new Error("查询失败");
+        const errorData = await response.json().catch(() => ({ error: "查询失败" }));
+        throw new Error(errorData.error || "查询失败");
       }
       const data = await response.json();
-      setAddResult(data);
-      message.success("查询成功");
+      if (data.success) {
+        setAddResult(data);
+        message.success("查询成功");
+      } else {
+        throw new Error(data.error || "查询失败");
+      }
     } catch (error: any) {
       message.error(error?.message || "查询失败");
+      setAddResult({ success: false, error: error?.message || "查询失败" });
     } finally {
       setAddLoading(false);
     }
@@ -1728,39 +1766,59 @@ export default function HomePage() {
                     <Row gutter={[16, 16]}>
                       <Col span={24}>
                         <Space direction="vertical" size="small" style={{ width: "100%" }}>
-                          <Text strong>选择 Worker</Text>
+                          <Text strong>合约地址</Text>
+                          <Input
+                            placeholder="输入合约地址（0x开头的64位十六进制）"
+                            value={addContractAddress}
+                            onChange={(e) => setAddContractAddress(e.target.value)}
+                            allowClear
+                            style={{ width: "100%" }}
+                          />
+                          <Text type="secondary" style={{ fontSize: "12px" }}>
+                            提示：可以从隐私合约页面选择已部署的 phat_hello_add 合约地址
+                          </Text>
+                        </Space>
+                      </Col>
+                      <Col span={24}>
+                        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                          <Text strong>选择 Worker（可选）</Text>
                           <Select
-                            placeholder="选择 worker"
+                            placeholder="选择 worker（留空则使用默认worker）"
                             options={workerSelectOptions}
                             value={addWorkerEndpoint}
                             onChange={(value) => setAddWorkerEndpoint(value)}
                             allowClear
+                            style={{ width: "100%" }}
                           />
                         </Space>
                       </Col>
                       <Col span={12}>
-                        <Text type="secondary">参数 A</Text>
-                        <InputNumber
-                          min={0}
-                          max={1_000_000}
-                          value={addInputs.a}
-                          onChange={(value) =>
-                            setAddInputs((prev) => ({ ...prev, a: typeof value === "number" ? value : prev.a }))
-                          }
-                          style={{ width: "100%" }}
-                        />
+                        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                          <Text strong>参数 A</Text>
+                          <InputNumber
+                            min={0}
+                            max={1_000_000}
+                            value={addInputs.a}
+                            onChange={(value) =>
+                              setAddInputs((prev) => ({ ...prev, a: typeof value === "number" ? value : prev.a }))
+                            }
+                            style={{ width: "100%" }}
+                          />
+                        </Space>
                       </Col>
                       <Col span={12}>
-                        <Text type="secondary">参数 B</Text>
-                        <InputNumber
-                          min={0}
-                          max={1_000_000}
-                          value={addInputs.b}
-                          onChange={(value) =>
-                            setAddInputs((prev) => ({ ...prev, b: typeof value === "number" ? value : prev.b }))
-                          }
-                          style={{ width: "100%" }}
-                        />
+                        <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                          <Text strong>参数 B</Text>
+                          <InputNumber
+                            min={0}
+                            max={1_000_000}
+                            value={addInputs.b}
+                            onChange={(value) =>
+                              setAddInputs((prev) => ({ ...prev, b: typeof value === "number" ? value : prev.b }))
+                            }
+                            style={{ width: "100%" }}
+                          />
+                        </Space>
                       </Col>
                       <Col span={24}>
                         <Button type="primary" block onClick={runAddQuery} loading={addLoading}>
@@ -1771,9 +1829,9 @@ export default function HomePage() {
                     {addResult && (
                       <Alert
                         style={{ marginTop: 16 }}
-                        type="success"
+                        type={addResult.success !== false ? "success" : "error"}
                         showIcon
-                        message="查询结果"
+                        message={addResult.success !== false ? "查询结果" : "查询失败"}
                         description={
                           <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
                             {JSON.stringify(addResult, null, 2)}

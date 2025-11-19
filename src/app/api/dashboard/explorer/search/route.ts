@@ -4,6 +4,33 @@ import { getApi } from '@/lib/phalaApi';
 const ACCOUNT_PAGE_SIZE = 5;
 const MAX_BLOCK_SCAN = 150;
 
+const PHA_DECIMALS = 12;
+const PHA_FACTOR = 10 ** PHA_DECIMALS;
+
+const toNumeric = (value: unknown): number => {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0;
+    }
+    if (typeof value === 'string') {
+        if (!value.trim()) return 0;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (value && typeof (value as { toString: () => string }).toString === 'function') {
+        const parsed = Number((value as { toString: () => string }).toString());
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+};
+
+const formatAmount = (value: number, fractionDigits = 4): string => {
+    if (!Number.isFinite(value)) return '0';
+    return value.toLocaleString('zh-CN', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: fractionDigits,
+    });
+};
+
 function extractTimestampFromBlock(block: any, fallbackTs: number) {
     const timestampExtrinsic = block.block.extrinsics.find(
         (ext: any) => ext.method.section === 'timestamp' && ext.method.method === 'set'
@@ -156,6 +183,16 @@ async function fetchAccountDetail(api: any, value: string, page: number) {
     const items: any[] = [];
     let matched = 0;
 
+    const freeRaw = toNumeric(human?.data?.free ?? 0);
+    const reservedRaw = toNumeric(human?.data?.reserved ?? 0);
+    const miscFrozenRaw = toNumeric(human?.data?.miscFrozen ?? 0);
+    const feeFrozenRaw = toNumeric(human?.data?.feeFrozen ?? 0);
+
+    const free = freeRaw / PHA_FACTOR;
+    const reserved = reservedRaw / PHA_FACTOR;
+    const miscFrozen = miscFrozenRaw / PHA_FACTOR;
+    const feeFrozen = feeFrozenRaw / PHA_FACTOR;
+
     for (let scanned = 0, blockNumber = latestNumber; scanned < MAX_BLOCK_SCAN && blockNumber >= 0; scanned++, blockNumber--) {
         if (items.length >= pageSize + 1) break;
 
@@ -198,9 +235,13 @@ async function fetchAccountDetail(api: any, value: string, page: number) {
                 address: value,
                 nonce: human?.nonce ?? 0,
                 free: human?.data?.free ?? '0',
+                freeFormatted: formatAmount(free),
                 reserved: human?.data?.reserved ?? '0',
+                reservedFormatted: formatAmount(reserved),
                 miscFrozen: human?.data?.miscFrozen ?? '0',
+                miscFrozenFormatted: formatAmount(miscFrozen),
                 feeFrozen: human?.data?.feeFrozen ?? '0',
+                feeFrozenFormatted: formatAmount(feeFrozen),
             },
             transactions: {
                 items: slicedItems,

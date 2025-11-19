@@ -58,3 +58,90 @@
 .developersSteps :global(.ant-steps-item-finish .ant-steps-item-icon .ant-steps-icon) {
     color: #1890ff !important;
 }
+
+/* 资源列表和快速入门合并卡片样式 */
+.resourcesQuickStartCard {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #dbeafe 100%) !important;
+    border: 1px solid rgba(37, 99, 235, 0.2) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 20px rgba(37, 99, 235, 0.1) !important;
+    padding: 32px !important;
+    margin-top: 0 !important;
+}
+
+.resourcesQuickStartCard :global(.ant-card-body) {
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+.resourcesQuickStartCard :global(.ant-card) {
+    background: transparent !important;
+}
+
+.resourcesQuickStartTitle {
+    color: #2563eb !important;
+    font-size: 24px !important;
+    font-weight: 600 !important;
+    margin-bottom: 24px !important;
+    padding-bottom: 16px;
+    border-bottom: 2px solid rgba(37, 99, 235, 0.2);
+}
+
+/* 资源项卡片样式 - 不同颜色主题 */
+.resourceItemCard {
+    border-radius: 12px !important;
+    transition: all 0.3s ease !important;
+    backdrop-filter: blur(10px) !important;
+    border-left: 4px solid !important;
+}
+
+/* 第一个资源项 - 蓝色主题 */
+.resourceItemCard[data-resource-index="0"] {
+    background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(219, 234, 254, 0.95) 100%) !important;
+    border-color: rgba(37, 99, 235, 0.3) !important;
+    border-left-color: #2563eb !important;
+}
+
+.resourceItemCard[data-resource-index="0"]:hover {
+    background: linear-gradient(135deg, rgba(239, 246, 255, 1) 0%, rgba(219, 234, 254, 1) 100%) !important;
+    border-color: rgba(37, 99, 235, 0.5) !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* 第二个资源项 - 紫色主题（深紫色） */
+.resourceItemCard[data-resource-index="1"] {
+    background: linear-gradient(135deg, rgba(243, 232, 255, 0.95) 0%, rgba(233, 213, 255, 0.95) 100%) !important;
+    border-color: rgba(168, 85, 247, 0.3) !important;
+    border-left-color: #9333ea !important;
+}
+
+.resourceItemCard[data-resource-index="1"]:hover {
+    background: linear-gradient(135deg, rgba(243, 232, 255, 1) 0%, rgba(233, 213, 255, 1) 100%) !important;
+    border-color: rgba(168, 85, 247, 0.5) !important;
+    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* 第三个资源项 - 紫色主题 */
+.resourceItemCard[data-resource-index="2"] {
+    background: linear-gradient(135deg, rgba(250, 245, 255, 0.95) 0%, rgba(243, 232, 255, 0.95) 100%) !important;
+    border-color: rgba(168, 85, 247, 0.3) !important;
+    border-left-color: #a855f7 !important;
+}
+
+.resourceItemCard[data-resource-index="2"]:hover {
+    background: linear-gradient(135deg, rgba(250, 245, 255, 1) 0%, rgba(243, 232, 255, 1) 100%) !important;
+    border-color: rgba(168, 85, 247, 0.5) !important;
+    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2) !important;
+    transform: translateY(-2px) !important;
+}
+
+.resourceItemCard :global(.ant-card-body) {
+    padding: 20px !important;
+    background: transparent !important;
+}
+
+.resourceItemCard :global(.ant-card) {
+    background: transparent !important;
+}

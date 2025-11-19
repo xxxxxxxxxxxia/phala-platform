@@ -50,7 +50,28 @@ import { useRouter } from "next/navigation";
 import PortalLayout from "@/components/layout/PortalLayout";
 import styles from "../../portal.module.css";
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
+
+const heroHighlights = [
+  {
+    label: "TEE类型",
+    value: "国产 Hygon CSV",
+  },
+  {
+    label: "调度延迟",
+    value: "< 3s 动态调度响应",
+  },
+  {
+    label: "部署方式",
+    value: "一键部署 · 自动配置",
+  },
+];
+
+const introChecklist = [
+  "一键导入 Docker Compose，自动生成 App ID 与哈希校验",
+  "支持 KMS 密钥提供者，保护敏感环境变量",
+  "支持查看 Dashboard 与日志",
+];
 
 interface CVMData {
   id: string;
@@ -582,7 +603,7 @@ function StartPageContent() {
       onOk: async () => {
         try {
           // 先停止
-          await rpcCall(bestHostIp, "StopVm", { id: vm.id });
+          await rpcCall(bestHostIp, "ShutdownVm", { id: vm.id });
           // 等待一下再启动
           setTimeout(async () => {
             await rpcCall(bestHostIp, "StartVm", { id: vm.id });
@@ -1271,49 +1292,49 @@ fi`,
       });
     }
 
-    // 停止（Kill）- 只在运行状态显示（紫色，暂停图标）
-    if (isRunning) {
-      items.push({
-        key: "stop",
-        label: (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              padding: "8px 12px",
-              color: "#fff",
-              width: "100%",
-              boxSizing: "border-box",
-              maxWidth: "100%",
-              overflow: "hidden",
-              fontWeight: 500,
-              textShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
-            }}
-          >
-            <StopOutlined
-              style={{
-                fontSize: "16px",
-                color: "#fff",
-                flexShrink: 0,
-                filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))",
-              }}
-            />
-            <span
-              style={{
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                fontSize: "14px",
-              }}
-            >
-              停止
-            </span>
-          </div>
-        ),
-        className: "menu-item-kill",
-      });
-    }
+    // // 停止（Kill）- 只在运行状态显示（紫色，暂停图标）
+    // if (isRunning) {
+    //   items.push({
+    //     key: "stop",
+    //     label: (
+    //       <div
+    //         style={{
+    //           display: "flex",
+    //           alignItems: "center",
+    //           gap: "10px",
+    //           padding: "8px 12px",
+    //           color: "#fff",
+    //           width: "100%",
+    //           boxSizing: "border-box",
+    //           maxWidth: "100%",
+    //           overflow: "hidden",
+    //           fontWeight: 500,
+    //           textShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
+    //         }}
+    //       >
+    //         <StopOutlined
+    //           style={{
+    //             fontSize: "16px",
+    //             color: "#fff",
+    //             flexShrink: 0,
+    //             filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))",
+    //           }}
+    //         />
+    //         <span
+    //           style={{
+    //             whiteSpace: "nowrap",
+    //             overflow: "hidden",
+    //             textOverflow: "ellipsis",
+    //             fontSize: "14px",
+    //           }}
+    //         >
+    //           停止
+    //         </span>
+    //       </div>
+    //     ),
+    //     className: "menu-item-kill",
+    //   });
+    // }
 
     // 删除（Remove）- 始终显示（橙色，垃圾桶图标）
     items.push({
@@ -1369,9 +1390,9 @@ fi`,
       case "shutdown":
         shutdownVm(vm.id);
         break;
-      case "stop":
-        stopVm(vm);
-        break;
+      // case "stop":
+      //   stopVm(vm);
+      //   break;
       case "restart":
         restartVm(vm);
         break;
@@ -1679,14 +1700,12 @@ fi`,
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
+            flexDirection: "column",
             marginBottom: "48px",
             gap: "24px",
-            flexWrap: "wrap",
           }}
         >
-          <div style={{ flex: 1, minWidth: "300px" }}>
+          <div style={{ width: "100%" }}>
             <div
               style={{
                 display: "flex",
@@ -1714,15 +1733,116 @@ fi`,
                   letterSpacing: "-0.5px",
                 }}
               >
-                机密虚拟机列表{/* CVMs */}
+                自主可信应用列表{/* CVMs */}
               </Title>
             </div>
-            {bestHostIp && (
-              <div
-                style={{
-                  marginTop: "16px",
-                }}
-              >
+            <Paragraph
+              style={{
+                marginTop: "12px",
+                color: "#4b5563",
+                fontSize: "15px",
+                lineHeight: 1.8,
+                fontWeight: 400,
+              }}
+            >
+              在这里统一查看并管理所有可信应用。通过国产 TEE 与调度网络协同，确保业务持续、可信、可观测。
+            </Paragraph>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px",
+                marginTop: "16px",
+                width: "100%",
+              }}
+            >
+              {heroHighlights.map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    flex: "1 1 180px",
+                    minWidth: "180px",
+                    background:
+                      "linear-gradient(135deg, rgba(64,158,255,0.12), rgba(99,102,241,0.12))",
+                    border: "1px solid rgba(99,102,241,0.15)",
+                    borderRadius: "14px",
+                    padding: "14px 18px",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      display: "block",
+                      fontSize: "12px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      color: "#6b7280",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    {item.label}
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: "15px",
+                      fontWeight: 600,
+                      color: "#111827",
+                    }}
+                  >
+                    {item.value}
+                  </Text>
+                </div>
+              ))}
+            </div>
+            <div
+              style={{
+                marginTop: "18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                background: "#f9fafb",
+                border: "1px solid #e5e7eb",
+                borderRadius: "14px",
+                padding: "16px 20px",
+              }}
+            >
+              {introChecklist.map((item) => (
+                <div
+                  key={item}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    color: "#4b5563",
+                    fontSize: "13px",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      background: "#10b981",
+                      boxShadow: "0 0 6px rgba(16,185,129,0.6)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+            <div
+              style={{
+                marginTop: "16px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                width: "100%",
+                gap: "16px",
+                flexWrap: "wrap",
+              }}
+            >
+              {bestHostIp && (
                 <div
                   style={{
                     padding: "10px 18px",
@@ -1801,82 +1921,81 @@ fi`,
                     }}
                   />
                 </div>
-              </div>
-            )}
+              )}
+              <Space
+                size="small"
+                align="center"
+                style={{
+                  display: "flex",
+                  flexShrink: 0,
+                }}
+              >
+                <Button
+                  type="primary"
+                  size="large"
+                  onClick={showDeployDialog}
+                  style={{
+                    background: "#409EFF",
+                    border: "none",
+                    borderRadius: "12px",
+                    padding: "10px 18px",
+                    fontSize: "15px",
+                    fontWeight: 500,
+                    width: "150px",
+                    height: "43px",
+                    boxShadow: "0 8px 24px rgba(64, 158, 255, 0.3)",
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                    color: "#fff",
+                    textShadow: "none",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#66b1ff";
+                    e.currentTarget.style.boxShadow =
+                      "0 12px 32px rgba(64, 158, 255, 0.4)";
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#409EFF";
+                    e.currentTarget.style.boxShadow =
+                      "0 8px 24px rgba(64, 158, 255, 0.3)";
+                    e.currentTarget.style.transform = "translateY(0)";
+                  }}
+                >
+                  部署
+                </Button>
+                <Button
+                  type="text"
+                  icon={<ReloadOutlined />}
+                  onClick={() => fetchVMList(true)}
+                  loading={loading}
+                  style={{
+                    color: "#909399",
+                    borderRadius: "50%",
+                    width: "40px",
+                    height: "40px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "#f5f7fa",
+                    border: "1px solid #dcdfe6",
+                    transition: "all 0.3s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#ecf5ff";
+                    e.currentTarget.style.borderColor = "#b3d8ff";
+                    e.currentTarget.style.color = "#409EFF";
+                    e.currentTarget.style.transform = "rotate(180deg)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#f5f7fa";
+                    e.currentTarget.style.borderColor = "#dcdfe6";
+                    e.currentTarget.style.color = "#909399";
+                    e.currentTarget.style.transform = "rotate(0deg)";
+                  }}
+                />
+              </Space>
+            </div>
           </div>
-          <Space
-            size="small"
-            align="center"
-            style={{
-              flexShrink: 0,
-              alignSelf: bestHostIp ? "flex-start" : "center",
-              marginTop: bestHostIp ? "64px" : "0",
-            }}
-          >
-            <Button
-              type="primary"
-              size="large"
-              onClick={showDeployDialog}
-              style={{
-                background: "#409EFF",
-                border: "none",
-                borderRadius: "12px",
-                padding: "10px 18px",
-                fontSize: "15px",
-                fontWeight: 500,
-                width: "150px",
-                height: "43px",
-                boxShadow: "0 8px 24px rgba(64, 158, 255, 0.3)",
-                transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                color: "#fff",
-                textShadow: "none",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#66b1ff";
-                e.currentTarget.style.boxShadow =
-                  "0 12px 32px rgba(64, 158, 255, 0.4)";
-                e.currentTarget.style.transform = "translateY(-2px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#409EFF";
-                e.currentTarget.style.boxShadow =
-                  "0 8px 24px rgba(64, 158, 255, 0.3)";
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
-            >
-              部署
-            </Button>
-            <Button
-              type="text"
-              icon={<ReloadOutlined />}
-              onClick={() => fetchVMList(true)}
-              loading={loading}
-              style={{
-                color: "#909399",
-                borderRadius: "50%",
-                width: "40px",
-                height: "40px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "#f5f7fa",
-                border: "1px solid #dcdfe6",
-                transition: "all 0.3s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#ecf5ff";
-                e.currentTarget.style.borderColor = "#b3d8ff";
-                e.currentTarget.style.color = "#409EFF";
-                e.currentTarget.style.transform = "rotate(180deg)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#f5f7fa";
-                e.currentTarget.style.borderColor = "#dcdfe6";
-                e.currentTarget.style.color = "#909399";
-                e.currentTarget.style.transform = "rotate(0deg)";
-              }}
-            />
-          </Space>
         </div>
 
         {/* CVM Cards Section */}

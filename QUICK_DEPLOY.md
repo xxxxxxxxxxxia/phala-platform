@@ -4,7 +4,7 @@
 
 ```bash
 # 进入项目目录
-cd /root/tmp/my-phala-platform
+cd /root/tmp/phala-platform
 
 # 运行一键部署脚本
 ./deploy.sh
@@ -14,8 +14,8 @@ cd /root/tmp/my-phala-platform
 
 ### 1. 停止现有容器
 ```bash
-docker stop my-phala-platform-frontend
-docker rm my-phala-platform-frontend
+docker stop phala-platform-frontend
+docker rm phala-platform-frontend
 ```
 
 ### 2. 修复服务器配置
@@ -36,14 +36,14 @@ EOF
 ### 3. 构建和启动
 ```bash
 # 构建镜像
-cd /root/tmp/my-phala-platform
-docker build -t my-phala-platform-frontend .
+cd /root/tmp/phala-platform
+docker build -t phala-platform-frontend .
 
 # 启动容器（关键：使用 Host 网络模式）
-docker run -d --name my-phala-platform-frontend \
+docker run -d --name phala-platform-frontend \
   --network host \
   -v /root/tmp/phala-blockchain-setup:/app/phala-blockchain-setup:ro \
-  my-phala-platform-frontend
+  phala-platform-frontend
 ```
 
 ### 4. 验证部署

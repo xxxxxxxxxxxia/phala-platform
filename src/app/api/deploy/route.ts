@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     // 尝试多个可能的临时目录位置
     const possibleTempDirs = [
       join(process.cwd(), 'temp'),
-      '/tmp/my-phala-platform',
+      '/tmp/phala-platform',
       '/app/temp',
       join(__dirname, '..', '..', '..', 'temp')
     ];

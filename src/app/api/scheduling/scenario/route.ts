@@ -36,14 +36,14 @@ const SCENARIOS: ScenarioConfig[] = [
     {
         id: "weight-distribution",
         name: "带权重调度",
-        description: "三个不同权重流（1:3:9）同时调度，观察资源是否按权重比例分配。高权重流应获得更多资源，表现为更多接受数、更少的积压和更快的处理速度。",
+        description: "三个不同权重流（1:2:3）同时调度，观察资源是否按权重比例分配。高权重流应获得更多资源，表现为更多接受数、更少的积压和更快的处理速度。",
         flows: [
-            // 权重1:3:9，总权重=13
+            // 权重1:2:3，总权重=6
             // 重要：所有流发送相同数量的请求，这样可以公平对比权重效果
             // 但高权重流应该处理得更快，从而接受更多请求
             { id: "weight-low", flow: "weight_low", weight: 1, cost: 40, requests: 40 },
-            { id: "weight-mid", flow: "weight_mid", weight: 3, cost: 40, requests: 40 },
-            { id: "weight-high", flow: "weight_high", weight: 9, cost: 40, requests: 40 },
+            { id: "weight-mid", flow: "weight_mid", weight: 2, cost: 40, requests: 40 },
+            { id: "weight-high", flow: "weight_high", weight: 3, cost: 40, requests: 40 },
         ],
     },
     {
@@ -103,6 +103,10 @@ async function runScenario(config: ScenarioConfig) {
             total: number;
             backlog: number;
             vClock: number;
+            vClockDelta?: number;
+            expectedAccepted?: number;
+            allocationRatio?: number;
+            normalizedAccepted?: number;
         }
     > = {};
 

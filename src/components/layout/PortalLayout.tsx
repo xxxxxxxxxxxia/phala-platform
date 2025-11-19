@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Button } from 'antd';
 import styles from './PortalLayout.module.css';
 
 interface PortalLayoutProps {
@@ -12,10 +11,11 @@ interface PortalLayoutProps {
 
 const navLinks = [
     { label: '门户首页', href: '/' },
-    { label: '资源提供', href: '/providers' },
-    { label: '应用开发', href: '/developers' },
+    { label: '资源提供方', href: '/providers' },
+    { label: '应用开发者', href: '/developers' },
+    { label: '系统管理端', href: '/management/login' },
     { label: '应用场景', href: '/#scenarios' },
-    { label: '链上大屏', href: '/polkadot-wall' },
+    { label: '系统大屏', href: '/polkadot-wall' },
 ];
 
 const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
@@ -86,6 +86,10 @@ const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
         if (href === '/#scenarios') {
             return pathname === '/' && currentHash === '#scenarios';
         }
+        // 系统管理端：如果当前路径是 /management/login 或任何 /management 下的路径，都算激活
+        if (href === '/management/login') {
+            return pathname.startsWith('/management');
+        }
         return pathname === href || pathname.startsWith(href + '/');
     };
 
@@ -108,11 +112,6 @@ const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
                         </Link>
                     ))}
                 </nav>
-                <Link href="/management/login">
-                    <Button type="primary" className={styles.headerButton}>
-                        进入管理端
-                    </Button>
-                </Link>
             </header>
 
             <main className={styles.main}>{children}</main>

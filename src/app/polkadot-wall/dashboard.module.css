@@ -302,7 +302,7 @@
 .statRow :global(.ant-statistic-content),
 .statRow3 :global(.ant-statistic-content),
 .statRow4 :global(.ant-statistic-content) {
-    color: #ffffff !important;
+    color: #ffffff;
     font-weight: 600;
     line-height: 1.2;
 }
@@ -328,14 +328,14 @@
 }
 
 .centerColumn :global(.ant-statistic-content) {
-    color: #ffffff !important;
+    color: #ffffff;
 }
 
 .centerColumn :global(.ant-statistic-content-prefix) {
     color: rgba(255, 255, 255, 0.75) !important;
 }
 
-/* 统计框 - 圆框样式 */
+/* 核心指标 - 长方形样式 */
 .statisticBox {
     display: flex;
     flex-direction: column;
@@ -343,10 +343,32 @@
     justify-content: center;
     padding: 12px;
     border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 12px;
-    background: rgba(86, 111, 196, 0.15);
+    border-radius: 14px;
+    background: linear-gradient(145deg, rgba(20, 30, 78, 0.9), rgba(61, 82, 155, 0.4));
     backdrop-filter: blur(5px);
     text-align: center;
+    min-height: 70px;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.25),
+        inset 0 -6px 14px rgba(4, 8, 26, 0.65),
+        0 10px 18px rgba(3, 6, 19, 0.75);
+    position: relative;
+    overflow: hidden;
+}
+
+.statisticBox::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 229, 255, 0.08);
+    background: radial-gradient(circle at 30% 20%, rgba(0, 229, 255, 0.15), transparent 55%);
+    pointer-events: none;
+}
+
+.statisticBox> :global(.ant-statistic) {
+    position: relative;
+    z-index: 1;
 }
 
 .statisticBox :global(.ant-statistic) {
@@ -394,11 +416,11 @@
 }
 
 .equalHeightTable {
-    height: 320px;
+    height: 260px;
 }
 
 .equalHeightTableFull {
-    height: 320px;
+    height: 260px;
 }
 
 .equalHeightTable :global(.ant-table-wrapper) {
@@ -468,16 +490,16 @@
     background: rgba(0, 229, 255, 0.1) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
     color: rgba(255, 255, 255, 0.85) !important;
-    font-size: 11px;
-    padding: 6px 8px;
+    font-size: 10px;
+    padding: 4px 8px;
     font-weight: 500;
 }
 
 .table :global(.ant-table-tbody > tr > td) {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
     color: rgba(243, 246, 255, 0.85) !important;
-    font-size: 11px;
-    padding: 6px 8px;
+    font-size: 10px;
+    padding: 4px 8px;
 }
 
 .table :global(.ant-table-tbody > tr:hover > td) {
@@ -509,7 +531,7 @@
 }
 
 .compactRow td {
-    padding: 4px 8px !important;
+    padding: 4px 6px !important;
     height: 26px;
     vertical-align: middle;
 }
@@ -816,6 +838,8 @@
 
 .resultCard {
     width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     border: 1px solid rgba(0, 229, 255, 0.2);
     border-radius: 16px;
     padding: 16px;
@@ -859,8 +883,9 @@
 .resultMetaItem {
     padding: 10px 12px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(0, 229, 255, 0.22);
+    background: radial-gradient(circle at top, rgba(0, 229, 255, 0.18), rgba(8, 16, 45, 0.92));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 20px rgba(1, 4, 18, 0.55);
 }
 
 .resultLabel {
@@ -909,8 +934,16 @@
 .resultListItem {
     padding: 10px 12px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    background: linear-gradient(145deg, rgba(8, 16, 45, 0.95), rgba(6, 23, 70, 0.92));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 18px rgba(1, 4, 18, 0.5);
+}
+
+.resultListPrimaryRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 
 .resultListPrimary {
@@ -923,8 +956,12 @@
 
 .resultListSecondary {
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.65);
-    margin-top: 6px;
+    color: rgba(255, 255, 255, 0.75);
+    white-space: nowrap;
+}
+
+.resultListPrimaryRow .resultListSecondary {
+    margin-top: 0;
 }
 
 .resultBadge {
@@ -1219,12 +1256,6 @@
     color: rgba(255, 255, 255, 0.75);
 }
 
-.rotationPagination :global(.ant-btn) {
-    height: 22px !important;
-    padding: 0 10px !important;
-    font-size: 11px !important;
-}
-
 .tablePagination,
 .accountPagination {
     margin-top: 8px;
@@ -1238,6 +1269,29 @@
 
 .accountPagination {
     margin-top: 12px;
+}
+
+.paginationButton {
+    min-width: 70px !important;
+    height: 24px !important;
+    padding: 0 10px !important;
+    border-radius: 999px !important;
+    font-size: 11px !important;
+}
+
+.paginationButton:disabled,
+.paginationButton[disabled] {
+    background: rgba(0, 136, 255, 0.55) !important;
+    border-color: rgba(0, 136, 255, 0.55) !important;
+    color: rgba(255, 255, 255, 0.82) !important;
+    opacity: 1 !important;
+}
+
+.paginationButton:disabled:hover,
+.paginationButton[disabled]:hover {
+    background: rgba(0, 136, 255, 0.55) !important;
+    border-color: rgba(0, 136, 255, 0.55) !important;
+    color: rgba(255, 255, 255, 0.82) !important;
 }
 
 .workerNotice {

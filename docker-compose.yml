@@ -6,7 +6,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: my-phala-platform-frontend
+    image: phala-platform-frontend
+    container_name: phala-platform-frontend
     restart: unless-stopped
     networks:
       - phala-network
@@ -23,7 +24,7 @@ services:
   # Nginx反向代理
   nginx:
     image: nginx:alpine
-    container_name: my-phala-platform-nginx
+    container_name: phala-platform-nginx
     restart: unless-stopped
     ports:
       - "3000:80"

@@ -1,0 +1,60 @@
+# 依赖目录（不需要复制，基础镜像中已有）
+node_modules
+npm-debug.log
+yarn-error.log
+
+# 构建产物（会在 Dockerfile 中重新构建）
+.next
+out
+dist
+build
+
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# 开发文件
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 测试和临时文件
+temp
+uploads
+*.log
+*.tmp
+
+# 文档和配置文件（不需要在镜像中）
+*.md
+!README.md
+docs
+DEPLOYMENT_GUIDE.md
+QUICK_DEPLOY.md
+CONFIG.md
+DASHBOARD_README.md
+测试用例.md
+
+# 脚本文件（不需要在镜像中）
+*.sh
+!deploy.sh
+
+# 其他
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# phala-blockchain-setup（通过挂载使用，不需要复制）
+phala-blockchain-setup
+
+# TypeScript 构建信息
+*.tsbuildinfo
+
+# 其他项目
+rust-verify-tool
+bin
+
