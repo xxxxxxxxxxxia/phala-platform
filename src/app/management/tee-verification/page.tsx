@@ -359,6 +359,9 @@ export default function TEEVerificationPage() {
   const handleQuerySGXParams = async (worker: SGXWorker) => {
     setSgxLoading(prev => ({ ...prev, [worker.id]: true }));
     try {
+      // 添加5秒延迟
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
       // 根据worker ID判断使用哪组硬件信息
       // worker1 使用第一组信息，其他worker使用第二组信息
       let hardwareInfo: Partial<SGXWorkerParams> = {};

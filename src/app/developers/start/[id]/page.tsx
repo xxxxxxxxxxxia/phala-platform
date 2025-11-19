@@ -487,10 +487,10 @@ export default function VmDetailPage() {
                             alignItems: 'center',
                             gap: 8,
                             padding: '8px 14px',
-                            borderRadius: 10,
-                            background: 'rgba(255,255,255,0.05)',
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            color: 'rgba(255,255,255,0.9)',
+                            borderRadius: 8,
+                            background: '#f5f5f5',
+                            border: 'none',
+                            color: '#666666',
                             textDecoration: 'none',
                         }}
                     >

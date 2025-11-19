@@ -16,7 +16,13 @@ const nextConfig = {
   // 优化编译
   experimental: {
     optimizeCss: true,
-    optimizePackageImports: ['antd', '@ant-design/icons', 'echarts', 'echarts-for-react'],
+    optimizePackageImports: [
+      'antd', 
+      '@ant-design/icons', 
+      'echarts', 
+      'echarts-for-react',
+      // 排除polkadot相关包，避免自动优化导致编译
+    ],
     // 启用 SWC 编译器优化（Next.js 15+默认启用）
     webpackBuildWorker: true, // 启用webpack构建工作进程
   },
@@ -44,10 +50,10 @@ const nextConfig = {
     position: 'bottom-right',
   },
   
-  // 开发模式优化 - 减少页面缓冲，提升性能
+  // 开发模式优化 - 减少页面缓冲，降低内存和CPU占用
   onDemandEntries: {
     maxInactiveAge: 60 * 1000, // 增加到60秒
-    pagesBufferLength: 1, // 减少到1个页面
+    pagesBufferLength: 1, // 减少到1个页面，降低内存占用
   },
   
   // 强制刷新配置
@@ -60,6 +66,14 @@ const nextConfig = {
   webpack: (config, { dev, isServer }) => {
     // 开发模式优化
     if (dev) {
+      // 注意：watchOptions.ignored只影响文件监听，不影响首次编译
+      // 当用户访问页面时，Next.js仍会编译它
+      // 这是Next.js的按需编译机制，无法完全避免
+      // 但我们可以通过以下方式优化：
+      // 1. 忽略文件监听，减少重新编译
+      // 2. 使用缓存加速后续编译
+      // 3. 优化splitChunks，将polkadot模块单独打包
+      
       config.watchOptions = {
         poll: 3000, // 增加轮询间隔到3秒
         aggregateTimeout: 1000, // 增加聚合超时到1秒
@@ -69,17 +83,34 @@ const nextConfig = {
           '**/.git/**',
           '**/.vscode/**',
           '**/.idea/**',
-          '**/src/app/api/**', // 忽略API路由监听
+          // 注意：不要忽略API路由，worker推荐等功能需要API
+          // '**/src/app/api/**', // 保留API路由监听
           '**/src/components/**', // 忽略组件监听
           '**/src/lib/**', // 忽略库文件监听
-          '**/src/app/polkadot-wall/**', // 忽略数据大屏页面，减少编译负担
-          '**/src/app/management/**', // 忽略管理端页面，减少编译负担
-          '**/src/app/developers/**', // 忽略开发者页面，减少编译负担
-          '**/node_modules/@antv/**', // 忽略图表库，减少编译负担
-          '**/node_modules/@ant-design/plots/**', // 忽略图表组件
-          '**/node_modules/echarts/**', // 忽略echarts
+          // 只编译这三个页面，其他管理端页面都忽略
+          '**/src/app/management/tee-verification/**',
+          '**/src/app/management/incentives/**',
+          '**/src/app/management/monitoring/**',
+          '**/src/app/management/scheduling-tests/**',
+          '**/src/app/management/login/**',
+          '**/src/app/management/register/**',
+          '**/src/app/management/tools/**',
+          '**/src/app/management/page.tsx', // 管理端首页
+          // 忽略其他页面
+          '**/src/app/polkadot-wall/**',
+          // '**/src/app/developers/**',
+          '**/src/app/providers/**',
+          '**/src/app/scenarios/**',
+          // 忽略图表库和polkadot模块，减少编译负担
+          '**/node_modules/@antv/**',
+          '**/node_modules/@ant-design/plots/**',
+          '**/node_modules/echarts/**',
+          '**/node_modules/@polkadot/**', // 忽略polkadot模块监听
         ],
       };
+      
+      // 注意：watchOptions.ignored只影响文件监听，不影响首次编译
+      // 当用户访问页面时，Next.js仍会按需编译它（包括polkadot模块）
       
       // 减少开发时的内存使用
       config.optimization = {
@@ -98,6 +129,8 @@ const nextConfig = {
               name: 'polkadot',
               chunks: 'all',
               priority: 10,
+              // 将polkadot模块单独打包，避免重复编译
+              enforce: true,
             },
           },
         },
@@ -107,7 +140,7 @@ const nextConfig = {
         chunkIds: 'deterministic',
       };
       
-      // 开发模式启用缓存，提升性能
+      // 开发模式启用文件系统缓存，提升性能
       config.cache = {
         type: 'filesystem',
         buildDependencies: {
@@ -170,17 +203,11 @@ const nextConfig = {
     qualities: [75, 100], // 添加质量配置
   },
   
-  // 减少开发时的构建时间 - 已在上方定义，移除重复
-  
-  // 开发模式下排除数据大屏页面，减少编译负担
-  ...(process.env.NODE_ENV === 'development' && {
-    experimental: {
-      // 排除特定路由的预编译
-      serverActions: {
-        bodySizeLimit: '2mb',
-      },
-    },
-  }),
+  // 减少开发时的构建时间
+  onDemandEntries: {
+    maxInactiveAge: 25 * 1000,
+    pagesBufferLength: 2,
+  },
   
   // 启用standalone模式用于Docker部署
   output: 'standalone',
