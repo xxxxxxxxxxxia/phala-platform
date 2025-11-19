@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWorkersInfo } from '@/lib/phalaApi';
-import { getPruntimeUrl } from '@/lib/config';
 
 // 获取Worker监控数据
 export async function GET(request: NextRequest) {
@@ -8,27 +7,7 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const teeType = searchParams.get('teeType') || 'all';
 
-        let workers: any[] = [];
-        try {
-            workers = await getWorkersInfo();
-        } catch (error) {
-            console.error('Failed to get workers info:', error);
-            // 返回空数据而不是错误
-            return NextResponse.json({
-                success: true,
-                data: {
-                    workers: [],
-                    summary: {
-                        total: 0,
-                        online: 0,
-                        offline: 0,
-                        unresponsive: 0,
-                        averageResponseTime: 0,
-                        systemHealth: 0
-                    }
-                }
-            });
-        }
+        const workers = await getWorkersInfo();
 
         // 过滤TEE类型
         let filteredWorkers = workers;

@@ -7,37 +7,17 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const limit = parseInt(searchParams.get('limit') || '10');
 
-        let api;
-        try {
-            api = await getApi();
-        } catch (apiError) {
-            console.error('Failed to get API:', apiError);
-            return NextResponse.json({
-                success: true,
-                data: { transactions: [] }
-            });
-        }
+        const api = await getApi();
+        const header = await api.rpc.chain.getHeader();
+        const latestBlockNumber = header.number.toNumber();
 
-        let header;
-        let latestBlockNumber = 0;
-        try {
-            header = await api.rpc.chain.getHeader();
-            latestBlockNumber = header.number.toNumber();
-        } catch (headerError) {
-            console.error('Failed to get header:', headerError);
-            return NextResponse.json({
-                success: true,
-                data: { transactions: [] }
-            });
-        }
-
-        const transactions = [];
-        const blockNumbers = Array.from({ length: Math.min(limit * 2, latestBlockNumber + 1) }, (_, i) =>
+        const transactions: any[] = [];
+        const blockNumbers = Array.from({ length: Math.min(limit * 3, latestBlockNumber + 1) }, (_, i) =>
             latestBlockNumber - i
         );
 
-        // 限制处理时间，避免超时
-        const maxBlocks = Math.min(blockNumbers.length, 5);
+        // 限制处理时间，避免超时（适当放宽一点，便于拿到更多交易）
+        const maxBlocks = Math.min(blockNumbers.length, Math.max(limit, 12));
         for (let i = 0; i < maxBlocks; i++) {
             if (transactions.length >= limit) break;
             const blockNum = blockNumbers[i];
@@ -70,11 +50,6 @@ export async function GET(request: NextRequest) {
                 signedBlock.block.extrinsics.forEach((extrinsic: any, index: number) => {
                     if (transactions.length >= limit) return;
 
-                    // 跳过系统extrinsic
-                    if (extrinsic.method.section === 'timestamp' || extrinsic.method.section === 'parachainSystem') {
-                        return;
-                    }
-
                     const txHash = extrinsic.hash?.toHex() || `0x${blockNum}${index}`;
 
                     transactions.push({
@@ -101,10 +76,9 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error('Transactions latest API error:', error);
         return NextResponse.json({
-            success: true,
-            data: { transactions: [] }
-        });
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        }, { status: 500 });
     }
 }
-
 

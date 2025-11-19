@@ -5,6 +5,8 @@ import path from 'path';
 import { createHash, createVerify, X509Certificate } from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import https from 'https';
+import { URL } from 'url';
 
 const execAsync = promisify(exec);
 
@@ -38,89 +40,135 @@ async function extractFmspcFromCollateral(collateralData: Buffer): Promise<strin
   return null;
 }
 
+// 使用 Node.js https 模块进行请求（更可靠）
+function httpsRequest(url: string, options: any = {}, timeout = 60000): Promise<{ status: number; statusText: string; headers: any; text: () => Promise<string>; json: () => Promise<any> }> {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const requestOptions = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || 443,
+      path: urlObj.pathname + urlObj.search,
+      method: options.method || 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': '*/*',
+        ...options.headers
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      req.destroy();
+      reject(new Error(`Request timeout (${timeout}ms): ${url}`));
+    }, timeout);
+
+    const req = https.request(requestOptions, (res) => {
+      clearTimeout(timeoutId);
+      let data = '';
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode || 200,
+          statusText: res.statusMessage || 'OK',
+          headers: res.headers,
+          text: async () => data,
+          json: async () => {
+            try {
+              return JSON.parse(data);
+            } catch (e) {
+              throw new Error(`Failed to parse JSON: ${data.substring(0, 100)}`);
+            }
+          }
+        });
+      });
+    });
+
+    req.on('error', (error) => {
+      clearTimeout(timeoutId);
+      reject(error);
+    });
+
+    if (options.body) {
+      req.write(options.body);
+    }
+
+    req.end();
+  });
+}
+
 // 从 PCCS 获取 Collateral
 async function fetchCollateralFromPccs(fmspc: string): Promise<any> {
   const baseUrl = PCCS_URL.replace(/\/$/, '');
   const collateral: any = {};
 
-  // 使用 AbortController 设置超时
-  const createFetchWithTimeout = async (url: string, options: any = {}, timeout = 60000) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
+  // 优先使用 Node.js https 模块，如果失败则回退到 fetch
+  const makeRequest = async (url: string, options: any = {}) => {
     try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-        cache: 'no-store',
-        next: { revalidate: 0 }
-      } as any);
-      clearTimeout(timeoutId);
-      return response;
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error(`Request timeout (${timeout}ms): ${url}`);
+      // 首先尝试使用 https 模块
+      return await httpsRequest(url, options, 60000);
+    } catch (httpsError: any) {
+      console.warn('https模块请求失败，尝试使用fetch:', httpsError.message);
+      // 如果 https 模块失败，尝试使用 fetch
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        return response;
+      } catch (fetchError: any) {
+        throw new Error(`Both https and fetch failed. https error: ${httpsError.message}, fetch error: ${fetchError.message}`);
       }
-      // 重新抛出原始错误，保留更多信息
-      throw error;
     }
   };
 
   try {
     // 1. 获取 PCK CRL
-    const pckCrlResponse = await createFetchWithTimeout(
-      `${baseUrl}/pckcrl?ca=processor`,
-      { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } },
-      60000
-    );
-    if (!pckCrlResponse.ok) {
+    const pckCrlResponse = await makeRequest(`${baseUrl}/pckcrl?ca=processor`);
+    if (pckCrlResponse.status !== 200) {
       throw new Error(`Failed to fetch PCK CRL: ${pckCrlResponse.status} ${pckCrlResponse.statusText}`);
     }
     collateral.pck_crl = await pckCrlResponse.text();
-    collateral.pck_crl_issuer_chain = pckCrlResponse.headers.get('SGX-PCK-CRL-Issuer-Chain') || '';
+    collateral.pck_crl_issuer_chain = pckCrlResponse.headers['sgx-pck-crl-issuer-chain'] || 
+                                      pckCrlResponse.headers['SGX-PCK-CRL-Issuer-Chain'] || '';
 
     // 2. 获取 Root CA CRL
-    const rootCaCrlResponse = await createFetchWithTimeout(
-      `${baseUrl}/rootcacrl`,
-      { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } },
-      60000
-    );
-    if (!rootCaCrlResponse.ok) {
+    const rootCaCrlResponse = await makeRequest(`${baseUrl}/rootcacrl`);
+    if (rootCaCrlResponse.status !== 200) {
       throw new Error(`Failed to fetch Root CA CRL: ${rootCaCrlResponse.status} ${rootCaCrlResponse.statusText}`);
     }
     collateral.root_ca_crl = await rootCaCrlResponse.text();
 
     // 3. 获取 TCB Info
-    const tcbInfoResponse = await createFetchWithTimeout(
-      `${baseUrl}/tcb?fmspc=${fmspc}`,
-      { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } },
-      60000
-    );
-    if (!tcbInfoResponse.ok) {
+    const tcbInfoResponse = await makeRequest(`${baseUrl}/tcb?fmspc=${fmspc}`);
+    if (tcbInfoResponse.status !== 200) {
       throw new Error(`Failed to fetch TCB Info: ${tcbInfoResponse.status} ${tcbInfoResponse.statusText}`);
     }
     const tcbInfoJson = await tcbInfoResponse.json();
     collateral.tcb_info = JSON.stringify(tcbInfoJson.tcbInfo || {});
     collateral.tcb_info_signature = tcbInfoJson.signature || '';
     collateral.tcb_info_issuer_chain = 
-      tcbInfoResponse.headers.get('SGX-TCB-Info-Issuer-Chain') ||
-      tcbInfoResponse.headers.get('TCB-Info-Issuer-Chain') ||
+      tcbInfoResponse.headers['sgx-tcb-info-issuer-chain'] ||
+      tcbInfoResponse.headers['SGX-TCB-Info-Issuer-Chain'] ||
+      tcbInfoResponse.headers['tcb-info-issuer-chain'] ||
+      tcbInfoResponse.headers['TCB-Info-Issuer-Chain'] ||
       '';
 
     // 4. 获取 QE Identity
-    const qeIdentityResponse = await createFetchWithTimeout(
-      `${baseUrl}/qe/identity`,
-      { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': '*/*' } },
-      60000
-    );
-    if (!qeIdentityResponse.ok) {
+    const qeIdentityResponse = await makeRequest(`${baseUrl}/qe/identity`);
+    if (qeIdentityResponse.status !== 200) {
       throw new Error(`Failed to fetch QE Identity: ${qeIdentityResponse.status} ${qeIdentityResponse.statusText}`);
     }
     const qeIdentityJson = await qeIdentityResponse.json();
     collateral.qe_identity = JSON.stringify(qeIdentityJson.enclaveIdentity || {});
     collateral.qe_identity_signature = qeIdentityJson.signature || '';
-    collateral.qe_identity_issuer_chain = qeIdentityResponse.headers.get('SGX-Enclave-Identity-Issuer-Chain') || '';
+    collateral.qe_identity_issuer_chain = qeIdentityResponse.headers['sgx-enclave-identity-issuer-chain'] || 
+                                         qeIdentityResponse.headers['SGX-Enclave-Identity-Issuer-Chain'] || '';
 
     return collateral;
   } catch (error: any) {
@@ -142,10 +190,8 @@ async function generateAttestationReport() {
     const quoteData = await readFile(SAMPLE_QUOTE_PATH);
     const quoteBase64 = quoteData.toString('base64');
 
-    // 保存 Quote 到输出目录（无后缀，因为 Quote 本身就是二进制格式）
+    // 不保存到本地，直接返回数据供前端下载
     const quoteFileName = `quote_${Date.now()}`;
-    const quoteFilePath = path.join(OUTPUT_DIR, quoteFileName);
-    await writeFile(quoteFilePath, quoteData);
 
     // 提取 FMSPC（从示例 Collateral）
     let fmspc: string | null = null;
@@ -160,7 +206,7 @@ async function generateAttestationReport() {
         base64: quoteBase64,
         length: quoteData.length,
         filename: quoteFileName,
-        path: `/dcap-output/${quoteFileName}`
+        data: quoteBase64 // 直接返回base64数据，不保存到本地
       },
       fmspc: fmspc,
       message: 'Attestation report generated successfully'
@@ -191,10 +237,8 @@ async function getCollateral(fmspc?: string) {
     // 从 PCCS 获取 Collateral
     const collateral = await fetchCollateralFromPccs(actualFmspc);
 
-    // 保存 Collateral 到文件
+    // 不保存到本地，直接返回数据供前端下载
     const collateralFileName = `collateral_${Date.now()}.json`;
-    const collateralFilePath = path.join(OUTPUT_DIR, collateralFileName);
-    await writeFile(collateralFilePath, JSON.stringify(collateral, null, 2));
 
     // 解析 TCB Info 获取摘要
     let tcbInfoSummary: any = null;
@@ -219,7 +263,7 @@ async function getCollateral(fmspc?: string) {
         tcb_info_summary: tcbInfoSummary
       },
       filename: collateralFileName,
-      path: `/dcap-output/${collateralFileName}`,
+      data: JSON.stringify(collateral, null, 2), // 直接返回JSON字符串，不保存到本地
       fmspc: actualFmspc,
       message: 'Collateral fetched successfully'
     };
@@ -789,16 +833,14 @@ async function generateVerificationReport(quoteBase64?: string, collateralData?:
         }
       };
 
-      // 保存验证报告
+      // 不保存到本地，直接返回数据供前端下载
       const reportFileName = `verification_report_${Date.now()}.json`;
-      const reportFilePath = path.join(OUTPUT_DIR, reportFileName);
-      await writeFile(reportFilePath, JSON.stringify(verificationReport, null, 2));
 
       return {
         success: true,
         report: verificationReport,
         filename: reportFileName,
-        path: `/dcap-output/${reportFileName}`,
+        data: JSON.stringify(verificationReport, null, 2), // 直接返回JSON字符串，不保存到本地
         message: '✅ Real verification report generated successfully (using Rust sgx-attestation)'
       };
     }
@@ -930,16 +972,14 @@ async function generateVerificationReport(quoteBase64?: string, collateralData?:
       }
     };
 
-    // 保存验证报告
+    // 不保存到本地，直接返回数据供前端下载
     const reportFileName = `verification_report_${Date.now()}.json`;
-    const reportFilePath = path.join(OUTPUT_DIR, reportFileName);
-    await writeFile(reportFilePath, JSON.stringify(verificationReport, null, 2));
 
     return {
       success: true,
       report: verificationReport,
       filename: reportFileName,
-      path: `/dcap-output/${reportFileName}`,
+      data: JSON.stringify(verificationReport, null, 2), // 直接返回JSON字符串，不保存到本地
       message: 'Verification report generated successfully. All verification steps completed.'
     };
   } catch (error) {

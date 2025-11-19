@@ -44,10 +44,10 @@ const nextConfig = {
     position: 'bottom-right',
   },
   
-  // 开发模式优化
+  // 开发模式优化 - 减少页面缓冲，提升性能
   onDemandEntries: {
-    maxInactiveAge: 25 * 1000,
-    pagesBufferLength: 2,
+    maxInactiveAge: 60 * 1000, // 增加到60秒
+    pagesBufferLength: 1, // 减少到1个页面
   },
   
   // 强制刷新配置
@@ -61,8 +61,8 @@ const nextConfig = {
     // 开发模式优化
     if (dev) {
       config.watchOptions = {
-        poll: 2000, // 增加轮询间隔
-        aggregateTimeout: 500, // 增加聚合超时
+        poll: 3000, // 增加轮询间隔到3秒
+        aggregateTimeout: 1000, // 增加聚合超时到1秒
         ignored: [
           '**/node_modules/**',
           '**/.next/**',
@@ -72,6 +72,12 @@ const nextConfig = {
           '**/src/app/api/**', // 忽略API路由监听
           '**/src/components/**', // 忽略组件监听
           '**/src/lib/**', // 忽略库文件监听
+          '**/src/app/polkadot-wall/**', // 忽略数据大屏页面，减少编译负担
+          '**/src/app/management/**', // 忽略管理端页面，减少编译负担
+          '**/src/app/developers/**', // 忽略开发者页面，减少编译负担
+          '**/node_modules/@antv/**', // 忽略图表库，减少编译负担
+          '**/node_modules/@ant-design/plots/**', // 忽略图表组件
+          '**/node_modules/echarts/**', // 忽略echarts
         ],
       };
       
@@ -101,8 +107,13 @@ const nextConfig = {
         chunkIds: 'deterministic',
       };
       
-      // 开发模式禁用缓存，确保组件更新生效
-      config.cache = false;
+      // 开发模式启用缓存，提升性能
+      config.cache = {
+        type: 'filesystem',
+        buildDependencies: {
+          config: [__filename],
+        },
+      };
     }
     
     // 生产模式优化
@@ -159,11 +170,17 @@ const nextConfig = {
     qualities: [75, 100], // 添加质量配置
   },
   
-  // 减少开发时的构建时间
-  onDemandEntries: {
-    maxInactiveAge: 25 * 1000,
-    pagesBufferLength: 2,
-  },
+  // 减少开发时的构建时间 - 已在上方定义，移除重复
+  
+  // 开发模式下排除数据大屏页面，减少编译负担
+  ...(process.env.NODE_ENV === 'development' && {
+    experimental: {
+      // 排除特定路由的预编译
+      serverActions: {
+        bodySizeLimit: '2mb',
+      },
+    },
+  }),
   
   // 启用standalone模式用于Docker部署
   output: 'standalone',

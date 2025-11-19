@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from 'antd';
 import styles from './PortalLayout.module.css';
 
@@ -13,11 +14,81 @@ const navLinks = [
     { label: '门户首页', href: '/' },
     { label: '资源提供', href: '/providers' },
     { label: '应用开发', href: '/developers' },
-    { label: '应用场景', href: '/scenarios' },
+    { label: '应用场景', href: '/#scenarios' },
     { label: '链上大屏', href: '/polkadot-wall' },
 ];
 
 const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
+    const pathname = usePathname();
+    const router = useRouter();
+    const [currentHash, setCurrentHash] = useState('');
+
+    useEffect(() => {
+        // 移除 body 的默认 margin/padding，避免黑框
+        const body = document.body;
+        const html = document.documentElement;
+
+        // 保存原始样式
+        const originalBodyMargin = body.style.margin;
+        const originalBodyPadding = body.style.padding;
+        const originalHtmlMargin = html.style.margin;
+        const originalHtmlPadding = html.style.padding;
+
+        // 设置样式去除黑框
+        body.style.margin = '0';
+        body.style.padding = '0';
+        html.style.margin = '0';
+        html.style.padding = '0';
+
+        // 客户端获取 hash
+        setCurrentHash(window.location.hash);
+
+        const handleHashChange = () => {
+            setCurrentHash(window.location.hash);
+        };
+
+        window.addEventListener('hashchange', handleHashChange);
+
+        return () => {
+            window.removeEventListener('hashchange', handleHashChange);
+            // 恢复原始样式（如果需要）
+            body.style.margin = originalBodyMargin;
+            body.style.padding = originalBodyPadding;
+            html.style.margin = originalHtmlMargin;
+            html.style.padding = originalHtmlPadding;
+        };
+    }, []);
+
+    const handleNavClick = (href: string, e: React.MouseEvent) => {
+        // 如果是应用场景链接（指向首页锚点），需要特殊处理
+        if (href === '/#scenarios') {
+            e.preventDefault();
+            if (pathname === '/') {
+                // 如果在首页，直接滚动到应用场景部分
+                const element = document.querySelector('#scenarios');
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    window.history.pushState(null, '', '#scenarios');
+                    setCurrentHash('#scenarios');
+                }
+            } else {
+                // 如果不在首页，跳转到首页的锚点，首页的 useEffect 会自动处理滚动
+                router.push('/#scenarios');
+            }
+        }
+    };
+
+    // 判断当前页面是否激活
+    const isActive = (href: string) => {
+        if (href === '/') {
+            return pathname === '/' && !currentHash;
+        }
+        if (href === '/#scenarios') {
+            return pathname === '/' && currentHash === '#scenarios';
+        }
+        return pathname === href || pathname.startsWith(href + '/');
+    };
+
     return (
         <div className={styles.portalLayout}>
             <div className={styles.portalBackdrop} />
@@ -27,7 +98,12 @@ const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
                 </Link>
                 <nav className={styles.nav}>
                     {navLinks.map((link) => (
-                        <Link key={link.href} href={link.href} className={styles.navLink}>
+                        <Link
+                            key={link.href}
+                            href={link.href}
+                            className={`${styles.navLink} ${isActive(link.href) ? styles.navLinkActive : ''}`}
+                            onClick={(e) => handleNavClick(link.href, e)}
+                        >
                             {link.label}
                         </Link>
                     ))}

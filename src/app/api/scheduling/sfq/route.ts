@@ -27,9 +27,10 @@ export async function GET(request: NextRequest) {
             }
             case "status":
             default: {
+                const status = await manager.status();
                 return NextResponse.json({
                     success: true,
-                    data: manager.status(),
+                    data: status,
                 });
             }
         }

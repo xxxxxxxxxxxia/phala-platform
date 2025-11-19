@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
-import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
 
 const execAsync = promisify(exec);
 
@@ -33,18 +32,19 @@ export async function POST(request: NextRequest) {
 
     console.log(`使用路径: ${setupPath}`);
 
-    // 使用phala-blockchain-setup脚本部署系统合约
-    // 在容器环境中，使用host.docker.internal或直接使用外部IP
-    const nodeUrl = process.env.NODE_ENV === 'production'
-      ? 'ws://8.147.107.221:19944'
-      : getNodeUrl();
-    const pruntimeUrl = process.env.NODE_ENV === 'production'
-      ? 'http://8.147.107.221:18000'
-      : getPruntimeUrl();
-    const command = `cd "${setupPath}" && ENDPOINT="${nodeUrl}" WORKERS="${pruntimeUrl}" GKS="${pruntimeUrl}" yarn setup:drivers`;
+    // 检查.env文件是否存在
+    const envFilePath = `${setupPath}/.env`;
+    if (!existsSync(envFilePath)) {
+      throw new Error(`找不到.env文件。路径: ${envFilePath}`);
+    }
+    console.log(`使用.env文件: ${envFilePath}`);
+
+    // 直接执行setup脚本，让脚本自动读取.env文件中的配置
+    // setup-drivers.js脚本会通过dotenv自动加载.env文件中的ENDPOINT、WORKERS、GKS等变量
+    const command = `cd "${setupPath}" && yarn setup:drivers`;
 
     console.log('执行命令:', command);
-    console.log('环境变量:', { ENDPOINT: nodeUrl, WORKERS: pruntimeUrl, GKS: pruntimeUrl });
+    console.log('脚本将自动从.env文件读取环境变量配置');
 
     const { stdout, stderr } = await execAsync(command, {
       timeout: 300000, // 5分钟超时
@@ -54,12 +54,9 @@ export async function POST(request: NextRequest) {
         ...process.env,
         PATH: process.env.PATH,
         NODE_ENV: 'production',
-        // 强制设置环境变量，覆盖.env文件中的localhost配置
-        ENDPOINT: nodeUrl,
-        WORKERS: pruntimeUrl,
-        GKS: pruntimeUrl,
         // 确保使用IPv4而不是IPv6
         NODE_OPTIONS: '--dns-result-order=ipv4first'
+        // 不再传入ENDPOINT、WORKERS、GKS，让脚本从.env文件读取
       }
     });
 

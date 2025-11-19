@@ -36,11 +36,14 @@ const SCENARIOS: ScenarioConfig[] = [
     {
         id: "weight-distribution",
         name: "带权重调度",
-        description: "不同权重流量同时调度，观察资源是否按比例分配。",
+        description: "三个不同权重流（1:3:9）同时调度，观察资源是否按权重比例分配。高权重流应获得更多资源，表现为更多接受数、更少的积压和更快的处理速度。",
         flows: [
-            { id: "weight-low", flow: "weight_low", weight: 1, cost: 40, requests: 10 },
-            { id: "weight-mid", flow: "weight_mid", weight: 2, cost: 40, requests: 10 },
-            { id: "weight-high", flow: "weight_high", weight: 4, cost: 40, requests: 10 },
+            // 权重1:3:9，总权重=13
+            // 重要：所有流发送相同数量的请求，这样可以公平对比权重效果
+            // 但高权重流应该处理得更快，从而接受更多请求
+            { id: "weight-low", flow: "weight_low", weight: 1, cost: 40, requests: 40 },
+            { id: "weight-mid", flow: "weight_mid", weight: 3, cost: 40, requests: 40 },
+            { id: "weight-high", flow: "weight_high", weight: 9, cost: 40, requests: 40 },
         ],
     },
     {
@@ -60,14 +63,32 @@ async function runScenario(config: ScenarioConfig) {
 
     const start = Date.now();
 
-    await Promise.all(
-        config.flows.map(async (spec) => {
-            const promises = Array.from({ length: spec.requests }).map(() =>
-                requestSfqFlow(spec.flow, spec.weight, spec.cost).catch(() => null)
-            );
+    // 对于带权重场景，采用顺序发送（带小延迟）以更清晰地展示权重效果
+    // 这样可以避免所有请求同时到达导致队列瞬间被填满
+    if (config.id === "weight-distribution") {
+        // 交错发送请求，让调度器有时间处理
+        const maxRequests = Math.max(...config.flows.map(f => f.requests));
+        for (let i = 0; i < maxRequests; i++) {
+            const promises = config.flows
+                .filter(spec => i < spec.requests)
+                .map(spec =>
+                    requestSfqFlow(spec.flow, spec.weight, spec.cost)
+                        .catch(() => null)
+                        .then(() => new Promise(resolve => setTimeout(resolve, 5))) // 5ms延迟
+                );
             await Promise.all(promises);
-        })
-    );
+        }
+    } else {
+        // 其他场景保持并发发送
+        await Promise.all(
+            config.flows.map(async (spec) => {
+                const promises = Array.from({ length: spec.requests }).map(() =>
+                    requestSfqFlow(spec.flow, spec.weight, spec.cost).catch(() => null)
+                );
+                await Promise.all(promises);
+            })
+        );
+    }
 
     const after = await getSfqDumpData();
     const afterMap = mapFlowsByKey(after.flows);
@@ -96,6 +117,8 @@ async function runScenario(config: ScenarioConfig) {
             (afterFlow?.rejected ?? 0) - (beforeFlow?.rejected ?? 0);
         const totalDelta =
             (afterFlow?.total ?? 0) - (beforeFlow?.total ?? 0);
+        const vClockDelta =
+            (afterFlow?.vClock ?? 0) - (beforeFlow?.vClock ?? 0);
 
         flowStats[spec.id] = {
             flowKey: key,
@@ -105,7 +128,39 @@ async function runScenario(config: ScenarioConfig) {
             total: Math.max(0, totalDelta),
             backlog: afterFlow?.backlog ?? 0,
             vClock: afterFlow?.vClock ?? 0,
+            vClockDelta: vClockDelta, // 虚拟时钟变化量，反映服务时间
         };
+    }
+
+    // 计算权重相关指标（仅对weight-distribution场景）
+    if (config.id === "weight-distribution") {
+        const totalWeight = config.flows.reduce((sum, f) => sum + f.weight, 0);
+        const totalAccepted = Object.values(flowStats).reduce(
+            (sum, stat) => sum + stat.accepted,
+            0
+        );
+
+        for (const spec of config.flows) {
+            const stats = flowStats[spec.id];
+            if (stats && totalAccepted > 0 && totalWeight > 0) {
+                // 期望接受数（按权重比例）
+                const expectedAccepted =
+                    (spec.weight / totalWeight) * totalAccepted;
+                // 实际资源分配比例（实际接受数/期望接受数）
+                const allocationRatio =
+                    stats.accepted > 0 ? stats.accepted / expectedAccepted : 0;
+                // 归一化后的接受数（每权重单位的接受数）
+                const normalizedAccepted = stats.accepted / spec.weight;
+
+                // 添加到统计中
+                flowStats[spec.id] = {
+                    ...stats,
+                    expectedAccepted: Math.round(expectedAccepted * 100) / 100,
+                    allocationRatio: Math.round(allocationRatio * 1000) / 1000,
+                    normalizedAccepted: Math.round(normalizedAccepted * 100) / 100,
+                };
+            }
+        }
     }
 
     const totals = Object.values(flowStats).reduce(
@@ -143,7 +198,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
     const manager = getSfqManager();
-    if (!manager.status().running) {
+    const status = await manager.status();
+    if (!status.running) {
         return NextResponse.json(
             { success: false, error: "请先启动 SFQ 服务器" },
             { status: 400 }

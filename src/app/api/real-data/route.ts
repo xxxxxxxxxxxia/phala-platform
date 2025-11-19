@@ -3,13 +3,39 @@ import { ApiPromise, WsProvider } from '@polkadot/api';
 import { options } from '@phala/sdk';
 import { getNodeUrl } from '@/lib/config';
 
-// 连接本地区块链节点
+// 全局 API 实例，复用连接
+let globalApi: ApiPromise | null = null;
+let apiPromise: Promise<ApiPromise> | null = null;
+
+// 连接本地区块链节点（复用连接）
 const getApi = async () => {
-  const api = await ApiPromise.create(options({
-    provider: new WsProvider(getNodeUrl()),
-    noInitWarn: true,
-  }));
-  return api;
+  // 如果已有连接且正常，直接返回
+  if (globalApi && globalApi.isConnected) {
+    return globalApi;
+  }
+
+  // 如果正在连接中，等待连接完成
+  if (apiPromise) {
+    return apiPromise;
+  }
+
+  // 创建新连接
+  apiPromise = (async () => {
+    try {
+      const api = await ApiPromise.create(options({
+        provider: new WsProvider(getNodeUrl()),
+        noInitWarn: true,
+      }));
+      globalApi = api;
+      apiPromise = null;
+      return api;
+    } catch (error) {
+      apiPromise = null;
+      throw error;
+    }
+  })();
+
+  return apiPromise;
 };
 
 // 获取真实Worker数据
@@ -132,7 +158,8 @@ export async function GET(request: NextRequest) {
 
     console.log('✅ 真实数据获取完成');
 
-    await api.disconnect();
+    // 不复用连接时断开，复用连接时不断开
+    // await api.disconnect(); // 注释掉，保持连接复用
 
     return NextResponse.json({
       success: true,
@@ -142,6 +169,16 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('❌ 获取真实数据失败:', error);
+    // 错误时清理连接
+    if (globalApi) {
+      try {
+        await globalApi.disconnect();
+      } catch (e) {
+        // 忽略断开连接时的错误
+      }
+      globalApi = null;
+      apiPromise = null;
+    }
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : '未知错误',

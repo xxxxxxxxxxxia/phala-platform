@@ -12,19 +12,19 @@ import { BN } from '@polkadot/util';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 
 // Import child components
-import ConnectionCard from '../../components/ConnectionCard';
-import LiveData from '../../components/LiveData';
-import WorkerDashboard from '../../components/WorkerDashboard'; 
-import PoolDashboard from '../../components/PoolDashboard';   
-import AssetDashboard from '../../components/AssetDashboard';   
-import SessionManager from '../../components/SessionManager';
-import TokenomicEditor from '../../components/TokenomicEditor';
-import Console from '../../components/Console';
-import Modal from '../../components/Modal';
-import Toast from '../../components/Toast';
-import SystemOperations from '../../components/SystemOperations';
-import MainLayout from '../../components/layout/MainLayout';
-import AuthGuard from '../../components/AuthGuard';
+import ConnectionCard from '../../../components/ConnectionCard';
+import LiveData from '../../../components/LiveData';
+import WorkerDashboard from '../../../components/WorkerDashboard';
+import PoolDashboard from '../../../components/PoolDashboard';
+import AssetDashboard from '../../../components/AssetDashboard';
+import SessionManager from '../../../components/SessionManager';
+import TokenomicEditor from '../../../components/TokenomicEditor';
+import Console from '../../../components/Console';
+import Modal from '../../../components/Modal';
+import Toast from '../../../components/Toast';
+import SystemOperations from '../../../components/SystemOperations';
+import MainLayout from '../../../components/layout/MainLayout';
+import AuthGuard from '../../../components/AuthGuard';
 
 // Import styles
 import styles from './page.module.css';

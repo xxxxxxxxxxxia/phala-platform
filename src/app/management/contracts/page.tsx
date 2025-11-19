@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Button, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Modal, Descriptions, Badge, Tooltip, Timeline, Rate, Switch, Upload, message, Form, Input, Select } from 'antd';
+import { Card, Row, Col, Statistic, Button, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Modal, Descriptions, Badge, Tooltip, Timeline, Rate, Switch, Upload, message, Form, Input, InputNumber, Select } from 'antd';
 import DeployApp from '@/components/App';
 import { FileProtectOutlined, LockOutlined, SafetyCertificateOutlined, CodeOutlined, ReloadOutlined, EyeOutlined, InfoCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, UploadOutlined, PlusOutlined, FileTextOutlined, ApiOutlined, MonitorOutlined } from '@ant-design/icons';
 // import ReactECharts from 'echarts-for-react'; // 移除复杂图表组件
-import MainLayout from '../../components/layout/MainLayout';
-import AuthGuard from '../../components/AuthGuard';
+import MainLayout from '../../../components/layout/MainLayout';
+import AuthGuard from '../../../components/AuthGuard';
 
 const { Title, Text } = Typography;
 
@@ -117,6 +117,11 @@ export default function ContractsPage() {
   const [showDeploymentOutput, setShowDeploymentOutput] = useState(false);
   const [terminalOutput, setTerminalOutput] = useState<string>('等待操作...');
   const [isTerminalActive, setIsTerminalActive] = useState(false);
+  // ADD调用功能状态
+  const [addContractAddress, setAddContractAddress] = useState<string>('');
+  const [addInputs, setAddInputs] = useState({ a: 1, b: 2 });
+  const [addResult, setAddResult] = useState<any>(null);
+  const [addLoading, setAddLoading] = useState(false);
 
   useEffect(() => {
     loadContractState();
@@ -222,13 +227,25 @@ export default function ContractsPage() {
       if (result.success) {
         setTerminalOutput(prev => prev + '\n✅ 合约上传成功！');
         setTerminalOutput(prev => prev + `\n📋 部署详情:`);
-        if (result.data && result.data.contractId) {
-          setTerminalOutput(prev => prev + `\n   - 合约ID: ${result.data.contractId}`);
+
+        // 优先从data字段读取，如果没有则从contractAddress字段读取
+        const contractAddress = result.data?.address || result.data?.contractId || result.contractAddress;
+        const contractId = result.data?.contractId || result.data?.address || result.contractAddress;
+
+        if (contractId && contractId !== 'unknown') {
+          setTerminalOutput(prev => prev + `\n   - 合约ID: ${contractId}`);
         }
-        if (result.data && result.data.address) {
-          setTerminalOutput(prev => prev + `\n   - 合约地址: ${result.data.address}`);
+        if (contractAddress && contractAddress !== 'unknown') {
+          setTerminalOutput(prev => prev + `\n   - 合约地址: ${contractAddress}`);
         }
-        message.success('合约上传成功！');
+
+        if (result.warning) {
+          setTerminalOutput(prev => prev + `\n⚠️ 警告: ${result.warning}`);
+          message.warning(result.warning);
+        } else {
+          message.success('合约上传成功！');
+        }
+
         loadContractState(); // 刷新合约列表
       } else {
         setTerminalOutput(prev => prev + '\n❌ 上传失败！');
@@ -247,6 +264,10 @@ export default function ContractsPage() {
   };
 
   const deploySystemContract = async () => {
+    // 立即关闭弹窗，让用户通过终端查看部署过程
+    setUploadModalVisible(false);
+    uploadForm.resetFields();
+
     try {
       setUploading(true);
       setIsTerminalActive(true);
@@ -447,13 +468,42 @@ export default function ContractsPage() {
   const downloadSampleContract = () => {
     // 创建下载链接 - 下载真正的.contract文件
     const link = document.createElement('a');
-    link.href = '/sample_contracts/tokenomic.contract';
-    link.download = 'tokenomic.contract';
+    link.href = '/sample_contracts/phat_hello_add.contract';
+    link.download = 'phat_hello_add.contract';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    message.success('示例合约下载成功！请使用 tokenomic.contract 文件上传部署。注意：只支持.contract和.wasm文件格式。');
+    message.success('示例合约下载成功！请使用 phat_hello_add.contract 文件上传部署。注意：只支持.contract和.wasm文件格式。');
+  };
+
+  // ADD调用功能
+  const runAddQuery = async () => {
+    if (!addContractAddress) {
+      message.error('请先选择或输入合约地址');
+      return;
+    }
+
+    setAddLoading(true);
+    setAddResult(null);
+    try {
+      const params = new URLSearchParams({
+        contractAddress: addContractAddress,
+        a: addInputs.a.toString(),
+        b: addInputs.b.toString(),
+      });
+      const response = await fetch(`/api/contracts/add-query?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error('查询失败');
+      }
+      const data = await response.json();
+      setAddResult(data);
+      message.success('查询成功');
+    } catch (error: any) {
+      message.error(error?.message || '查询失败');
+    } finally {
+      setAddLoading(false);
+    }
   };
 
 
@@ -700,6 +750,77 @@ export default function ContractsPage() {
           </Spin>
         </Card>
 
+        {/* phat_hello_add 合约调用功能 */}
+        <Card
+          title={
+            <Space>
+              <ApiOutlined />
+              <span>phat_hello_add 合约查询</span>
+            </Space>
+          }
+          style={{ marginTop: 24 }}
+        >
+          <Row gutter={[16, 16]}>
+            <Col span={24}>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Text strong>合约地址</Text>
+                <Input
+                  placeholder="输入或从列表中选择合约地址（0x开头的64位十六进制）"
+                  value={addContractAddress}
+                  onChange={(e) => setAddContractAddress(e.target.value)}
+                  allowClear
+                  style={{ width: '100%' }}
+                />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  提示：可以从上面的合约列表中选择已部署的 phat_hello_add 合约地址
+                </Text>
+              </Space>
+            </Col>
+            <Col span={12}>
+              <Text type="secondary">参数 A</Text>
+              <InputNumber
+                min={0}
+                max={1_000_000}
+                value={addInputs.a}
+                onChange={(value) =>
+                  setAddInputs((prev) => ({ ...prev, a: typeof value === 'number' ? value : prev.a }))
+                }
+                style={{ width: '100%' }}
+              />
+            </Col>
+            <Col span={12}>
+              <Text type="secondary">参数 B</Text>
+              <InputNumber
+                min={0}
+                max={1_000_000}
+                value={addInputs.b}
+                onChange={(value) =>
+                  setAddInputs((prev) => ({ ...prev, b: typeof value === 'number' ? value : prev.b }))
+                }
+                style={{ width: '100%' }}
+              />
+            </Col>
+            <Col span={24}>
+              <Button type="primary" block onClick={runAddQuery} loading={addLoading}>
+                查询 add(a, b)
+              </Button>
+            </Col>
+          </Row>
+          {addResult && (
+            <Alert
+              style={{ marginTop: 16 }}
+              type="success"
+              showIcon
+              message="查询结果"
+              description={
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {JSON.stringify(addResult, null, 2)}
+                </pre>
+              }
+            />
+          )}
+        </Card>
+
         {/* 合约详情Modal */}
         <Modal
           title="合约详情"
@@ -779,306 +900,6 @@ export default function ContractsPage() {
                 </Descriptions.Item>
               )}
             </Descriptions>
-          )}
-
-          {/* 合约调用功能 */}
-          {selectedContract && selectedContract.status === 'active' && (
-            <div style={{
-              marginTop: 20,
-              padding: 20,
-              background: 'linear-gradient(135deg, #0d1117 0%, #161b22 100%)',
-              borderRadius: 12,
-              border: '1px solid #30363d',
-              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}>
-              {/* 科技感背景装饰 */}
-              <div style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: '2px',
-                background: 'linear-gradient(90deg, #00d4ff, #0099ff, #00d4ff)',
-                animation: 'pulse 2s ease-in-out infinite'
-              }} />
-              <Title level={4} style={{ color: '#f0f6fc', textShadow: '0 0 10px rgba(0, 212, 255, 0.3)' }}>
-                🚀 合约调用
-                {isTokenomicContract(selectedContract) && (
-                  <Tag color="blue" style={{ marginLeft: 8, background: 'rgba(0, 212, 255, 0.2)', borderColor: '#00d4ff', color: '#00d4ff' }}>Tokenomic Contract</Tag>
-                )}
-              </Title>
-
-              {/* Tokenomic合约特殊说明 */}
-              {isTokenomicContract(selectedContract) && (
-                <Alert
-                  message="Tokenomic合约已部署"
-                  description="此合约支持version方法调用，返回版本信息。"
-                  type="info"
-                  showIcon
-                  style={{
-                    marginBottom: 16,
-                    background: 'rgba(0, 212, 255, 0.1)',
-                    border: '1px solid rgba(0, 212, 255, 0.3)',
-                    borderRadius: '8px'
-                  }}
-                  action={
-                    <Button
-                      size="small"
-                      type="primary"
-                      onClick={() => callContractMethod('version', [])}
-                      loading={callingContract}
-                      style={{
-                        background: 'linear-gradient(135deg, #00d4ff 0%, #0099ff 100%)',
-                        borderColor: '#00d4ff',
-                        boxShadow: '0 2px 8px rgba(0, 212, 255, 0.3)',
-                        border: 'none',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      调用version方法
-                    </Button>
-                  }
-                />
-              )}
-
-              {/* 其他系统合约说明 */}
-              {!isTokenomicContract(selectedContract) && (
-                <Alert
-                  message="系统合约"
-                  description="此合约是系统合约，可能不支持直接方法调用。建议使用Tokenomic合约进行测试。"
-                  type="warning"
-                  showIcon
-                  style={{
-                    marginBottom: 16,
-                    background: 'rgba(255, 193, 7, 0.1)',
-                    border: '1px solid rgba(255, 193, 7, 0.3)',
-                    borderRadius: '8px'
-                  }}
-                />
-              )}
-
-              {/* 只有已部署的合约才显示查询功能 */}
-              {selectedContract.status === 'active' ? (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <Input
-                      placeholder="方法名 (如: version)"
-                      style={{
-                        flex: 1,
-                        background: 'rgba(0, 0, 0, 0.3)',
-                        border: '1px solid rgba(0, 212, 255, 0.3)',
-                        borderRadius: '6px',
-                        color: '#f0f6fc'
-                      }}
-                      id="methodInput"
-                      defaultValue={selectedContract.address === '0xd1addfb72bb05b60ab0152303eaddf4a47565fff525a62371e6e5df7e31432ea' ? 'version' : ''}
-                    />
-                    <Input
-                      placeholder="参数 (JSON格式，可选)"
-                      style={{
-                        flex: 1,
-                        background: 'rgba(0, 0, 0, 0.3)',
-                        border: '1px solid rgba(0, 212, 255, 0.3)',
-                        borderRadius: '6px',
-                        color: '#f0f6fc'
-                      }}
-                      id="paramsInput"
-                    />
-                    <Button
-                      type="primary"
-                      onClick={() => {
-                        const methodInput = document.getElementById('methodInput') as HTMLInputElement;
-                        const paramsInput = document.getElementById('paramsInput') as HTMLInputElement;
-                        const method = methodInput.value.trim();
-                        let params = [];
-                        try {
-                          params = paramsInput.value.trim() ? JSON.parse(paramsInput.value) : [];
-                        } catch (e) {
-                          message.error('参数格式错误，请使用JSON格式');
-                          return;
-                        }
-                        if (method) {
-                          callContractMethod(method, params);
-                        } else {
-                          message.error('请输入方法名');
-                        }
-                      }}
-                      loading={callingContract}
-                      style={{
-                        background: 'linear-gradient(135deg, #00d4ff 0%, #0099ff 100%)',
-                        borderColor: '#00d4ff',
-                        boxShadow: '0 4px 15px rgba(0, 212, 255, 0.3)',
-                        border: 'none',
-                        fontWeight: 'bold',
-                        textShadow: '0 0 5px rgba(0, 212, 255, 0.5)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, #00b8e6 0%, #0088cc 100%)';
-                        e.currentTarget.style.boxShadow = '0 6px 20px rgba(0, 212, 255, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, #00d4ff 0%, #0099ff 100%)';
-                        e.currentTarget.style.boxShadow = '0 4px 15px rgba(0, 212, 255, 0.3)';
-                      }}
-                    >
-                      调用方法
-                    </Button>
-                  </div>
-                </Space>
-              ) : (
-                <Alert
-                  message="合约未部署"
-                  description={`此合约状态为 "${selectedContract.status}"，需要先部署到链上才能进行查询操作。`}
-                  type="warning"
-                  showIcon
-                  style={{
-                    marginBottom: 16,
-                    background: 'rgba(255, 193, 7, 0.1)',
-                    border: '1px solid rgba(255, 193, 7, 0.3)',
-                    borderRadius: '8px'
-                  }}
-                />
-              )}
-
-              {/* 快速按钮只在已部署合约中显示 */}
-              {selectedContract.status === 'active' && (
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      const methodInput = document.getElementById('methodInput') as HTMLInputElement;
-                      const paramsInput = document.getElementById('paramsInput') as HTMLInputElement;
-                      methodInput.value = 'version';
-                      paramsInput.value = '[]';
-                    }}
-                    style={{
-                      background: 'rgba(0, 212, 255, 0.1)',
-                      border: '1px solid rgba(0, 212, 255, 0.3)',
-                      color: '#00d4ff',
-                      borderRadius: '6px'
-                    }}
-                  >
-                    快速: version
-                  </Button>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      const methodInput = document.getElementById('methodInput') as HTMLInputElement;
-                      const paramsInput = document.getElementById('paramsInput') as HTMLInputElement;
-                      methodInput.value = 'getVersion';
-                      paramsInput.value = '[]';
-                    }}
-                    style={{
-                      background: 'rgba(0, 212, 255, 0.1)',
-                      border: '1px solid rgba(0, 212, 255, 0.3)',
-                      color: '#00d4ff',
-                      borderRadius: '6px'
-                    }}
-                  >
-                    快速: getVersion
-                  </Button>
-                </div>
-              )}
-
-              {contractCallResult && (
-                <div style={{
-                  marginTop: 16,
-                  padding: 16,
-                  background: '#0d1117',
-                  borderRadius: 8,
-                  border: '1px solid #30363d',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)'
-                }}>
-                  <Text strong style={{
-                    color: '#58a6ff',
-                    fontSize: '14px',
-                    marginBottom: '12px',
-                    display: 'block'
-                  }}>
-                    📋 调用结果
-                  </Text>
-
-                  <div style={{
-                    background: '#161b22',
-                    borderRadius: 6,
-                    border: '1px solid #21262d',
-                    overflow: 'hidden'
-                  }}>
-                    <div style={{
-                      background: '#21262d',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      color: '#8b949e',
-                      fontWeight: '500',
-                      borderBottom: '1px solid #30363d'
-                    }}>
-                      📊 调用结果
-                    </div>
-                    <div style={{
-                      padding: 12,
-                      fontSize: '13px',
-                      color: '#f0f6fc',
-                      fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-                      lineHeight: '1.5',
-                      wordBreak: 'break-word',
-                      whiteSpace: 'pre-wrap',
-                      maxHeight: '300px',
-                      overflow: 'auto'
-                    }}>
-                      {(() => {
-                        // 优化显示格式 - 添加更多描述信息
-                        const result = contractCallResult;
-                        if (!result) return '';
-
-                        let displayText = '';
-
-                        // 显示调用结果（最重要的信息）
-                        if (result.result) {
-                          if (Array.isArray(result.result)) {
-                            // 如果是数组，添加描述信息
-                            if (result.result.length === 1) {
-                              displayText += `📊 调用结果: ${result.result[0]}\n`;
-                              displayText += `💡 说明: 方法返回单个值`;
-                            } else {
-                              displayText += `📊 调用结果: [${result.result.join(', ')}]\n`;
-                              displayText += `💡 说明: 方法返回数组，包含 ${result.result.length} 个元素`;
-
-                              // 如果是版本号数组，添加特殊说明
-                              if (result.result.length === 3 && result.result.every(v => typeof v === 'number')) {
-                                displayText += `🔢 版本信息: ${result.result.join('.')} (主版本.次版本.修订版本)\n`;
-                                displayText += `📋 详细说明: 这是合约的版本号，格式为 [主版本, 次版本, 修订版本]`;
-                              }
-                            }
-                          } else if (typeof result.result === 'string') {
-                            displayText += `📊 调用结果: "${result.result}"\n`;
-                            displayText += `💡 说明: 方法返回字符串值`;
-                          } else {
-                            displayText += `📊 调用结果: ${JSON.stringify(result.result)}\n`;
-                            displayText += `💡 说明: 方法返回复杂对象`;
-                          }
-                        }
-
-                        // 如果有错误，显示错误信息
-                        if (result.error) {
-                          displayText += `❌ 错误: ${result.error}\n`;
-                          displayText += `💡 说明: 合约调用失败，请检查方法名和参数`;
-                        }
-
-                        // 如果没有结果也没有错误，显示简洁提示
-                        if (!result.result && !result.error) {
-                          displayText += `✅ 调用成功（无返回值）\n`;
-                          displayText += `💡 说明: 该方法执行成功但没有返回数据，这是正常的`;
-                        }
-
-                        return displayText;
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
           )}
         </Modal>
 

@@ -129,7 +129,7 @@ export const getApi = async (): Promise<ApiPromise> => {
     // 添加连接超时机制
     const connectionPromise = ApiPromise.create({ provider });
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('连接超时，请检查后端服务是否启动')), 10000) // 10秒超时
+      setTimeout(() => reject(new Error('连接超时，请检查后端服务是否启动')), 300000) // 300秒超时
     );
 
     // 创建新的 API 实例，带超时控制

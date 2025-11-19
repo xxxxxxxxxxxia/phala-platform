@@ -1,0 +1,60 @@
+/* 应用开发者页面专用样式 - 不影响其他页面 */
+
+/* 覆盖卡片内的文字颜色 */
+.developersCardTitle {
+    color: #1f2937 !important;
+    margin-bottom: 12px !important;
+}
+
+.developersCardVersion {
+    color: #1890ff !important;
+    margin-bottom: 8px !important;
+}
+
+.developersCardDesc {
+    color: #6b7280 !important;
+    margin-bottom: 16px !important;
+}
+
+.developersCardLink {
+    color: #1890ff !important;
+    padding: 0 !important;
+}
+
+.developersCardLink:hover {
+    color: #40a9ff !important;
+}
+
+/* Steps 组件样式覆盖 */
+.developersSteps :global(.ant-steps-item-title) {
+    color: #1f2937 !important;
+}
+
+.developersSteps :global(.ant-steps-item-description) {
+    color: #6b7280 !important;
+}
+
+.developersSteps :global(.ant-steps-item-icon) {
+    border-color: #1890ff !important;
+}
+
+.developersSteps :global(.ant-steps-item-icon .ant-steps-icon) {
+    color: #1890ff !important;
+}
+
+.developersSteps :global(.ant-steps-item-process .ant-steps-item-icon) {
+    background-color: #1890ff !important;
+    border-color: #1890ff !important;
+}
+
+.developersSteps :global(.ant-steps-item-process .ant-steps-item-icon .ant-steps-icon) {
+    color: #ffffff !important;
+}
+
+.developersSteps :global(.ant-steps-item-finish .ant-steps-item-icon) {
+    border-color: #1890ff !important;
+}
+
+.developersSteps :global(.ant-steps-item-finish .ant-steps-item-icon .ant-steps-icon) {
+    color: #1890ff !important;
+}

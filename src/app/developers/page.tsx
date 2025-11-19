@@ -6,11 +6,12 @@ import { Button, Card, Col, Row, Steps, Typography, message } from 'antd';
 import { CodeOutlined, ApiOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import PortalLayout from '@/components/layout/PortalLayout';
 import styles from '../portal.module.css';
+import developersStyles from './developers.module.css';
 
 const { Title, Paragraph } = Typography;
 
 // API 基础地址配置 - 可根据需要修改
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://8.147.106.136:8888';
 
 const sdkList = [
     { name: 'Phala JS SDK', version: 'v0.5.x', desc: '在浏览器或 Node.js 中快速调度 TEE 任务。' },
@@ -68,6 +69,16 @@ export default function DevelopersPage() {
         }
     };
 
+    const handleDownloadExample = () => {
+        const link = document.createElement('a');
+        link.href = '/api/download-compose';
+        link.download = 'docker-compose.yml';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        message.success('开始下载部署示例文件');
+    };
+
     return (
         <PortalLayout>
             <div className={styles.portalContent}>
@@ -82,15 +93,18 @@ export default function DevelopersPage() {
                         通过安全调度算法选择最佳资源地址，一键部署属于自己的应用程序，获得定制化的安全计算服务体验。
                     </Paragraph>
                     <div className={styles.heroActions}>
-                        <Button 
-                            type="primary" 
+                        <Button
+                            type="primary"
                             size="large"
                             loading={loading}
                             onClick={handleStartBuild}
                         >
                             开始构建{/* 调度最佳资源 */}
                         </Button>
-                        <Button size="large">
+                        <Button
+                            size="large"
+                            onClick={handleDownloadExample}
+                        >
                             部署示例
                         </Button>
                     </div>
@@ -98,19 +112,19 @@ export default function DevelopersPage() {
 
                 <section className={styles.section}>
                     <Title level={3} className={styles.sectionTitle}>
-                        资源监控
+                        资源列表
                     </Title>
                     <Row gutter={[24, 24]}>
                         {sdkList.map((sdk) => (
                             <Col xs={24} md={8} key={sdk.name}>
                                 <Card className={styles.portalCard}>
-                                    <Title level={4} style={{ color: '#fff' }}>
+                                    <Title level={4} className={developersStyles.developersCardTitle}>
                                         {sdk.name}
                                     </Title>
-                                    <Paragraph style={{ color: '#9ad0ff' }}>{sdk.version}</Paragraph>
-                                    <Paragraph style={{ color: 'rgba(255,255,255,0.75)' }}>{sdk.desc}</Paragraph>
-                                    <Button type="link" style={{ padding: 0 }}>
-                                        查看示例
+                                    <Paragraph className={developersStyles.developersCardVersion}>{sdk.version}</Paragraph>
+                                    <Paragraph className={developersStyles.developersCardDesc}>{sdk.desc}</Paragraph>
+                                    <Button type="link" className={developersStyles.developersCardLink}>
+                                        资源监控
                                     </Button>
                                 </Card>
                             </Col>
@@ -123,7 +137,7 @@ export default function DevelopersPage() {
                         快速入门
                     </Title>
                     <Steps
-                        className={styles.stepsWhite}
+                        className={developersStyles.developersSteps}
                         direction="vertical"
                         items={quickStartSteps.map((s, index) => ({
                             title: `Step ${index + 1}`,

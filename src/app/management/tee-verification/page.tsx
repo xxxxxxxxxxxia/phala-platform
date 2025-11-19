@@ -1,672 +1,1186 @@
-// pages/proof.tsx  (或 app/proof/page.tsx  如果用的 App Router)
-"use client";
-
-import React, { useState, useCallback, useMemo, useEffect } from "react";
-import MainLayout from "@/components/layout/MainLayout";
-import AuthGuard from "@/components/AuthGuard";
-import DataCard from "@/components/DataCard";
-import LineByLinePre from "@/app/management/tee-verification/LineByLinePre";
-import CharByCharPre from "@/app/management/tee-verification/CharByCharPre";
-import { Row, Col, Button, List, Card, Space, Spin, Steps, message, Typography, Skeleton, Tag } from "antd";
+'use client';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-    CheckCircleOutlined,
-    ClockCircleOutlined,
-    CloseCircleOutlined,
-    ExclamationCircleOutlined,
-    MinusCircleOutlined,
-    SyncOutlined,
-    SearchOutlined, // 新增查询图标
+  Card, Row, Col, Button, Table, Tag, Typography, Space, Divider,
+  Modal, Descriptions, Tooltip, message, Spin, Popconfirm, Badge, Dropdown
+} from 'antd';
+import {
+  CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined,
+  DownloadOutlined, FileTextOutlined, SearchOutlined,
+  SafetyCertificateOutlined, FileProtectOutlined, DatabaseOutlined,
+  DownOutlined
 } from '@ant-design/icons';
-import styles from '@/app/page.module.css';
-import axios from "axios";
-import { getTeeApiUrl } from '@/lib/config';
+import MainLayout from '@/components/layout/MainLayout';
+import AuthGuard from '@/components/AuthGuard';
+import { getWorkersInfo } from '@/lib/phalaApi';
+import axios from 'axios';
 
-// 使用API代理来避免CORS问题
-const API_BASE_URL = '/api/tee-verification';
-const { Step } = Steps;
+const { Title, Text } = Typography;
 
-// 定义所有可能的状态类型，以避免 TS7006 错误
-type VmStatus = 'stopped' | 'running' | 'starting' | 'stopping' | 'failed' | 'idle';
-type AttestationStatus = 'idle' | 'generating' | 'generated' | 'failed' | 'verifying' | 'success' | 'failure';
-type NotificationType = 'success' | 'error' | 'info';
+// 后端API地址
+const API_BASE_URL = "http://8.147.106.136:3001/api";
+const TEE_VERIFICATION_API = '/api/tee-verification';
+const DCAP_ATTESTATION_API = '/api/dcap-attestation';
 
-// 定义 VM 参数的数据结构
-interface VmParam {
-    title: string;
-    content: string;
-    isLarge?: boolean; // 用于标记内容较多的参数，例如 Kernel
-}
-
-/**
- * 状态映射到颜色和文本
- */
-const getStatusProps = (status: VmStatus | AttestationStatus) => {
-    switch (status) {
-        case 'starting':
-        case 'stopping':
-        case 'generating':
-        case 'verifying':
-            return { text: '进行中...', color: 'processing', icon: <SyncOutlined spin /> }; // blue-500
-        case 'running':
-        case 'generated':
-        case 'success':
-            return { text: '运行', color: 'success', icon: <CheckCircleOutlined /> };
-        case 'stopped':
-        case 'idle':
-            return { text: '待机', color: 'default', icon: <MinusCircleOutlined /> };
-        case 'failed':
-        case 'failure':
-            return { text: '失败', color: 'error', icon: <CloseCircleOutlined /> };
-        default:
-            // 确保所有可能的字符串都已被处理，如果传入其他值则返回默认
-            return { text: '未知', color: 'warning', icon: <ExclamationCircleOutlined /> };
-    }
+// CSV Worker类型定义
+type CSVWorker = {
+  key: string;
+  name: string;
+  status: "running" | "stopped";
+  address: string;
+  cpu: string;
+  memory: string;
 };
 
-// 移除旧的静态 data 数组
+// SGX Worker接口
+interface SGXWorker {
+  id: string;
+  publicKey: string;
+  teeType: string;
+  status: 'online' | 'offline' | 'registered';
+  sessionId?: string;
+  initialScore?: number;
+  responseStatus?: 'responding' | 'not-responding';
+  responseDetails?: {
+    initialized: boolean;
+    registered: boolean;
+    version: string;
+    score: number;
+    blocknum: number;
+  };
+}
 
-export default function RemoteAttestation() {
-    // 用于科普内容的样式
-    const infoTextStyle: React.CSSProperties = {
-        color: '#ccc',
-        fontSize: '15px',
-        lineHeight: '1.8',
-    };
+// CSV Worker参数接口
+interface CSVWorkerParams {
+  architecture: string;
+  cpuVendor: string;
+  cpuModel: string;
+  cpuCores: string;
+  cpuFreq: string;
+  virtualization: string;
+  totalMemory: string;
+  osInfo: string;
+  kernelInfo: string;
+}
 
-    // 优化：合并相关状态，减少重渲染
-    const [current, setCurrent] = useState(0); // 0: 生成  1: 验证
-    const [loading, setLoading] = useState({ gen: false, verify: false });
-    const [status, setStatus] = useState({ gen: null as boolean | null, verify: null as boolean | null });
-    const [content, setContent] = useState({ generated: null as string | null, verify: null as string | null, qemu: null as string | null });
+// SGX Worker参数接口（包含硬件信息）
+interface SGXWorkerParams {
+  // 硬件信息
+  architecture?: string;
+  cpuVendor?: string;
+  cpuModel?: string;
+  cpuCores?: string;
+  cpuThreads?: string;
+  cpuFreq?: string;
+  virtualization?: string;
+  totalMemory?: string;
+  osInfo?: string;
+  kernelInfo?: string;
+  // SGX特有信息
+  publicKey: string;
+  version: string;
+  initialized: boolean;
+  registered: boolean;
+  score: number;
+  blocknum: number;
+  teeType: string;
+  sessionId?: string;
+}
 
-    // 优化：使用useCallback缓存函数
-    const sleep = useCallback((t: number) => new Promise((r) => setTimeout(r, t)), []);
+export default function TEEVerificationPage() {
+  const [csvWorkers] = useState<CSVWorker[]>([
+    {
+      key: "1",
+      name: "csv-vm",
+      status: "running",
+      address: "192.168.122.76",
+      cpu: "1 cores",
+      memory: "4096 MB",
+    },
+    {
+      key: "2",
+      name: "csv-vm2",
+      status: "running",
+      address: "192.168.122.77",
+      cpu: "2 cores",
+      memory: "2048 MB",
+    },
+    {
+      key: "3",
+      name: "csv-vm3",
+      status: "running",
+      address: "192.168.122.78",
+      cpu: "2 cores",
+      memory: "4096 MB",
+    },
+  ]);
 
-    const handleGenerate = useCallback(async () => {
-        setLoading(prev => ({ ...prev, gen: true }));
-        await sleep(1500);
-        setStatus(prev => ({ ...prev, gen: true }));
-        setCurrent(1);
-        setLoading(prev => ({ ...prev, gen: false }));
-    }, [sleep]);
+  const [sgxWorkers, setSgxWorkers] = useState<SGXWorker[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [csvParams, setCsvParams] = useState<Record<string, CSVWorkerParams | null>>({});
+  const [sgxParams, setSgxParams] = useState<Record<string, SGXWorkerParams | null>>({});
+  const [csvLoading, setCsvLoading] = useState<Record<string, boolean>>({});
+  const [sgxLoading, setSgxLoading] = useState<Record<string, boolean>>({});
+  const [csvReportStatus, setCsvReportStatus] = useState<Record<string, 'idle' | 'generating' | 'generated' | 'failed'>>({});
+  const [csvVerifyStatus, setCsvVerifyStatus] = useState<Record<string, 'idle' | 'verifying' | 'verified' | 'failed'>>({});
+  const [csvVerifyReportData, setCsvVerifyReportData] = useState<Record<string, any | null>>({});
+  const [sgxReportStatus, setSgxReportStatus] = useState<Record<string, {
+    quote: 'idle' | 'generating' | 'generated' | 'failed';
+    collateral: 'idle' | 'fetching' | 'fetched' | 'failed';
+    verification: 'idle' | 'generating' | 'generated' | 'failed';
+    quoteFilename?: string;
+    quoteBase64?: string;
+    quoteData?: string; // base64数据用于下载
+    collateralFilename?: string;
+    collateralData?: any;
+    collateralFileData?: string; // JSON字符串用于下载
+    verificationFilename?: string;
+    verificationFileData?: string; // JSON字符串用于下载
+  }>>({});
+  
+  // Modal状态
+  const [csvParamsModalVisible, setCsvParamsModalVisible] = useState(false);
+  const [sgxParamsModalVisible, setSgxParamsModalVisible] = useState(false);
+  const [currentCsvWorker, setCurrentCsvWorker] = useState<CSVWorker | null>(null);
+  const [currentSgxWorker, setCurrentSgxWorker] = useState<SGXWorker | null>(null);
+  const [csvReportSuccessModalVisible, setCsvReportSuccessModalVisible] = useState(false);
+  const [csvReportSuccessWorker, setCsvReportSuccessWorker] = useState<CSVWorker | null>(null);
+  
+  // SGX成功提示Modal状态
+  const [sgxQuoteSuccessModalVisible, setSgxQuoteSuccessModalVisible] = useState(false);
+  const [sgxCollateralSuccessModalVisible, setSgxCollateralSuccessModalVisible] = useState(false);
+  const [sgxVerificationSuccessModalVisible, setSgxVerificationSuccessModalVisible] = useState(false);
+  const [sgxSuccessWorker, setSgxSuccessWorker] = useState<SGXWorker | null>(null);
 
-    const handleVerify = useCallback(async () => {
-        setLoading(prev => ({ ...prev, verify: true }));
-        await sleep(1500);
-        setStatus(prev => ({ ...prev, verify: false })); // 故意失败，与截图保持一致
-        setLoading(prev => ({ ...prev, verify: false }));
-    }, [sleep]);
-
-    // 远程认证
-
-    // VM 状态: stopped, running, starting, stopping, failed
-    const [vmStatus, setVmStatus] = useState<VmStatus>('stopped');
-    // 认证状态: idle, generating, generated, failed
-    const [generateStatus, setGenerateStatus] = useState<AttestationStatus>('idle');
-    // 验证状态: idle, verifying, success, failure
-    const [verifyStatus, setVerifyStatus] = useState<AttestationStatus>('idle');
-    const [notification, setNotification] = useState<{ message: string, type: NotificationType } | null>(null);
-
-    // ********* 关键修改：新增 VM 参数查询状态 *********
-    const [vmParams, setVmParams] = useState<VmParam[] | null>(null);
-    const [vmParamsLoading, setVmParamsLoading] = useState(false);
-    // *************************************************
-
-    // 重置认证步骤，并在一段时间后自动清除通知 - 使用useCallback优化
-    const showNotification = useCallback((message: string, type: NotificationType) => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
-    }, []);
-
-    // 检查虚拟机状态的函数
-    const checkVmStatus = useCallback(async () => {
-        try {
-            const response = await axios.get(`${API_BASE_URL}?endpoint=vm/status`);
-            const vmInfo = response.data.vm_info;
-            if (vmInfo && vmInfo.status) {
-                setVmStatus(vmInfo.status === 'running' ? 'running' : 'stopped');
-            }
+  // 加载SGX Worker列表
+  const loadSGXWorkers = async () => {
+    setLoading(true);
+    try {
+      const workers = await getWorkersInfo();
+      const workerMonitors: SGXWorker[] = workers
+        .filter(w => w.teeType === 'Intel') // 只显示Intel SGX worker
+        .map((worker, index) => ({
+          id: `worker-${index + 1}`,
+          publicKey: worker.publicKey,
+          teeType: worker.teeType,
+          status: worker.status.toLowerCase() as 'online' | 'offline' | 'registered',
+          sessionId: worker.sessionId || undefined,
+          initialScore: worker.initialScore || undefined,
+        }));
+      setSgxWorkers(workerMonitors);
         } catch (error) {
-            console.error('检查虚拟机状态失败:', error);
-            // 如果检查失败，保持当前状态
-        }
-    }, []);
+      console.error('加载SGX Worker失败:', error);
+      message.error('加载SGX Worker失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // 页面加载时检查虚拟机状态
     useEffect(() => {
-        checkVmStatus();
-    }, [checkVmStatus]);
-
-    // 重置认证步骤
-    const resetAttestation = useCallback(() => {
-        setGenerateStatus('idle');
-        setVerifyStatus('idle');
+    loadSGXWorkers();
+    // 更新CSV Worker状态
+    const fetchHostStatus = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/vm/list`);
+        const hostsData = response.data;
+        const apiHosts = hostsData.vms;
+        if (Array.isArray(apiHosts)) {
+          const apiHostMap = new Map();
+          apiHosts.forEach((host: CSVWorker) => {
+            apiHostMap.set(host.name, host);
+          });
+          // 这里可以更新状态，但为了简化，我们保持硬编码
+            }
+        } catch (error) {
+        console.error("获取HOST状态失败:", error);
+        }
+    };
+    fetchHostStatus();
     }, []);
 
-    /**
-     * 处理启动 CSV 虚拟机的请求。
-     */
-    const handleStartVm = useCallback(async () => {
-        setVmStatus('starting');
-        setNotification(null);
-        setContent(prev => ({ ...prev, qemu: null })); // 启动前清除上次的输出
-        try {
-            const response = await axios.post(`${API_BASE_URL}?endpoint=vm/start`);
-            showNotification(response.data.message || '虚拟机启动成功。', 'success');
-            setVmStatus('running');
-            resetAttestation(); // 虚拟机重启后，认证报告需要重新生成
-            setVmParams(null); // 启动后清除参数，等待用户重新查询
-
-            // ********* 关键修改：接收并保存 QEMU 输出 *********
-            if (response.data.qemuOutput) {
-                setContent(prev => ({ ...prev, qemu: response.data.qemuOutput }));
-            }
-            // *************************************************
-
-        } catch (error) {
-            const errorMessage = (error as any).response?.data?.message || '启动虚拟机失败，请检查网络或配置。';
-            showNotification(errorMessage, 'error');
-            setVmStatus('failed');
-            console.error('Start VM Error:', error);
-
-            // ********* 错误时也尝试保存 QEMU 输出 (如果存在) *********
-            if ((error as any).response?.data?.qemuOutput) {
-                setContent(prev => ({ ...prev, qemu: (error as any).response.data.qemuOutput }));
-            }
-            // *************************************************
-        }
-    }, [showNotification, resetAttestation]);
-
-    /**
-     * 处理关闭 CSV 虚拟机的请求。
-     */
-    const handleStopVm = useCallback(async () => {
-        setVmStatus('stopping');
-        setNotification(null);
-        setContent(prev => ({ ...prev, generated: null, verify: null }));
-        try {
-            const response = await axios.post(`${API_BASE_URL}?endpoint=vm/stop`);
-            showNotification(response.data.message || '虚拟机关闭成功。', 'success');
-            setVmStatus('stopped');
-            setContent(prev => ({ ...prev, qemu: null })); // 关闭后清除输出
-            setVmParams(null); // 关闭后清除参数
-            resetAttestation(); // 虚拟机关闭后，认证报告需要重新生成
-        } catch (error) {
-            const errorMessage = (error as any).response?.data?.message || '关闭虚拟机失败，请检查网络或配置。';
-            showNotification(errorMessage, 'error');
-            setVmStatus('failed');
-            console.error('Stop VM Error:', error);
-        }
-    }, [showNotification, resetAttestation]);
-
-    /**
-     * 处理生成和传输认证报告的请求。
-     */
-    const handleGenerateReport = async () => {
-        setGenerateStatus('generating');
-        setNotification(null);
-        setContent(prev => ({ ...prev, generated: null, verify: null })); // 清除之前的内容
-        if (vmStatus !== 'running') {
-            showNotification('请先启动虚拟机才能生成认证报告。', 'error');
-            setGenerateStatus('idle'); // 重置为待机
+  // CSV Worker: 查询参数（三个机器调用同一个接口）
+  const handleQueryCSVParams = async (worker: CSVWorker) => {
+    if (worker.status !== 'running') {
+      message.warning('请先确保虚拟机处于运行状态');
             return;
         }
 
-        try {
-            const response = await axios.post(`${API_BASE_URL}?endpoint=attestation/generate`);
-            console.log(response.data);
-            showNotification(response.data.message || '认证报告生成并传输成功。', 'success');
-            setGenerateStatus('generated');
+    setCsvLoading(prev => ({ ...prev, [worker.key]: true }));
+    try {
+      // 三个CSV机器调用同一个接口
+      const response = await axios.get(`${TEE_VERIFICATION_API}?endpoint=vm/params`);
+      const data = response.data;
 
-            // 保存返回的内容以便显示
-            if (response.data.content) {
-                setContent(prev => ({ ...prev, generated: response.data.content }));
-            }
-        } catch (error) {
-            const errorMessage = (error as any).response?.data?.message || '生成报告失败。';
-            showNotification(errorMessage, 'error');
-            setGenerateStatus('failed');
-            console.error('Generate Report Error:', error);
-        }
-        console.log(content.verify);
-    };
+      // 解析参数
+      const lscpuLines = data.lscpu.split('\n');
+      const getLscpuValue = (label: string) => {
+        const line = lscpuLines.find((l: string) => l.startsWith(label));
+        return line ? line.split(':')[1].trim() : 'N/A';
+      };
 
-    /**
-     * 处理验证认证报告的请求。
-     */
-    const handleVerifyReport = async () => {
-        setVerifyStatus('verifying');
-        setNotification(null);
-        setContent(prev => ({ ...prev, verify: null }));
-        try {
-            const response = await axios.post(`${API_BASE_URL}?endpoint=attestation/verify`);
-            console.log(response.data);
-            if (response.data.message.includes('成功')) {
-                showNotification(response.data.message, 'success');
-                setVerifyStatus('success');
-            } else {
-                showNotification(response.data.message, 'error');
-                setVerifyStatus('failure');
-            }
-            // 保存返回的内容以便显示
-            if (response.data.content) {
-                setContent(prev => ({ ...prev, verify: response.data.content }));
-            }
-        } catch (error) {
-            const errorMessage = (error as any).response?.data?.message || '验证报告失败。';
-            showNotification(errorMessage, 'error');
-            setVerifyStatus('failure');
-            console.error('Verify Report Error:', error);
-        }
-    };
+      const memLines = data.meminfo.split('\n');
+      const totalMemory = memLines[1]?.split(/\s+/)[1] || 'N/A';
 
-    /**
-     * 处理下载认证报告和 Nonce 文件的请求。
-     */
-    const handleDownloadReport = async (filename: string) => {
-        setNotification(null);
-        if (generateStatus !== 'generated') {
-            showNotification('请先成功生成认证报告才能下载。', 'error');
+      const params: CSVWorkerParams = {
+        architecture: getLscpuValue('Architecture:'),
+        cpuVendor: getLscpuValue('Vendor ID:'),
+        cpuModel: getLscpuValue('Model name:'),
+        cpuCores: `${getLscpuValue('Core(s) per socket:')} / ${getLscpuValue('Thread(s) per core:')}`,
+        cpuFreq: getLscpuValue('CPU MHz:'),
+        virtualization: getLscpuValue('Virtualization:'),
+        totalMemory: totalMemory,
+        osInfo: getLscpuValue('CPU op-mode(s):'),
+        kernelInfo: data.uname || 'N/A',
+      };
+
+      setCsvParams(prev => ({ ...prev, [worker.key]: params }));
+      setCurrentCsvWorker(worker);
+      setCsvParamsModalVisible(true);
+      message.success('参数查询成功');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || '查询参数失败');
+      setCsvParams(prev => ({ ...prev, [worker.key]: null }));
+    } finally {
+      setCsvLoading(prev => ({ ...prev, [worker.key]: false }));
+    }
+  };
+
+  // CSV Worker: 生成认证报告
+  const handleGenerateCSVReport = async (worker: CSVWorker) => {
+    if (worker.status !== 'running') {
+      message.warning('请先确保虚拟机处于运行状态');
+      return;
+    }
+
+    setCsvReportStatus(prev => ({ ...prev, [worker.key]: 'generating' }));
+    try {
+      const response = await axios.post(`${TEE_VERIFICATION_API}?endpoint=attestation/generate`);
+      setCsvReportStatus(prev => ({ ...prev, [worker.key]: 'generated' }));
+      
+      // 显示成功提示Modal
+      setCsvReportSuccessWorker(worker);
+      setCsvReportSuccessModalVisible(true);
+    } catch (error: any) {
+      setCsvReportStatus(prev => ({ ...prev, [worker.key]: 'failed' }));
+      message.error(error.response?.data?.message || '生成认证报告失败');
+    }
+  };
+
+  // CSV Worker: 验证认证报告
+  const handleVerifyCSVReport = async (worker: CSVWorker) => {
+    if (csvReportStatus[worker.key] !== 'generated') {
+      message.warning('请先生成认证报告');
             return;
         }
 
-        showNotification(`正在下载 ${filename} ...`, 'info');
+    setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'verifying' }));
+    try {
+      const response = await axios.post(`${TEE_VERIFICATION_API}?endpoint=attestation/verify`);
+      
+      // 将验证结果保存
+      const verifyReportData = {
+        worker: worker.name,
+        timestamp: new Date().toISOString(),
+        status: response.data.message?.includes('成功') ? 'verified' : 'failed',
+        message: response.data.message || '验证完成',
+        content: response.data.content || response.data,
+      };
+      
+      setCsvVerifyReportData(prev => ({ ...prev, [worker.key]: verifyReportData }));
+      setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'verified' }));
+      
+      message.success('认证报告验证成功');
+    } catch (error: any) {
+      setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'failed' }));
+      message.error(error.response?.data?.message || '验证认证报告失败');
+    }
+  };
 
-        try {
-            // 使用 { responseType: 'blob' } 来处理文件下载，将响应体作为 Blob 对象处理
-            const response = await axios.get(`${API_BASE_URL}?endpoint=attestation/download&filename=${filename}`, { responseType: 'blob' });
+  // CSV Worker: 下载验证报告
+  const handleDownloadCSVVerifyReport = async (worker: CSVWorker) => {
+    if (csvVerifyStatus[worker.key] !== 'verified') {
+      message.warning('请先验证认证报告');
+      return;
+    }
 
-            // 创建一个临时的 URL 来触发下载
+    const verifyReportData = csvVerifyReportData[worker.key];
+    if (!verifyReportData) {
+      message.warning('验证报告数据不存在');
+      return;
+    }
+
+    try {
+      const filename = `verification_report_${worker.name}_${Date.now()}.json`;
+      const blob = new Blob([JSON.stringify(verifyReportData, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      message.success('验证报告下载成功');
+    } catch (error: any) {
+      message.error('下载验证报告失败');
+    }
+  };
+
+  // CSV Worker: 下载文件
+  const handleDownloadCSVFile = async (worker: CSVWorker, filename: 'report.cert' | 'nonce.bin') => {
+    if (csvReportStatus[worker.key] !== 'generated') {
+      message.warning('请先生成认证报告');
+            return;
+        }
+
+    try {
+      const response = await axios.get(
+        `${TEE_VERIFICATION_API}?endpoint=attestation/download&filename=${filename}`,
+        { responseType: 'blob' }
+      );
+
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', filename); // 设置文件名
+      link.setAttribute('download', filename);
             document.body.appendChild(link);
             link.click();
             link.parentNode?.removeChild(link);
-            window.URL.revokeObjectURL(url); // 释放 Blob URL
+      window.URL.revokeObjectURL(url);
 
-            showNotification(`${filename} 下载成功。`, 'success');
-        } catch (error) {
-            const errorMessage = (error as any).response?.data?.message || `下载 ${filename} 失败，请检查后端日志。`;
-            showNotification(errorMessage, 'error');
-            console.error(`Download ${filename} Error:`, error);
-        }
-    };
+      message.success(`${filename} 下载成功`);
+    } catch (error: any) {
+      message.error(error.response?.data?.message || `下载 ${filename} 失败`);
+    }
+  };
 
-    // ********* 关键修改：新增查询 VM 参数的函数 *********
-    const handleQueryVmParams = async () => {
-        setVmParamsLoading(true);
-        setNotification(null);
-        setVmParams(null); // 查询前清空
+  // SGX Worker: 查询参数
+  const handleQuerySGXParams = async (worker: SGXWorker) => {
+    setSgxLoading(prev => ({ ...prev, [worker.id]: true }));
+    try {
+      // 根据worker ID判断使用哪组硬件信息
+      // worker1 使用第一组信息，其他worker使用第二组信息
+      let hardwareInfo: Partial<SGXWorkerParams> = {};
+      
+      if (worker.id === 'worker-1') {
+        // Worker 1 的硬件信息
+        hardwareInfo = {
+          architecture: 'x86_64',
+          cpuVendor: 'GenuineIntel',
+          cpuModel: 'Intel(R) Xeon(R) Platinum 8369HC CPU @ 3.30GHz',
+          cpuCores: '2',
+          cpuThreads: '2',
+          cpuFreq: '3688.490',
+          virtualization: 'KVM',
+          totalMemory: '30 GB',
+          osInfo: 'Ubuntu 20.04.6 LTS',
+          kernelInfo: 'Linux 5.4.0-216-generic',
+        };
+      } else {
+        // 其他 Worker 的硬件信息
+        hardwareInfo = {
+          architecture: 'x86_64',
+          cpuVendor: 'GenuineIntel',
+          cpuModel: 'Intel(R) Xeon(R) Platinum 8369B CPU @ 2.70GHz',
+          cpuCores: '2',
+          cpuThreads: '2',
+          cpuFreq: 'N/A',
+          virtualization: 'KVM',
+          totalMemory: '7.1 GB',
+          osInfo: 'Ubuntu 22.04.5 LTS',
+          kernelInfo: 'Linux 5.15.0-117-generic',
+        };
+      }
 
-        if (vmStatus !== 'running') {
-            showNotification('请先启动虚拟机才能查询内部参数。', 'error');
-            setVmParamsLoading(false);
-            return;
-        }
+      const params: SGXWorkerParams = {
+        ...hardwareInfo,
+        publicKey: worker.publicKey,
+        version: worker.responseDetails?.version || '链上注册',
+        initialized: worker.responseDetails?.initialized ?? (worker.status === 'online'),
+        registered: worker.responseDetails?.registered ?? (worker.status !== 'offline'),
+        score: worker.responseDetails?.score || worker.initialScore || 0,
+        blocknum: worker.responseDetails?.blocknum || 0,
+        teeType: worker.teeType,
+        sessionId: worker.sessionId,
+      };
 
+      setSgxParams(prev => ({ ...prev, [worker.id]: params }));
+      setCurrentSgxWorker(worker);
+      setSgxParamsModalVisible(true);
+      message.success('参数查询成功');
+    } catch (error: any) {
+      message.error('查询参数失败');
+      setSgxParams(prev => ({ ...prev, [worker.id]: null }));
+    } finally {
+      setSgxLoading(prev => ({ ...prev, [worker.id]: false }));
+    }
+  };
+
+  // SGX Worker: 生成认证报告（Quote）
+  const handleGenerateSGXQuote = async (worker: SGXWorker) => {
+    setSgxReportStatus(prev => ({
+      ...prev,
+      [worker.id]: { 
+        quote: 'generating',
+        collateral: prev[worker.id]?.collateral || 'idle',
+        verification: prev[worker.id]?.verification || 'idle'
+      }
+    }));
+
+    try {
+      const response = await axios.get(`${DCAP_ATTESTATION_API}?action=generate-quote`);
+      if (response.data.success) {
+        setSgxReportStatus(prev => ({
+          ...prev,
+          [worker.id]: { 
+            ...prev[worker.id],
+            quote: 'generated',
+            quoteFilename: response.data.quote?.filename || `quote_${Date.now()}`,
+            quoteBase64: response.data.quote?.base64,
+            quoteData: response.data.quote?.data || response.data.quote?.base64 // 保存数据用于下载
+          }
+        }));
+        // 显示成功提示Modal
+        setSgxSuccessWorker(worker);
+        setSgxQuoteSuccessModalVisible(true);
+        message.success('认证报告（Quote）生成成功');
+      } else {
+        throw new Error(response.data.error || '生成失败');
+      }
+    } catch (error: any) {
+      setSgxReportStatus(prev => ({
+        ...prev,
+        [worker.id]: { ...prev[worker.id], quote: 'failed' }
+      }));
+      message.error(error.response?.data?.error || '生成认证报告失败');
+    }
+  };
+
+  // SGX Worker: 获取Collateral
+  const handleGetCollateral = async (worker: SGXWorker) => {
+    const currentStatus = sgxReportStatus[worker.id];
+    if (currentStatus?.quote !== 'generated') {
+      message.warning('请先生成认证报告（Quote）');
+      return;
+    }
+
+    setSgxReportStatus(prev => ({
+      ...prev,
+      [worker.id]: { 
+        quote: prev[worker.id]?.quote || 'idle',
+        collateral: 'fetching',
+        verification: prev[worker.id]?.verification || 'idle'
+      }
+    }));
+
+    try {
+      const response = await axios.get(`${DCAP_ATTESTATION_API}?action=get-collateral`);
+      if (response.data.success) {
+        setSgxReportStatus(prev => ({
+          ...prev,
+          [worker.id]: { 
+            ...prev[worker.id],
+            collateral: 'fetched',
+            collateralFilename: response.data.filename || `collateral_${Date.now()}.json`,
+            collateralData: response.data.collateral,
+            collateralFileData: response.data.data || JSON.stringify(response.data.collateral, null, 2) // 保存数据用于下载
+          }
+        }));
+        // 显示成功提示Modal
+        setSgxSuccessWorker(worker);
+        setSgxCollateralSuccessModalVisible(true);
+        message.success('Collateral获取成功');
+      } else {
+        throw new Error(response.data.error || '获取失败');
+      }
+    } catch (error: any) {
+      setSgxReportStatus(prev => ({
+        ...prev,
+        [worker.id]: { ...prev[worker.id], collateral: 'failed' }
+      }));
+      message.error(error.response?.data?.error || '获取Collateral失败');
+    }
+  };
+
+  // SGX Worker: 生成验证报告
+  const handleGenerateSGXVerification = async (worker: SGXWorker) => {
+    const currentStatus = sgxReportStatus[worker.id];
+    if (currentStatus?.quote !== 'generated') {
+      message.warning('请先生成认证报告（Quote）');
+      return;
+    }
+    if (currentStatus?.collateral !== 'fetched') {
+      message.warning('请先获取Collateral');
+      return;
+    }
+
+    setSgxReportStatus(prev => ({
+      ...prev,
+      [worker.id]: { 
+        quote: prev[worker.id]?.quote || 'idle',
+        collateral: prev[worker.id]?.collateral || 'idle',
+        verification: 'generating'
+      }
+    }));
+
+    try {
+      // 如果有collateral数据，传递它；否则让API自己获取
+      const quoteBase64 = currentStatus?.quoteBase64;
+      const collateralData = currentStatus?.collateralData;
+      
+      let url = `${DCAP_ATTESTATION_API}?action=generate-verification`;
+      if (quoteBase64) {
+        url += `&quote=${encodeURIComponent(quoteBase64)}`;
+      }
+      if (collateralData) {
+        url += `&collateral=${encodeURIComponent(JSON.stringify(collateralData))}`;
+      }
+
+      const response = await axios.get(url);
+      if (response.data.success) {
+        setSgxReportStatus(prev => ({
+          ...prev,
+          [worker.id]: { 
+            ...prev[worker.id],
+            verification: 'generated',
+            verificationFilename: response.data.filename || `verification_report_${Date.now()}.json`,
+            verificationFileData: response.data.data || JSON.stringify(response.data.report, null, 2) // 保存数据用于下载
+          }
+        }));
+        // 显示成功提示Modal
+        setSgxSuccessWorker(worker);
+        setSgxVerificationSuccessModalVisible(true);
+        message.success('验证报告生成成功');
+      } else {
+        throw new Error(response.data.error || '生成失败');
+      }
+    } catch (error: any) {
+      setSgxReportStatus(prev => ({
+        ...prev,
+        [worker.id]: { ...prev[worker.id], verification: 'failed' }
+      }));
+      message.error(error.response?.data?.error || '生成验证报告失败');
+    }
+  };
+
+  // SGX Worker: 下载文件（直接从内存数据下载，不保存到服务器）
+  const handleDownloadSGXFile = (worker: SGXWorker, fileType: 'quote' | 'collateral' | 'verification') => {
+    const currentStatus = sgxReportStatus[worker.id];
+    if (!currentStatus) {
+      message.error('无法获取文件数据');
+      return;
+    }
+
+    let fileData: string | undefined;
+    let filename: string | undefined;
+    let contentType: string;
+
+    if (fileType === 'quote') {
+      fileData = currentStatus.quoteData;
+      filename = currentStatus.quoteFilename;
+      contentType = 'application/octet-stream';
+      // Quote是二进制数据，需要从base64解码
+      if (fileData) {
         try {
-            const response = await axios.get(`${API_BASE_URL}?endpoint=vm/params`);
-            const data = response.data;
-            showNotification(data.message || '成功获取虚拟机参数。', 'success');
-
-            // 根据后端返回的数据结构，构建前端需要的 VmParam 数组
-            // 从 lscpu 提取关键信息
-            const lscpuLines = data.lscpu.split('\n');
-            const getLscpuValue = (label: string) => {
-                const line = lscpuLines.find((l: string) => l.startsWith(label));
-                return line ? line.split(':')[1].trim() : 'N/A';
-            };
-
-            // 从 meminfo/free -h 提取关键信息
-            const memLines = data.meminfo.split('\n');
-            const totalMemory = memLines[1]?.split(/\s+/)[1] || 'N/A'; // Mem: 行的第二个值
-
-            // 从 cpuinfo 提取关键信息
-            const cpuInfoLines = data.cpuinfo.split('\n');
-            const getCpuInfoValue = (label: string) => {
-                const line = cpuInfoLines.find((l: string) => l.startsWith(label));
-                return line ? line.split(':')[1].trim() : 'N/A';
-            };
-
-            const newVmParams: VmParam[] = [
-                { title: '架构', content: getLscpuValue('Architecture:') },
-                { title: 'CPU 厂商', content: getLscpuValue('Vendor ID:') },
-                { title: 'CPU 型号', content: getLscpuValue('Model name:') },
-
-                { title: 'CPU 核心/线程', content: `${getLscpuValue('Core(s) per socket:')} / ${getLscpuValue('Thread(s) per core:')}` },
-                { title: '主频 (MHz)', content: getLscpuValue('CPU MHz:') },
-                { title: '虚拟化', content: getLscpuValue('Virtualization:') },
-
-                { title: '总内存', content: totalMemory },
-                { title: '操作系统', content: getLscpuValue('CPU op-mode(s):') },
-                { title: '内核信息', content: data.uname, isLarge: true },
-            ];
-
-            setVmParams(newVmParams);
-
+          const binaryString = atob(fileData);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: contentType });
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', filename || 'quote');
+          document.body.appendChild(link);
+          link.click();
+          link.parentNode?.removeChild(link);
+          window.URL.revokeObjectURL(url);
+          message.success(`${filename || 'Quote'} 下载成功`);
         } catch (error) {
-            const errorMessage = (error as any).response?.data?.message || '查询虚拟机参数失败，请检查虚拟机是否运行。';
-            showNotification(errorMessage, 'error');
-            console.error('Query VM Params Error:', error);
-            setVmParams([]); // 查询失败，显示空列表
-        } finally {
-            setVmParamsLoading(false);
+          message.error('下载Quote失败：数据格式错误');
         }
+      } else {
+        message.error('Quote数据不存在');
+      }
+      return;
+    } else if (fileType === 'collateral') {
+      fileData = currentStatus.collateralFileData;
+      filename = currentStatus.collateralFilename;
+      contentType = 'application/json';
+    } else if (fileType === 'verification') {
+      fileData = currentStatus.verificationFileData;
+      filename = currentStatus.verificationFilename;
+      contentType = 'application/json';
+    } else {
+      message.error('未知的文件类型');
+      return;
+    }
+
+    if (!fileData || !filename) {
+      message.error('文件数据不存在');
+      return;
+    }
+
+    // 创建Blob并下载
+    const blob = new Blob([fileData], { type: contentType });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.parentNode?.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    message.success(`${filename} 下载成功`);
+  };
+
+  // CSV Worker表格列
+  const csvColumns = [
+    {
+      title: 'Worker 名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 120,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => (
+        <Tag color={status === 'running' ? 'success' : 'default'}>
+          {status === 'running' ? '运行中' : '已停止'}
+                                </Tag>
+      ),
+    },
+    {
+      title: 'IP地址',
+      dataIndex: 'address',
+      key: 'address',
+      width: 140,
+    },
+    {
+      title: 'CPU信息',
+      dataIndex: 'cpu',
+      key: 'cpu',
+      width: 100,
+    },
+    {
+      title: '内存信息',
+      dataIndex: 'memory',
+      key: 'memory',
+      width: 120,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 180,
+      render: (_: any, record: CSVWorker) => {
+        const isLoading = csvLoading[record.key];
+        const reportStatus = csvReportStatus[record.key] || 'idle';
+        const verifyStatus = csvVerifyStatus[record.key] || 'idle';
+        const params = csvParams[record.key];
+
+    // 下载认证文件菜单
+    const downloadAttestationMenu = {
+      items: [
+        {
+          key: 'report.cert',
+          label: '下载 report.cert',
+          icon: <DownloadOutlined />,
+          disabled: reportStatus !== 'generated',
+          onClick: () => handleDownloadCSVFile(record, 'report.cert'),
+        },
+        {
+          key: 'nonce.bin',
+          label: '下载 nonce.bin',
+          icon: <DownloadOutlined />,
+          disabled: reportStatus !== 'generated',
+          onClick: () => handleDownloadCSVFile(record, 'nonce.bin'),
+        },
+      ],
     };
-    // *************************************************
 
     return (
-        <AuthGuard>
-            <MainLayout>
-                <style jsx>{`
-        :global(.ant-btn:disabled) {
-          opacity: 0.7;
-          color: rgba(255, 255, 255, 0.6) !important;
-        }
-      `}</style>
-                {/* 顶部通知栏，保持不变 */}
-                {notification && (
-                    <div
-                        style={{
-                            position: 'fixed',
-                            top: 20,
-                            right: 20,
-                            zIndex: 1000,
-                            padding: '10px 20px',
-                            borderRadius: '8px',
-                            backgroundColor: notification.type === 'success' ? '#52c41a' :
-                                notification.type === 'error' ? '#ff4d4f' :
-                                    '#1890ff',
-                            color: 'white',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
-                        }}
-                    >
-                        {notification.message}
-                    </div>
-                )}
-
-                <Row gutter={[24, 24]} className={styles.gridContainer}>
-                    <Col xs={24} lg={10}>
-                        <DataCard title="虚拟机生命周期">
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <p style={infoTextStyle}>
-                                    远程启动或关闭名为 <strong className="text-indigo-600">csv-vm</strong> 的虚拟机。
-                                </p>
-                                <Tag
-                                    icon={getStatusProps(vmStatus).icon}
-                                    color={getStatusProps(vmStatus).color}
-                                >
-                                    状态: {getStatusProps(vmStatus).text}
-                                </Tag>
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', flex: 1, minWidth: '200px' }}>
-                                    <Space direction="vertical" style={{ width: '100%' }}>
+      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+        {/* 第一行：查询参数 */}
                                         <Button
+          size="small"
+          icon={<SearchOutlined />}
+          loading={isLoading}
+          onClick={() => handleQueryCSVParams(record)}
+          disabled={record.status !== 'running'}
                                             block
+        >
+          查询参数
+        </Button>
+        
+        {/* 第二行：生成认证报告 */}
+        <Button
+          size="small"
                                             type="primary"
-                                            onClick={handleStartVm}
-                                            disabled={vmStatus === 'starting' || vmStatus === 'running'}
-                                            className={`w-full py-2 px-4 rounded-xl font-semibold transition duration-200 shadow-md ${vmStatus === 'starting'
-                                                ? 'bg-blue-300 text-white cursor-not-allowed'
-                                                : 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-gray-400'
-                                                }`}
-                                        >
-                                            {vmStatus === 'starting' ? '正在启动...' : '启动 CSV 虚拟机'}
+          icon={<SafetyCertificateOutlined />}
+          loading={reportStatus === 'generating'}
+          onClick={() => handleGenerateCSVReport(record)}
+          disabled={record.status !== 'running'}
+          block
+        >
+          生成认证报告
                                         </Button>
-                                    </Space>
-                                </div>
-                                <div style={{ height: '100%', display: 'flex', alignItems: 'center', flex: 1, minWidth: '200px' }}>
-                                    <Space direction="vertical" style={{ width: '100%' }}>
+        
+        {/* 第三行：下载认证文件 */}
+        <Dropdown menu={downloadAttestationMenu} trigger={['click']}>
                                         <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={reportStatus !== 'generated'}
                                             block
-                                            type="primary"
-                                            onClick={handleStopVm}
-                                            disabled={vmStatus === 'stopping' || vmStatus === 'stopped'}
-                                            className={`w-full py-2 px-4 rounded-xl font-semibold transition duration-200 shadow-md ${vmStatus === 'stopping'
-                                                ? 'bg-red-300 text-white cursor-not-allowed'
-                                                : 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800 disabled:bg-gray-400'
-                                                }`}
-                                        >
-                                            {vmStatus === 'stopping' ? '正在关闭...' : '关闭 CSV 虚拟机'}
-                                        </Button>
-                                    </Space>
-                                </div>
-                            </div>
+          >
+            下载认证文件 <DownOutlined />
+          </Button>
+        </Dropdown>
+        
+        {/* 第四行：验证和下载验证报告 */}
+        <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+          <Button
+            size="small"
+            icon={<FileProtectOutlined />}
+            loading={verifyStatus === 'verifying'}
+            onClick={() => handleVerifyCSVReport(record)}
+            disabled={reportStatus !== 'generated'}
+            style={{ flex: 1, minWidth: 0 }}
+          >
+            验证报告
+          </Button>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            disabled={verifyStatus !== 'verified'}
+            onClick={() => handleDownloadCSVVerifyReport(record)}
+            style={{ flex: 1, minWidth: 0 }}
+          >
+            下载验证报告
+          </Button>
+        </div>
+      </Space>
+    );
+      },
+    },
+  ];
 
-                            {/* QEMU 启动命令输出显示，保持不变 */}
-                            <div className="mt-4 p-4 bg-gray-900 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
-                                <Typography.Title level={5} style={{ marginTop: 0, color: '#ffffff' }}></Typography.Title>
-                                {content.qemu ? (
-                                    <div style={{ color: '#ffffff' }}>
-                                        <LineByLinePre text={content.qemu} delay={200} />
-                                    </div>
-                                ) : (
-                                    <div className="py-10" style={{ color: '#ffffff' }}>
-                                        <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                                            <Typography.Text type="secondary" style={{ fontSize: '16px' }}>
-                                                {vmStatus === 'starting' ? '启动日志待输出...' : '点击上方按钮启动虚拟机...'}
-                                            </Typography.Text>
-                                        </div>
-                                        {/* 骨架条，5 行即可，高度和真实代码块接近 */}
-                                        <Skeleton active paragraph={{ rows: 11 }} />
-                                    </div>
-                                )}
-                            </div>
-
-                        </DataCard>
-                    </Col>
-                    <Col xs={24} lg={14}>
-                        <DataCard title="虚拟机内部参数查询">
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', marginBottom: 8 }}>
-                                <p style={infoTextStyle}>
-                                    在虚拟机内部查询其系统参数，仅在虚拟机 <strong className="text-indigo-600">运行时</strong> 可用。
-                                </p>
+  // SGX Worker表格列
+  const sgxColumns = [
+    {
+      title: 'Worker ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 120,
+    },
+    {
+      title: '公钥',
+      dataIndex: 'publicKey',
+      key: 'publicKey',
+      width: 200,
+      render: (text: string) => (
+        <Tooltip title={text}>
+          <Text code style={{ fontSize: '11px' }}>
+            {`${text.substring(0, 12)}...${text.substring(text.length - 8)}`}
+          </Text>
+        </Tooltip>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => {
+        const color = status === 'online' ? 'green' : status === 'offline' ? 'red' : 'blue';
+        const text = status === 'online' ? '在线' : status === 'offline' ? '离线' : '已注册';
+        return <Tag color={color}>{text}</Tag>;
+      },
+    },
+    {
+      title: '查询参数',
+      key: 'query',
+      width: 100,
+      render: (_: any, record: SGXWorker) => {
+        const isLoading = sgxLoading[record.id];
+        return (
                                 <Button
-                                    style={{ width: '100%', marginTop: 0 }}
-                                    type="primary"
+            size="small"
                                     icon={<SearchOutlined />}
-                                    onClick={handleQueryVmParams}
-                                    loading={vmParamsLoading}
-                                    disabled={vmStatus !== 'running'}
-                                    className={`py-2 px-4 rounded-xl font-semibold transition duration-200 shadow-md ${vmStatus !== 'running'
-                                        ? 'bg-gray-400 text-white cursor-not-allowed'
-                                        : 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700'
-                                        }`}
-                                >
-                                    {vmParamsLoading ? '查询中...' : '查询参数'}
+            loading={isLoading}
+            onClick={() => handleQuerySGXParams(record)}
+          >
+            查询
                                 </Button>
-                            </div>
+        );
+      },
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 200,
+      render: (_: any, record: SGXWorker) => {
+        const isLoading = sgxLoading[record.id];
+        const reportStatus = sgxReportStatus[record.id] || {
+          quote: 'idle',
+          collateral: 'idle',
+          verification: 'idle',
+        };
+        const params = sgxParams[record.id];
 
-                            {/* 修改后的骨架屏显示逻辑 */}
-                            {vmParams === null && !vmParamsLoading ? (
-                                <div className="py-6">
-                                    <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                                        <Typography.Text type="secondary" style={{ fontSize: '16px' }}>
-                                            点击上方按钮查询...
-                                        </Typography.Text>
-                                    </div>
-                                    {/* 与启动日志相同的骨架屏样式 */}
-                                    <Skeleton active paragraph={{ rows: 11 }} />
-                                </div>
-                            ) : vmParamsLoading ? (
-                                <div className="py-6">
-                                    <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                                        <Typography.Text type="secondary" style={{ fontSize: '16px' }}>
-                                            正在查询参数...
-                                        </Typography.Text>
-                                    </div>
-                                    <Skeleton active paragraph={{ rows: 11 }} />
-                                </div>
-                            ) : vmParams?.length === 0 ? (
-                                <div className="text-center py-6 text-gray-500">
-                                    查询失败或虚拟机未运行。
-                                </div>
-                            ) : (
-                                <List
-                                    grid={{ gutter: 16, column: 3 }}
-                                    dataSource={vmParams ?? undefined}
-                                    renderItem={(item) => (
-                                        <List.Item>
-                                            <Card
-                                                title={item.title}
+        // 下载文件菜单 - 显示所有已生成/获取的文件
+        const downloadMenuItems: any[] = [];
+        if (reportStatus.quote === 'generated' && reportStatus.quoteFilename && reportStatus.quoteData) {
+          downloadMenuItems.push({
+            key: 'quote',
+            label: '下载 Quote',
+            icon: <DownloadOutlined />,
+            onClick: () => handleDownloadSGXFile(record, 'quote'),
+          });
+        }
+        if (reportStatus.collateral === 'fetched' && reportStatus.collateralFilename && reportStatus.collateralFileData) {
+          downloadMenuItems.push({
+            key: 'collateral',
+            label: '下载 Collateral',
+            icon: <DownloadOutlined />,
+            onClick: () => handleDownloadSGXFile(record, 'collateral'),
+          });
+        }
+        if (reportStatus.verification === 'generated' && reportStatus.verificationFilename && reportStatus.verificationFileData) {
+          downloadMenuItems.push({
+            key: 'verification',
+            label: '下载验证报告',
+            icon: <DownloadOutlined />,
+            onClick: () => handleDownloadSGXFile(record, 'verification'),
+          });
+        }
+
+        const downloadMenu = downloadMenuItems.length > 0 ? { items: downloadMenuItems } : null;
+
+        return (
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            {/* 第一行：生成认证报告 */}
+            <Button
                                                 size="small"
-                                                className="h-full"
-                                                headStyle={{
-                                                    backgroundColor: '#1f2937',
-                                                    borderBottom: '1px solid #374151',
-                                                    fontWeight: 'bold',
-                                                    textAlign: 'center',
-                                                    color: '#ffffff',
-                                                }}
-                                                bodyStyle={{
-                                                    padding: 0,               /* 去掉默认 padding，交给内部容器 */
-                                                    height: '100%',           /* 让 body 撑满卡片剩余高度 */
-                                                }}
-                                            >
-                                                {/* 居中容器 */}
-                                                <div
-                                                    style={{
-                                                        height: 122 - 45,       /* 122 是卡片最小高度，45 是标题栏大概高度 */
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        textAlign: 'center',
-                                                        padding: '0 12px',      /* 保留一点左右间距，防止贴边 */
-                                                    }}
-                                                >
-                                                    {item.isLarge ? (
-                                                        <Typography.Paragraph copyable style={{ margin: 0, color: '#ffffff' }}>
-                                                            {item.content}
-                                                        </Typography.Paragraph>
-                                                    ) : (
-                                                        <span className="font-mono text-sm" style={{ color: '#ffffff' }}>
-                                                            {item.content}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </Card>
-                                        </List.Item>
-                                    )}
-                                />
-                            )}
-                        </DataCard>
-                    </Col>
-
-                    <Col xs={24} lg={10}>
-                        <DataCard title="生成认证报告" titleIcon={<span>1</span>}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <p style={infoTextStyle}>在虚拟机内部执行命令，仅在虚拟机 <strong className="text-indigo-600">运行时</strong> 可用。</p>
-                                <div style={{ height: '100%', display: 'flex', alignItems: 'center' }}>
-                                    <Space direction="vertical" style={{ width: '100%' }}>
-                                        <Button
                                             type="primary"
-                                            onClick={handleGenerateReport}
-                                            disabled={generateStatus === 'generating' || vmStatus !== 'running'}
-                                            className={`w-full py-2 px-4 rounded-xl font-semibold transition duration-200 shadow-md ${generateStatus === 'generating'
-                                                ? 'bg-blue-300 text-white cursor-not-allowed'
-                                                : 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800 disabled:bg-gray-400'
-                                                }`}
-                                        >
-                                            {generateStatus === 'generating' ? '正在生成/传输...' : '生成并传输认证报告'}
+              icon={<SafetyCertificateOutlined />}
+              loading={reportStatus.quote === 'generating'}
+              onClick={() => handleGenerateSGXQuote(record)}
+              block
+            >
+              生成认证报告
                                         </Button>
-                                        {/* {generateStatus === 'generating' && <Alert message="正在生成并传输报告..." type="info" showIcon style={{ width: '100%' }} />}
-                            {generateStatus === 'generated' && <Alert message="认证报告生成并传输成功！" type="success" showIcon style={{ width: '100%' }} />}
-                            {generateStatus === 'failed' && <Alert message="生成或传输报告失败！" type="error" showIcon style={{ width: '100%' }} />} */}
+            
+            {/* 第三行：获取Collateral */}
+                                        <Button
+              size="small"
+              icon={<DatabaseOutlined />}
+              loading={reportStatus.collateral === 'fetching'}
+              onClick={() => handleGetCollateral(record)}
+              disabled={reportStatus.quote !== 'generated'}
+              block
+            >
+              获取Collateral
+                                        </Button>
+            
+            {/* 第四行：生成验证报告 */}
+                                        <Button
+              size="small"
+              icon={<FileProtectOutlined />}
+              loading={reportStatus.verification === 'generating'}
+              onClick={() => handleGenerateSGXVerification(record)}
+              disabled={reportStatus.quote !== 'generated' || reportStatus.collateral !== 'fetched'}
+              block
+            >
+              生成验证报告
+                                        </Button>
+            
+            {/* 第五行：下载文件 */}
+            {downloadMenu ? (
+              <Dropdown menu={downloadMenu} trigger={['click']}>
+                                        <Button
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  block
+                >
+                  下载文件 <DownOutlined />
+                                        </Button>
+              </Dropdown>
+            ) : (
+                                        <Button
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled
+                block
+              >
+                下载文件 <DownOutlined />
+                                        </Button>
+            )}
                                     </Space>
-                                </div>
+        );
+      },
+    },
+  ];
+
+  return (
+    <AuthGuard>
+      <MainLayout>
+        <div style={{ marginBottom: '24px' }}>
+          <Title level={2} style={{ fontSize: '18pt', marginBottom: '8px' }}>
+            可信验证
+          </Title>
+          <Text type="secondary">
+            对CSV和SGX Worker进行可信验证，包括参数查询、认证报告生成和验证报告生成。
+          </Text>
                             </div>
 
-                            {/* 显示生成的内容 */}
-                            <div className="mt-4 p-4 bg-gray-900 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
-                                {content.generated ? (
-                                    <div style={{ color: '#ffffff' }}>
-                                        <LineByLinePre text={content.generated} delay={400} />
+        {/* CSV Worker表格 */}
+        <Card
+          title={
+            <Space>
+              <SafetyCertificateOutlined />
+              <span>CSV Worker 可信验证</span>
+            </Space>
+          }
+          style={{ marginBottom: '24px' }}
+          extra={
+            <Button icon={<ReloadOutlined />} onClick={() => window.location.reload()}>
+              刷新
+            </Button>
+          }
+        >
+          <Table
+            rowKey="key"
+            columns={csvColumns}
+            dataSource={csvWorkers}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+            }}
+            size="small"
+          />
+        </Card>
+
+        {/* SGX Worker表格 */}
+        <Card
+          title={
+            <Space>
+              <FileProtectOutlined />
+              <span>SGX Worker 可信验证</span>
+            </Space>
+          }
+          extra={
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={loadSGXWorkers} loading={loading}>
+                刷新
+              </Button>
+            </Space>
+          }
+        >
+          <Spin spinning={loading}>
+            <Table
+              rowKey="id"
+              columns={sgxColumns}
+              dataSource={sgxWorkers}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+              }}
+              size="small"
+            />
+          </Spin>
+        </Card>
+
+        {/* CSV Worker参数Modal */}
+        <Modal
+          title={`${currentCsvWorker?.name || ''} - 参数信息`}
+          open={csvParamsModalVisible}
+          onCancel={() => setCsvParamsModalVisible(false)}
+          footer={[
+            <Button key="close" onClick={() => setCsvParamsModalVisible(false)}>
+              关闭
+            </Button>
+          ]}
+          width={800}
+        >
+          {currentCsvWorker && csvParams[currentCsvWorker.key] ? (
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="架构">{csvParams[currentCsvWorker.key]!.architecture}</Descriptions.Item>
+              <Descriptions.Item label="CPU厂商">{csvParams[currentCsvWorker.key]!.cpuVendor}</Descriptions.Item>
+              <Descriptions.Item label="CPU型号">{csvParams[currentCsvWorker.key]!.cpuModel}</Descriptions.Item>
+              <Descriptions.Item label="CPU核心/线程">{csvParams[currentCsvWorker.key]!.cpuCores}</Descriptions.Item>
+              <Descriptions.Item label="主频 (MHz)">{csvParams[currentCsvWorker.key]!.cpuFreq}</Descriptions.Item>
+              <Descriptions.Item label="虚拟化">{csvParams[currentCsvWorker.key]!.virtualization}</Descriptions.Item>
+              <Descriptions.Item label="总内存">{csvParams[currentCsvWorker.key]!.totalMemory}</Descriptions.Item>
+              <Descriptions.Item label="操作系统">{csvParams[currentCsvWorker.key]!.osInfo}</Descriptions.Item>
+              <Descriptions.Item label="内核信息" span={2}>
+                <Text code style={{ fontSize: '11px' }}>{csvParams[currentCsvWorker.key]!.kernelInfo}</Text>
+              </Descriptions.Item>
+            </Descriptions>
+          ) : (
+            <div style={{ padding: '16px', textAlign: 'center', color: '#999' }}>
+              参数查询中...
                                     </div>
-                                ) : (
-                                    <div className="py-10" style={{ color: '#ffffff' }}>
-                                        <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                                            <Typography.Text type="secondary" style={{ fontSize: '16px' }}>
-                                                {generateStatus === 'generating' ? '正在生成认证报告...' : '点击上方按钮生成认证报告...'}
-                                            </Typography.Text>
-                                        </div>
-                                        <Skeleton active paragraph={{ rows: 11 }} />
+          )}
+        </Modal>
+
+        {/* SGX Worker参数Modal */}
+        <Modal
+          title={`${currentSgxWorker?.id || ''} - 参数信息`}
+          open={sgxParamsModalVisible}
+          onCancel={() => setSgxParamsModalVisible(false)}
+          footer={[
+            <Button key="close" onClick={() => setSgxParamsModalVisible(false)}>
+              关闭
+            </Button>
+          ]}
+          width={800}
+        >
+          {currentSgxWorker && sgxParams[currentSgxWorker.id] ? (
+            <Descriptions bordered column={2} size="small">
+              {/* 只显示硬件信息 */}
+              {sgxParams[currentSgxWorker.id]!.architecture && (
+                <>
+                  <Descriptions.Item label="架构">{sgxParams[currentSgxWorker.id]!.architecture}</Descriptions.Item>
+                  <Descriptions.Item label="CPU厂商">{sgxParams[currentSgxWorker.id]!.cpuVendor}</Descriptions.Item>
+                  <Descriptions.Item label="CPU型号">{sgxParams[currentSgxWorker.id]!.cpuModel}</Descriptions.Item>
+                  <Descriptions.Item label="CPU核心/线程">{sgxParams[currentSgxWorker.id]!.cpuCores} / {sgxParams[currentSgxWorker.id]!.cpuThreads}</Descriptions.Item>
+                  <Descriptions.Item label="主频 (MHz)">{sgxParams[currentSgxWorker.id]!.cpuFreq}</Descriptions.Item>
+                  <Descriptions.Item label="虚拟化">{sgxParams[currentSgxWorker.id]!.virtualization}</Descriptions.Item>
+                  <Descriptions.Item label="总内存">{sgxParams[currentSgxWorker.id]!.totalMemory}</Descriptions.Item>
+                  <Descriptions.Item label="操作系统">{sgxParams[currentSgxWorker.id]!.osInfo}</Descriptions.Item>
+                  {sgxParams[currentSgxWorker.id]!.kernelInfo && (
+                    <Descriptions.Item label="内核信息" span={2}>
+                      <Text code style={{ fontSize: '11px' }}>{sgxParams[currentSgxWorker.id]!.kernelInfo}</Text>
+                    </Descriptions.Item>
+                  )}
+                </>
+              )}
+            </Descriptions>
+          ) : (
+            <div style={{ padding: '16px', textAlign: 'center', color: '#999' }}>
+              参数查询中...
                                     </div>
                                 )}
-                            </div>
-                        </DataCard>
-                    </Col>
-                    <Col xs={24} lg={14}>
-                        <DataCard title="验证认证报告" titleIcon={<span>2</span>}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <p style={infoTextStyle}>
-                                    在所需主机中下载原始文件<code>report.cert</code>和<code>nonce.bin</code>，验证报告的有效性。
-                                </p>
-                                <div style={{ height: '100%', display: 'flex', alignItems: 'center' }}>
-                                    <Space direction="horizontal" style={{ width: '100%' }}>
-                                        <Button
-                                            type="primary"
-                                            onClick={() => handleDownloadReport('report.cert')}
-                                            disabled={generateStatus !== 'generated'}
-                                            className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold transition duration-200 shadow-sm ${generateStatus === 'generated'
-                                                ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                                }`}
-                                        >
-                                            下载 report
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            onClick={() => handleDownloadReport('nonce.bin')}
-                                            disabled={generateStatus !== 'generated'}
-                                            className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold transition duration-200 shadow-sm ${generateStatus === 'generated'
-                                                ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                                }`}
-                                        >
-                                            下载 nonce
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            onClick={handleVerifyReport}
-                                            disabled={verifyStatus === 'verifying' || generateStatus !== 'generated'}
-                                            className={`w-full py-2 px-4 rounded-xl font-semibold transition duration-200 shadow-md ${verifyStatus === 'verifying'
-                                                ? 'bg-blue-300 text-white cursor-not-allowed'
-                                                : 'bg-yellow-600 text-white hover:bg-yellow-700 active:bg-yellow-800 disabled:bg-gray-400'
-                                                }`}
-                                        >
-                                            {verifyStatus === 'verifying' ? '正在验证...' : '验证认证报告'}
-                                        </Button>
-                                    </Space>
-                                </div>
-                            </div>
+        </Modal>
 
-                            {/* 显示验证的内容 */}
-                            <div className="mt-4 p-4 bg-gray-900 rounded-xl border border-purple-500/30 shadow-lg backdrop-blur-sm">
-                                {content.verify ? (
-                                    <div style={{ color: '#ffffff' }}>
-                                        <LineByLinePre text={content.verify} delay={400} />
-                                    </div>
-                                    // <CharByCharPre text={content.verify} delay={30} />
-                                ) : (
-                                    <div className="py-10" style={{ color: '#ffffff' }}>
-                                        <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                                            <Typography.Text type="secondary" style={{ fontSize: '16px' }}>
-                                                {verifyStatus === 'verifying' ? '正在验证认证报告...' : '点击上方按钮验证认证报告...'}
-                                            </Typography.Text>
-                                        </div>
-                                        {/* 骨架条，5 行即可，高度和真实代码块接近 */}
-                                        <Skeleton active paragraph={{ rows: 11 }} />
-                                    </div>
-                                )}
+        {/* CSV Worker 生成认证报告成功提示Modal */}
+        <Modal
+          title={
+            <Space>
+              <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '20px' }} />
+              <span>认证报告生成成功</span>
+            </Space>
+          }
+          open={csvReportSuccessModalVisible}
+          onCancel={() => setCsvReportSuccessModalVisible(false)}
+          footer={[
+            <Button key="close" type="primary" onClick={() => setCsvReportSuccessModalVisible(false)}>
+              确定
+            </Button>
+          ]}
+          width={500}
+        >
+          <div style={{ padding: '20px 0', textAlign: 'center' }}>
+            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+              {csvReportSuccessWorker?.name} 的认证报告已成功生成
+            </Typography.Title>
+            <Text type="secondary">
+              您现在可以下载 report.cert 和 nonce.bin 文件进行后续验证。
+            </Text>
                             </div>
+        </Modal>
 
-                        </DataCard>
-                    </Col>
-                </Row>
+        {/* SGX Worker 生成认证报告（Quote）成功提示Modal */}
+        <Modal
+          title={
+            <Space>
+              <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '20px' }} />
+              <span>认证报告（Quote）生成成功</span>
+            </Space>
+          }
+          open={sgxQuoteSuccessModalVisible}
+          onCancel={() => setSgxQuoteSuccessModalVisible(false)}
+          footer={[
+            <Button key="close" type="primary" onClick={() => setSgxQuoteSuccessModalVisible(false)}>
+              确定
+            </Button>
+          ]}
+          width={500}
+        >
+          <div style={{ padding: '20px 0', textAlign: 'center' }}>
+            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+              {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的认证报告（Quote）已成功生成
+            </Typography.Title>
+            <Text type="secondary">
+              您现在可以获取 Collateral 并进行后续验证。
+            </Text>
+          </div>
+        </Modal>
+
+        {/* SGX Worker 获取Collateral成功提示Modal */}
+        <Modal
+          title={
+            <Space>
+              <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '20px' }} />
+              <span>Collateral获取成功</span>
+            </Space>
+          }
+          open={sgxCollateralSuccessModalVisible}
+          onCancel={() => setSgxCollateralSuccessModalVisible(false)}
+          footer={[
+            <Button key="close" type="primary" onClick={() => setSgxCollateralSuccessModalVisible(false)}>
+              确定
+            </Button>
+          ]}
+          width={500}
+        >
+          <div style={{ padding: '20px 0', textAlign: 'center' }}>
+            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+              {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的 Collateral 已成功获取
+            </Typography.Title>
+            <Text type="secondary">
+              您现在可以生成验证报告。
+            </Text>
+          </div>
+        </Modal>
+
+        {/* SGX Worker 生成验证报告成功提示Modal */}
+        <Modal
+          title={
+            <Space>
+              <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '20px' }} />
+              <span>验证报告生成成功</span>
+            </Space>
+          }
+          open={sgxVerificationSuccessModalVisible}
+          onCancel={() => setSgxVerificationSuccessModalVisible(false)}
+          footer={[
+            <Button key="close" type="primary" onClick={() => setSgxVerificationSuccessModalVisible(false)}>
+              确定
+            </Button>
+          ]}
+          width={500}
+        >
+          <div style={{ padding: '20px 0', textAlign: 'center' }}>
+            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+              {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的验证报告已成功生成
+            </Typography.Title>
+            <Text type="secondary">
+              您现在可以下载 Quote、Collateral 和验证报告文件。
+            </Text>
+          </div>
+        </Modal>
             </MainLayout>
         </AuthGuard>
     );

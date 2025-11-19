@@ -4,37 +4,39 @@ import { getApi } from '@/lib/phalaApi';
 // 获取密钥轮换统计
 export async function GET(request: NextRequest) {
     try {
-        let api;
-        let currentBlock = 0;
-
-        try {
-            api = await getApi();
-            const header = await api.rpc.chain.getHeader();
-            currentBlock = header.number.toNumber();
-        } catch (apiError) {
-            console.error('Failed to get API:', apiError);
-            return NextResponse.json({
-                success: true,
-                data: {
-                    totalKeys: 0,
-                    activeKeys: 0,
-                    rotatingKeys: 0,
-                    lastRotation: { blockNumber: 0, timestamp: 0 },
-                    nextRotation: { estimatedBlock: 0, estimatedTime: 0 }
-                }
-            });
-        }
+        const api = await getApi();
+        const header = await api.rpc.chain.getHeader();
+        const currentBlock = header.number.toNumber();
 
         // 获取密钥轮换状态
         const rotationResponse = await fetch(`${request.nextUrl.origin}/api/key-rotation?action=status`);
-        let rotationData = null;
-        if (rotationResponse.ok) {
-            rotationData = await rotationResponse.json();
+        if (!rotationResponse.ok) {
+            throw new Error(`Key rotation API 响应异常: ${rotationResponse.status}`);
         }
+        const rotationData = await rotationResponse.json();
 
         const totalKeys = rotationData?.keys?.length || 0;
         const activeKeys = rotationData?.keys?.filter((k: any) => k.status === 'active').length || 0;
         const rotatingKeys = rotationData?.keys?.filter((k: any) => k.status === 'rotating').length || 0;
+        const pendingMessages = (rotationData?.keys || []).reduce(
+            (sum: number, key: any) => sum + (key?.pendingMessages || 0),
+            0
+        );
+        const gatekeeperKeys = (rotationData?.keys || []).filter(
+            (key: any) => typeof key?.keyId === 'string' && key.keyId.startsWith('GK_')
+        ).length;
+        const keySamples = (rotationData?.keys || [])
+            .slice(0, 4)
+            .map((key: any) => ({
+                id: key?.id || key?.keyId,
+                keyId: key?.keyId,
+                keyType: key?.keyType,
+                owner: key?.owner,
+                algorithm: key?.algorithm,
+                pendingMessages: key?.pendingMessages || 0,
+                status: key?.status || 'active',
+                publicKey: key?.publicKey,
+            }));
 
         // 估算下次轮换（简化处理）
         const rotationInterval = 100000; // 每10万个区块
@@ -54,23 +56,22 @@ export async function GET(request: NextRequest) {
                 },
                 nextRotation: {
                     estimatedBlock: nextRotationBlock,
-                    estimatedTime
-                }
+                    estimatedTime,
+                    estimatedSeconds: Math.max(estimatedTime, 0),
+                },
+                overview: {
+                    pendingMessages,
+                    gatekeeperKeys,
+                    keySamples,
+                },
             }
         });
     } catch (error) {
         console.error('Key rotation stats API error:', error);
         return NextResponse.json({
-            success: true,
-            data: {
-                totalKeys: 0,
-                activeKeys: 0,
-                rotatingKeys: 0,
-                lastRotation: { blockNumber: 0, timestamp: 0 },
-                nextRotation: { estimatedBlock: 0, estimatedTime: 0 }
-            }
-        });
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        }, { status: 500 });
     }
 }
-
 

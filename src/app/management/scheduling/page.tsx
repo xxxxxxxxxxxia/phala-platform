@@ -183,25 +183,110 @@ const scenarioFlowColumns = [
     key: "flowId",
     render: (value: string) => <Text code>{value}</Text>,
   },
-  { title: "权重", dataIndex: "weight", key: "weight" },
+  {
+    title: "权重",
+    dataIndex: "weight",
+    key: "weight",
+    render: (value: number) => (
+      <Tag color={value === 1 ? "default" : value === 3 ? "processing" : "success"}>
+        {value}x
+      </Tag>
+    ),
+  },
   { title: "总请求", dataIndex: "total", key: "total" },
   { title: "已接受", dataIndex: "accepted", key: "accepted" },
+  {
+    title: "期望接受",
+    dataIndex: "expectedAccepted",
+    key: "expectedAccepted",
+    render: (value: number | undefined) => value !== undefined ? value.toFixed(1) : "--",
+  },
+  {
+    title: "分配比例",
+    dataIndex: "allocationRatio",
+    key: "allocationRatio",
+    render: (value: number | undefined, record: any) => {
+      if (value === undefined || record.flowId?.includes("fair")) return "--";
+      const percentage = (value * 100).toFixed(1);
+      const color = value >= 0.95 && value <= 1.05 ? "success" : value >= 0.8 ? "warning" : "error";
+      return <Tag color={color}>{percentage}%</Tag>;
+    },
+  },
+  {
+    title: "标准化接受数",
+    dataIndex: "normalizedAccepted",
+    key: "normalizedAccepted",
+    render: (value: number | undefined) => value !== undefined ? value.toFixed(2) : "--",
+    tooltip: "每权重单位接受的请求数（用于对比权重公平性）",
+  },
   { title: "已拒绝", dataIndex: "rejected", key: "rejected" },
 ];
 
 const sfqFlowColumns = [
   {
-    title: "Flow",
+    title: "任务流名称",
     dataIndex: "flow",
     key: "flow",
-    render: (value: string) => <Text code>{value}</Text>,
+    render: (value: string) => <Text code>{value?.replace("_", " ").toUpperCase() || "--"}</Text>,
   },
-  { title: "权重", dataIndex: "weight", key: "weight" },
-  { title: "虚拟时钟", dataIndex: "vClock", key: "vClock" },
-  { title: "积压", dataIndex: "backlog", key: "backlog" },
-  { title: "已接受", dataIndex: "accepted", key: "accepted" },
-  { title: "已拒绝", dataIndex: "rejected", key: "rejected" },
-  { title: "总数", dataIndex: "total", key: "total" },
+  {
+    title: "优先级权重",
+    dataIndex: "weight",
+    key: "weight",
+    render: (value: number) => (
+      <Tag color={value === 1 ? "default" : value <= 3 ? "processing" : "success"}>
+        {value}x
+      </Tag>
+    ),
+  },
+  {
+    title: "已处理",
+    dataIndex: "accepted",
+    key: "accepted",
+    render: (value: number, record: any) => (
+      <Space>
+        <Text strong style={{ color: "#52c41a" }}>{value || 0}</Text>
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          / {((record.accepted || 0) + (record.rejected || 0))} 总数
+        </Text>
+      </Space>
+    ),
+  },
+  {
+    title: "拒绝数",
+    dataIndex: "rejected",
+    key: "rejected",
+    render: (value: number) => (
+      <Text style={{ color: value > 0 ? "#f5222d" : undefined }}>{value || 0}</Text>
+    ),
+  },
+  {
+    title: "等待队列",
+    dataIndex: "backlog",
+    key: "backlog",
+    render: (value: number) => (
+      <Tag color={value === 0 ? "success" : value <= 3 ? "warning" : "error"}>
+        {value || 0} 个
+      </Tag>
+    ),
+    tooltip: "当前等待处理的请求数",
+  },
+  {
+    title: "处理进度",
+    key: "progress",
+    render: (_: any, record: any) => {
+      const total = (record.accepted || 0) + (record.rejected || 0);
+      const progress = total > 0 ? ((record.accepted || 0) / total) * 100 : 0;
+      return (
+        <Progress
+          percent={Math.round(progress)}
+          size="small"
+          status={progress === 100 ? "success" : "active"}
+          strokeColor="#52c41a"
+        />
+      );
+    },
+  },
 ];
 
 export default function HomePage() {
@@ -719,19 +804,38 @@ export default function HomePage() {
 
   const sfqSummaryStats = useMemo(() => {
     if (!sfqStatus?.data) return [];
+
+    // 计算总处理数
+    const totalAccepted = sfqStatus.data.flows?.reduce((sum: number, f: any) => sum + (f.accepted || 0), 0) || 0;
+    const totalRejected = sfqStatus.data.flows?.reduce((sum: number, f: any) => sum + (f.rejected || 0), 0) || 0;
+    const totalRequests = totalAccepted + totalRejected;
+    const successRate = totalRequests > 0 ? ((totalAccepted / totalRequests) * 100).toFixed(1) : "0";
+
+    // 计算平均等待数（积压）
+    const avgBacklog = sfqStatus.data.flows?.length > 0
+      ? (sfqStatus.data.flows.reduce((sum: number, f: any) => sum + (f.backlog || 0), 0) / sfqStatus.data.flows.length).toFixed(1)
+      : "0";
+
     return [
       {
-        title: "虚拟时间",
-        value:
-          typeof sfqStatus.data.virtualTime === "number"
-            ? sfqStatus.data.virtualTime.toLocaleString()
-            : sfqStatus.data.virtualTime ?? "--",
+        title: "处理成功率",
+        value: `${successRate}%`,
+        suffix: `${totalAccepted}/${totalRequests}`,
       },
-      { title: "当前 Serving", value: sfqStatus.data.serving ?? "--" },
-      { title: "队列 Backlog", value: sfqStatus.data.backlog ?? "--" },
       {
-        title: "活跃流数量",
+        title: "当前正在处理",
+        value: sfqStatus.data.serving ?? "无",
+        suffix: "流",
+      },
+      {
+        title: "平均等待队列",
+        value: avgBacklog,
+        suffix: "个请求/流",
+      },
+      {
+        title: "活跃任务流",
         value: sfqStatus.data.flows ? sfqStatus.data.flows.length : 0,
+        suffix: "个",
       },
     ];
   }, [sfqStatus]);
@@ -1716,8 +1820,17 @@ export default function HomePage() {
                     <Alert
                       type="info"
                       showIcon
-                      message="SFQ 服务器"
-                      description="SFQ 调度器运行在后端 SideVM 中，负责公平分配 Pink 请求。可在此启动/停止服务器，并查看实时虚拟时钟与队列情况。"
+                      message="SFQ 调度服务器"
+                      description={
+                        <Space direction="vertical" size={4}>
+                          <Text>
+                            SFQ 调度器就像银行的多个服务窗口，根据每个客户（任务流）的优先级（权重）公平分配服务时间。
+                          </Text>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            💡 <strong>通俗理解：</strong>多个任务同时到达，调度器按权重比例分配处理资源。高权重的任务获得更多处理时间，就像VIP客户有优先服务通道。
+                          </Text>
+                        </Space>
+                      }
                       style={{ marginBottom: 16 }}
                     />
 
@@ -1726,7 +1839,12 @@ export default function HomePage() {
                         {sfqSummaryStats.map((stat) => (
                           <Col xs={12} md={6} key={stat.title}>
                             <Card size="small">
-                              <Statistic title={stat.title} value={stat.value ?? "--"} />
+                              <Statistic
+                                title={stat.title}
+                                value={stat.value ?? "--"}
+                                suffix={stat.suffix}
+                                valueStyle={{ color: stat.title.includes("成功率") ? "#52c41a" : undefined }}
+                              />
                             </Card>
                           </Col>
                         ))}
@@ -1737,36 +1855,102 @@ export default function HomePage() {
                       <>
                         <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                           <Col xs={24} lg={12}>
-                            <Card size="small" title="虚拟时间趋势" bordered={false}>
-                              <div style={{ height: 260 }}>
-                                <LineChart
-                                  data={flowChartData}
-                                  xField="label"
-                                  yField="vClock"
-                                  color="#13c2c2"
-                                  smooth
-                                  autoFit
-                                  height={240}
-                                />
-                              </div>
+                            <Card size="small" title="各流处理进度（已完成/总数）" bordered={false}>
+                              <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                                {flowChartData.map((flow: any, idx: number) => {
+                                  const total = (flow.accepted || 0) + (flow.rejected || 0);
+                                  const progress = total > 0 ? ((flow.accepted || 0) / total) * 100 : 0;
+                                  return (
+                                    <div key={idx}>
+                                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                        <Text strong style={{ fontSize: 13 }}>
+                                          {flow.flow?.replace("_", " ").toUpperCase() || `流 ${idx + 1}`}
+                                          {flow.weight && (
+                                            <Tag color="blue" style={{ marginLeft: 8 }}>
+                                              权重 {flow.weight}x
+                                            </Tag>
+                                          )}
+                                        </Text>
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                          {flow.accepted || 0}/{total} 成功
+                                        </Text>
+                                      </div>
+                                      <Progress
+                                        percent={Math.round(progress)}
+                                        status={progress === 100 ? "success" : "active"}
+                                        strokeColor={{
+                                          from: "#52c41a",
+                                          to: "#13c2c2",
+                                        }}
+                                        trailColor="#434343"
+                                        showInfo={false}
+                                      />
+                                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                                        <Text type="secondary" style={{ fontSize: 11 }}>
+                                          {flow.rejected || 0} 个被拒绝
+                                        </Text>
+                                        <Text type="secondary" style={{ fontSize: 11 }}>
+                                          {flow.backlog || 0} 个等待中
+                                        </Text>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </Space>
                             </Card>
                           </Col>
                           <Col xs={24} lg={12}>
-                            <Card size="small" title="各流积压情况" bordered={false}>
+                            <Card size="small" title="资源分配比例（饼图）" bordered={false}>
+                              <div style={{ height: 260 }}>
+                                <ColumnChart
+                                  data={flowChartData.map((flow: any) => ({
+                                    flow: flow.flow,
+                                    label: `${flow.flow?.replace("_", " ").toUpperCase() || "Unknown"} (${flow.weight || 1}x)`,
+                                    accepted: flow.accepted || 0,
+                                    weight: flow.weight || 1,
+                                  }))}
+                                  xField="label"
+                                  yField="accepted"
+                                  meta={{
+                                    accepted: { alias: "已处理数" },
+                                  }}
+                                  color={["#9254de", "#13c2c2", "#52c41a", "#faad14", "#f5222d"]}
+                                  autoFit
+                                  height={240}
+                                />
+                                <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 12 }}>
+                                  💡 柱状图高度表示各流已处理的请求数。高权重流应该处理更多请求。
+                                </Text>
+                              </div>
+                            </Card>
+                          </Col>
+                        </Row>
+                        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                          <Col xs={24}>
+                            <Card size="small" title="等待队列情况" bordered={false}>
                               {hasBacklogValue ? (
-                                <div style={{ height: 260 }}>
+                                <div style={{ height: 300 }}>
                                   <ColumnChart
-                                    data={flowChartData}
+                                    data={flowChartData.map((flow: any) => ({
+                                      flow: flow.flow,
+                                      label: `${flow.flow?.replace("_", " ").toUpperCase() || "Unknown"} (权重: ${flow.weight || 1}x)`,
+                                      backlog: flow.backlog || 0,
+                                    }))}
                                     xField="label"
                                     yField="backlog"
+                                    meta={{
+                                      backlog: { alias: "等待中的请求数", min: 0 },
+                                    }}
                                     color="#faad14"
                                     autoFit
-                                    height={240}
-                                    meta={{ backlog: { min: 0 } }}
+                                    height={280}
                                   />
+                                  <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 12 }}>
+                                    💡 等待队列长度反映各流的繁忙程度。如果某流的等待队列持续很长，说明它需要更多处理资源。
+                                  </Text>
                                 </div>
                               ) : (
-                                <Empty description="当前无排队积压" />
+                                <Empty description="当前所有流都没有等待的请求，调度器运行正常" />
                               )}
                             </Card>
                           </Col>
@@ -1886,12 +2070,83 @@ export default function HomePage() {
                           ))}
                         </Row>
                         {scenarioFlowData.length > 0 && (
-                          <Table
-                            size="small"
-                            dataSource={scenarioFlowData}
-                            columns={scenarioFlowColumns}
-                            pagination={false}
-                          />
+                          <>
+                            <Table
+                              size="small"
+                              dataSource={scenarioFlowData}
+                              columns={scenarioFlowColumns}
+                              pagination={false}
+                            />
+                            {scenarioResult?.scenarioId === "weight-distribution" && (
+                              <Card
+                                size="small"
+                                title="权重效果可视化对比"
+                                style={{ marginTop: 16 }}
+                              >
+                                <Row gutter={[16, 16]}>
+                                  <Col xs={24} lg={12}>
+                                    <Card size="small" title="资源分配对比（接受数）" bordered={false}>
+                                      <div style={{ height: 300 }}>
+                                        <ColumnChart
+                                          data={scenarioFlowData.flatMap((flow: any) => [
+                                            {
+                                              flow: flow.flowId,
+                                              label: `${flow.flowId} (权重: ${flow.weight}x)`,
+                                              type: "实际接受数",
+                                              value: flow.accepted || 0,
+                                            },
+                                            {
+                                              flow: flow.flowId,
+                                              label: `${flow.flowId} (权重: ${flow.weight}x)`,
+                                              type: "期望接受数",
+                                              value: flow.expectedAccepted || 0,
+                                            },
+                                          ])}
+                                          xField="label"
+                                          yField="value"
+                                          seriesField="type"
+                                          isGroup
+                                          color={["#52c41a", "#1890ff"]}
+                                          legend={{ position: "top" }}
+                                          autoFit
+                                          height={260}
+                                        />
+                                      </div>
+                                      <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: "block" }}>
+                                        期望接受数 = (该流权重 / 总权重) × 总接受数。实际接受数与期望值越接近，说明权重调度越公平。
+                                      </Text>
+                                    </Card>
+                                  </Col>
+                                  <Col xs={24} lg={12}>
+                                    <Card size="small" title="标准化接受数对比" bordered={false}>
+                                      <div style={{ height: 300 }}>
+                                        <ColumnChart
+                                          data={scenarioFlowData
+                                            .filter((flow: any) => flow.normalizedAccepted !== undefined)
+                                            .map((flow: any) => ({
+                                              flow: flow.flowId,
+                                              label: `${flow.flowId} (权重: ${flow.weight}x)`,
+                                              normalized: flow.normalizedAccepted || 0,
+                                            }))}
+                                          xField="label"
+                                          yField="normalized"
+                                          meta={{
+                                            normalized: { alias: "每权重单位接受数", min: 0 },
+                                          }}
+                                          color="#9254de"
+                                          autoFit
+                                          height={260}
+                                        />
+                                      </div>
+                                      <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: "block" }}>
+                                        提示：如果权重调度公平，所有流的标准化接受数应该接近。实际值差异反映了权重效果。
+                                      </Text>
+                                    </Card>
+                                  </Col>
+                                </Row>
+                              </Card>
+                            )}
+                          </>
                         )}
                       </Space>
                     ) : (

@@ -3,6 +3,7 @@
 
 import React from 'react';
 import styles from './DataCard.module.css';
+import '@ant-design/v5-patch-for-react-19';
 
 interface DataCardProps {
   title: string;
@@ -16,7 +17,7 @@ const DataCard: React.FC<DataCardProps> = ({ title, children, className, extra, 
   return (
     // 这里是最外层的 div，它会应用我们所有的自定义样式
     <div className={`${styles.card} ${className || ''}`}>
-      
+
       {/* 头部区域，包含标题和右上角的额外内容 */}
       <div className={styles.header}>
         <div className={styles.title}>

@@ -1,4 +1,8 @@
 /* src/app/globals.css */
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   /* 从中心深蓝到边缘纯黑的径向渐变，营造深邃感 */
   background: radial-gradient(ellipse at center, #101a35 0%, #030613 100%);

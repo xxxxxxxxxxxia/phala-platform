@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
         } catch (apiError) {
             console.error('Failed to get API:', apiError);
             return NextResponse.json({
-                success: true,
-                data: { blocks: [] }
-            });
+                success: false,
+                error: 'Failed to connect to Phala API'
+            }, { status: 500 });
         }
 
         let header;
@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
         } catch (headerError) {
             console.error('Failed to get header:', headerError);
             return NextResponse.json({
-                success: true,
-                data: { blocks: [] }
-            });
+                success: false,
+                error: 'Failed to get chain header'
+            }, { status: 500 });
         }
 
         const blocks = [];
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         ).reverse();
 
         // 限制处理时间，避免超时
-        const maxBlocks = Math.min(blockNumbers.length, 5);
+        const maxBlocks = Math.min(blockNumbers.length, limit);
         for (let i = 0; i < maxBlocks; i++) {
             const blockNum = blockNumbers[i];
             try {
@@ -87,9 +87,9 @@ export async function GET(request: NextRequest) {
     } catch (error) {
         console.error('Blocks latest API error:', error);
         return NextResponse.json({
-            success: true,
-            data: { blocks: [] }
-        });
+            success: false,
+            error: 'Internal server error in blocks API'
+        }, { status: 500 });
     }
 }
 

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     }
 
     const manager = getSfqManager();
-    const status = manager.status();
+    const status = await manager.status();
 
     try {
         if (!status.running) {

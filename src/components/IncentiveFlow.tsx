@@ -886,19 +886,19 @@ const IncentiveFlow = (): React.ReactElement => {
                             )}
 
                             {api && (
-                               <StopComputing
-                                   accounts={accounts}
-                                   isTxInProgress={isTxInProgress}
-                                   formatAddress={formatAddress}
-                                   stopComputingSender={stopComputingSender}
-                                   setStopComputingSender={setStopComputingSender}
-                                   stopComputingPid={stopComputingPid}
-                                   setStopComputingPid={setStopComputingPid}
-                                   stopComputingWorker={stopComputingWorker}
-                                   setStopComputingWorker={setStopComputingWorker}
-                                   stopComputing={stopComputing}
-                               />
-                           )}
+                                <StopComputing
+                                    accounts={accounts}
+                                    isTxInProgress={isTxInProgress}
+                                    formatAddress={formatAddress}
+                                    stopComputingSender={stopComputingSender}
+                                    setStopComputingSender={setStopComputingSender}
+                                    stopComputingPid={stopComputingPid}
+                                    setStopComputingPid={setStopComputingPid}
+                                    stopComputingWorker={stopComputingWorker}
+                                    setStopComputingWorker={setStopComputingWorker}
+                                    stopComputing={stopComputing}
+                                />
+                            )}
 
                             {lastResult && <Console lastResult={lastResult} />}
                         </>

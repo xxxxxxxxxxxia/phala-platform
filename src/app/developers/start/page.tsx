@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button, Card, Col, Row, Typography, Tag, Input, Space, Dropdown, message, Modal, App, Form, Select, InputNumber, Checkbox, Upload } from 'antd';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { 
@@ -25,13 +26,90 @@ import {
     StopOutlined,
     UploadOutlined,
     PlusOutlined,
-    MinusCircleOutlined
+    MinusCircleOutlined,
+    SettingOutlined,
+    ApiOutlined,
+    AppstoreOutlined,
+    BulbOutlined
 } from '@ant-design/icons';
 import Link from 'next/link';
 import PortalLayout from '@/components/layout/PortalLayout';
 import styles from '../../portal.module.css';
 
 const { Title, Text } = Typography;
+
+const classicTheme = {
+    background: '#f5f7fd',
+    cardBg: '#ffffff',
+    cardBorder: '#e2e8f0',
+    textPrimary: '#0f172a',
+    textMuted: '#64748b',
+    highlight: '#0f172a',
+    primary: '#3b82f6',
+    primaryHover: '#2563eb',
+    primarySoft: 'rgba(59, 130, 246, 0.14)',
+    chipBg: '#e3edff',
+    success: '#22c55e',
+    warning: '#fbbf24',
+    caution: '#fb923c',
+    danger: '#f87171',
+    neutral: '#94a3b8'
+};
+
+const statusPalette = {
+    success: {
+        base: classicTheme.success,
+        bar: '#1a9a58',
+        bg: 'rgba(39, 194, 108, 0.18)',
+        barShadow: '0 4px 14px rgba(39, 194, 108, 0.3)',
+        iconBg: 'rgba(39, 194, 108, 0.16)',
+        iconBorder: '1px solid rgba(39, 194, 108, 0.28)',
+        iconShadow: '0 6px 16px rgba(39, 194, 108, 0.22)'
+    },
+    warning: {
+        base: classicTheme.warning,
+        bar: '#e99e2a',
+        bg: 'rgba(255, 181, 71, 0.2)',
+        barShadow: '0 4px 14px rgba(255, 181, 71, 0.32)',
+        iconBg: 'rgba(255, 181, 71, 0.18)',
+        iconBorder: '1px solid rgba(255, 181, 71, 0.32)',
+        iconShadow: '0 6px 16px rgba(255, 181, 71, 0.25)'
+    },
+    caution: {
+        base: classicTheme.caution,
+        bar: '#d67f12',
+        bg: 'rgba(255, 159, 28, 0.18)',
+        barShadow: '0 4px 14px rgba(255, 159, 28, 0.3)',
+        iconBg: 'rgba(255, 159, 28, 0.16)',
+        iconBorder: '1px solid rgba(255, 159, 28, 0.28)',
+        iconShadow: '0 6px 16px rgba(255, 159, 28, 0.24)'
+    },
+    danger: {
+        base: classicTheme.danger,
+        bar: '#e04753',
+        bg: 'rgba(255, 90, 101, 0.2)',
+        barShadow: '0 4px 14px rgba(255, 90, 101, 0.32)',
+        iconBg: 'rgba(255, 90, 101, 0.18)',
+        iconBorder: '1px solid rgba(255, 90, 101, 0.28)',
+        iconShadow: '0 6px 16px rgba(255, 90, 101, 0.24)'
+    },
+    neutral: {
+        base: classicTheme.neutral,
+        bar: '#3a4252',
+        bg: 'rgba(75, 85, 103, 0.18)',
+        barShadow: '0 4px 14px rgba(75, 85, 103, 0.28)',
+        iconBg: 'rgba(75, 85, 103, 0.16)',
+        iconBorder: '1px solid rgba(75, 85, 103, 0.28)',
+        iconShadow: '0 6px 16px rgba(75, 85, 103, 0.22)'
+    }
+};
+
+const panelBackground = '#ffffff';
+const panelBorder = '#e2e8f0';
+const panelDivider = '#edf2f7';
+
+// 默认主机 IP，当 localStorage 中没有 bestHostIp 时使用
+export const DEFAULT_BEST_HOST_IP = process.env.NEXT_PUBLIC_DEFAULT_HOST_IP || '43.132.154.142';
 
 interface CVMData {
     id: string;
@@ -44,7 +122,7 @@ interface CVMData {
     type: 'classic';
 }
 
-interface VMData {
+export interface VMData {
     id: string;
     name: string;
     status: string;
@@ -54,6 +132,7 @@ interface VMData {
     configuration?: any;
     appCompose?: any;
     boot_progress?: string;
+    boot_error?: string;
     shutdown_progress?: boolean;
     image_version?: string;
     app_url?: string;
@@ -155,7 +234,7 @@ const mockCVMData: CVMData[] = [
 ];
 
 // RPC 调用函数 - 通过代理API避免CORS问题
-const rpcCall = async (bestHostIp: string, method: string, params?: any): Promise<Response> => {
+export const rpcCall = async (bestHostIp: string, method: string, params?: any): Promise<Response> => {
     // 使用 Next.js API 路由作为代理，避免 CORS 问题
     const port = '9210'; // 后端端口
     const proxyUrl = `/api/vm-rpc?host=${encodeURIComponent(bestHostIp)}&method=${encodeURIComponent(method)}&port=${encodeURIComponent(port)}`;
@@ -201,6 +280,7 @@ const loadVMList = async (
 
 function StartPageContent() {
     const { modal } = App.useApp();
+    const router = useRouter();
     const [form] = Form.useForm();
     const [searchText, setSearchText] = useState('');
     const [cvms] = useState<CVMData[]>(mockCVMData);
@@ -215,12 +295,19 @@ function StartPageContent() {
     const [portMappingEnabled, setPortMappingEnabled] = useState(false);
     const [composeHashPreview, setComposeHashPreview] = useState('');
     const [deployLoading, setDeployLoading] = useState(false);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedVM, setSelectedVM] = useState<VMData | null>(null);
+    const [vmDetails, setVmDetails] = useState<any | null>(null);
+    const [networkInfo, setNetworkInfo] = useState<any | null>(null);
+    const [loadingDetails, setLoadingDetails] = useState(false);
 
     useEffect(() => {
-        // 从 localStorage 读取 bestHostIp
+        // 从 localStorage 读取 bestHostIp，读取不到时使用默认 IP
         const storedBestHostIp = localStorage.getItem('bestHostIp');
         if (storedBestHostIp) {
             setBestHostIp(storedBestHostIp);
+        } else {
+            setBestHostIp(DEFAULT_BEST_HOST_IP);
         }
     }, []);
 
@@ -351,6 +438,27 @@ function StartPageContent() {
         return !!vm.app_url;
     };
 
+    // 格式化内存
+    const formatMemory = (memoryMB?: number): string => {
+        if (!memoryMB) return 'N/A';
+        if (memoryMB >= 1024) {
+            return `${(memoryMB / 1024).toFixed(2)} GB`;
+        }
+        return `${memoryMB} MB`;
+    };
+
+    // 获取功能标志
+    const getFlags = (vm: VMData): string => {
+        if (!vm.appCompose) return 'None';
+        const flags = [];
+        if (vm.appCompose.kms_enabled) flags.push('KMS');
+        if (vm.appCompose.gateway_enabled || vm.appCompose.tproxy_enabled) flags.push('Gateway');
+        if (vm.appCompose.public_logs) flags.push('Public Logs');
+        if (vm.appCompose.public_sysinfo) flags.push('Public SysInfo');
+        if (vm.appCompose.public_tcbinfo) flags.push('Public TCB Info');
+        return flags.length > 0 ? flags.join(', ') : 'None';
+    };
+
     // 获取 VM 状态，参考 console.html 的逻辑
     const getVMStatus = (vm: VMData): string => {
         const status = vm.status?.toLowerCase() || '';
@@ -378,103 +486,49 @@ function StartPageContent() {
         return 'running';
     };
 
+    type StatusPaletteEntry = typeof statusPalette[keyof typeof statusPalette];
+
+    const buildStatusConfig = (
+        palette: StatusPaletteEntry,
+        icon: React.ComponentType<any>,
+        text: string
+    ) => ({
+        color: palette.base,
+        bgColor: palette.bg,
+        iconColor: palette.base,
+        barColor: palette.bar,
+        barShadow: palette.barShadow,
+        iconBg: palette.iconBg,
+        iconBorder: palette.iconBorder,
+        iconShadow: palette.iconShadow,
+        icon,
+        text
+    });
+
     // 获取状态对应的颜色和样式
     const getStatusConfig = (status: string) => {
         const normalizedStatus = status.toLowerCase();
         
         switch (normalizedStatus) {
             case 'running':
-                return {
-                    color: '#a8e063',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#a8e063',
-                    barColor: 'linear-gradient(90deg, #4CAF50 0%, #61ffea 50%, #4CAF50 100%)',
-                    barShadow: '0 0 12px rgba(76, 175, 80, 0.5)',
-                    iconBg: 'linear-gradient(135deg, rgba(76, 175, 80, 0.25) 0%, rgba(97, 255, 234, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(76, 175, 80, 0.4)',
-                    iconShadow: '0 0 16px rgba(76, 175, 80, 0.3)',
-                    icon: PauseOutlined,
-                    text: 'RUNNING'
-                };
+                return buildStatusConfig(statusPalette.success, PauseOutlined, 'RUNNING');
             case 'booting':
-                return {
-                    color: '#FFC107',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#FFC107',
-                    barColor: 'linear-gradient(90deg, #FFC107 0%, #FFD54F 50%, #FFC107 100%)',
-                    barShadow: '0 0 12px rgba(255, 193, 7, 0.5)',
-                    iconBg: 'linear-gradient(135deg, rgba(255, 193, 7, 0.25) 0%, rgba(255, 213, 79, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(255, 193, 7, 0.4)',
-                    iconShadow: '0 0 16px rgba(255, 193, 7, 0.3)',
-                    icon: ClockCircleOutlined,
-                    text: 'BOOTING'
-                };
+                return buildStatusConfig(statusPalette.warning, ClockCircleOutlined, 'BOOTING');
             case 'shutting down':
             case 'stopping':
-                return {
-                    color: '#FF9800',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#FF9800',
-                    barColor: 'linear-gradient(90deg, #FF9800 0%, #FFB74D 50%, #FF9800 100%)',
-                    barShadow: '0 0 12px rgba(255, 152, 0, 0.5)',
-                    iconBg: 'linear-gradient(135deg, rgba(255, 152, 0, 0.25) 0%, rgba(255, 183, 77, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(255, 152, 0, 0.4)',
-                    iconShadow: '0 0 16px rgba(255, 152, 0, 0.3)',
-                    icon: PauseCircleOutlined,
-                    text: 'SHUTTING DOWN'
-                };
+                return buildStatusConfig(statusPalette.caution, PauseCircleOutlined, 'SHUTTING DOWN');
             case 'stopped':
-                return {
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#f44336',
-                    barColor: 'linear-gradient(90deg, #f44336 0%, #e57373 50%, #f44336 100%)',
-                    barShadow: '0 0 12px rgba(244, 67, 54, 0.4)',
-                    iconBg: 'linear-gradient(135deg, rgba(244, 67, 54, 0.25) 0%, rgba(229, 115, 115, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(244, 67, 54, 0.4)',
-                    iconShadow: '0 0 16px rgba(244, 67, 54, 0.3)',
-                    icon: PauseCircleOutlined,
-                    text: 'STOPPED'
-                };
+                return buildStatusConfig(statusPalette.danger, PauseCircleOutlined, 'STOPPED');
             case 'created':
-                return {
-                    color: '#FFC107',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#FFC107',
-                    barColor: 'linear-gradient(90deg, #FFC107 0%, #FFD54F 50%, #FFC107 100%)',
-                    barShadow: '0 0 12px rgba(255, 193, 7, 0.4)',
-                    iconBg: 'linear-gradient(135deg, rgba(255, 193, 7, 0.25) 0%, rgba(255, 213, 79, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(255, 193, 7, 0.4)',
-                    iconShadow: '0 0 16px rgba(255, 193, 7, 0.3)',
-                    icon: ClockCircleOutlined,
-                    text: 'CREATED'
-                };
+                return buildStatusConfig(statusPalette.warning, ClockCircleOutlined, 'CREATED');
             case 'exited':
-                return {
-                    color: 'rgba(255, 255, 255, 0.5)',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#9E9E9E',
-                    barColor: 'linear-gradient(90deg, #9E9E9E 0%, #BDBDBD 50%, #9E9E9E 100%)',
-                    barShadow: '0 0 12px rgba(158, 158, 158, 0.4)',
-                    iconBg: 'linear-gradient(135deg, rgba(158, 158, 158, 0.25) 0%, rgba(189, 189, 189, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(158, 158, 158, 0.4)',
-                    iconShadow: '0 0 16px rgba(158, 158, 158, 0.3)',
-                    icon: PauseCircleOutlined,
-                    text: 'EXITED'
-                };
+                return buildStatusConfig(statusPalette.neutral, PauseCircleOutlined, 'EXITED');
             default:
-                return {
-                    color: 'rgba(255, 255, 255, 0.6)',
-                    bgColor: 'rgba(20, 45, 70, 0.95)',
-                    iconColor: '#9E9E9E',
-                    barColor: 'linear-gradient(90deg, #9E9E9E 0%, #BDBDBD 50%, #9E9E9E 100%)',
-                    barShadow: '0 0 12px rgba(158, 158, 158, 0.4)',
-                    iconBg: 'linear-gradient(135deg, rgba(158, 158, 158, 0.25) 0%, rgba(189, 189, 189, 0.2) 100%)',
-                    iconBorder: '1px solid rgba(158, 158, 158, 0.4)',
-                    iconShadow: '0 0 16px rgba(158, 158, 158, 0.3)',
-                    icon: PauseCircleOutlined,
-                    text: status.toUpperCase()
-                };
+                return buildStatusConfig(
+                    statusPalette.neutral,
+                    PauseCircleOutlined,
+                    status.toUpperCase()
+                );
         }
     };
 
@@ -1084,6 +1138,64 @@ fi`,
 
     // 获取菜单项，根据 VM 状态显示/隐藏
     const getMoreMenuItems = (vm: VMData) => {
+        const renderMenuItem = (
+            labelText: string,
+            IconComponent: React.ComponentType<{ style?: React.CSSProperties }>,
+            accentColor: string,
+            accentBg: string
+        ) => (
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '8px 12px',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    maxWidth: '100%',
+                    overflow: 'hidden',
+                    fontWeight: 500,
+                    borderRadius: '10px',
+                    background: accentBg,
+                    color: classicTheme.textPrimary
+                }}
+            >
+                <div
+                    style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(15, 23, 42, 0.08)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        background: '#fff'
+                    }}
+                >
+                    <IconComponent
+                        style={{
+                            fontSize: '16px',
+                            color: accentColor,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                    />
+                </div>
+                <span
+                    style={{
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        fontSize: '14px'
+                    }}
+                >
+                    {labelText}
+                </span>
+            </div>
+        );
+
         const vmStatus = getVMStatus(vm);
         const isRunning = vmStatus === 'running' || vmStatus === 'booting';
         const isStopped = vmStatus === 'stopped' || vmStatus === 'exited' || vmStatus === 'created';
@@ -1094,34 +1206,7 @@ fi`,
         if (isStopped) {
             items.push({
                 key: 'start',
-                label: (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '8px 12px',
-                        color: '#fff',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        fontWeight: 500,
-                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
-                    }}>
-                        <PlayCircleOutlined style={{ 
-                            fontSize: '16px', 
-                            color: '#fff', 
-                            flexShrink: 0,
-                            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
-                        }} />
-                        <span style={{ 
-                            whiteSpace: 'nowrap', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis',
-                            fontSize: '14px'
-                        }}>Start</span>
-                    </div>
-                ),
+                label: renderMenuItem('Start', PlayCircleOutlined, classicTheme.success, statusPalette.success.bg),
                 className: 'menu-item-start'
             });
         }
@@ -1130,34 +1215,7 @@ fi`,
         if (isRunning) {
             items.push({
                 key: 'shutdown',
-                label: (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '8px 12px',
-                        color: '#fff',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        fontWeight: 500,
-                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
-                    }}>
-                        <PoweroffOutlined style={{ 
-                            fontSize: '16px', 
-                            color: '#fff', 
-                            flexShrink: 0,
-                            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
-                        }} />
-                        <span style={{ 
-                            whiteSpace: 'nowrap', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis',
-                            fontSize: '14px'
-                        }}>关闭</span>
-                    </div>
-                ),
+                label: renderMenuItem('关闭', PoweroffOutlined, classicTheme.warning, statusPalette.warning.bg),
                 className: 'menu-item-shutdown'
             });
         }
@@ -1166,34 +1224,7 @@ fi`,
         if (isRunning) {
             items.push({
                 key: 'stop',
-                label: (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '8px 12px',
-                        color: '#fff',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        fontWeight: 500,
-                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
-                    }}>
-                        <StopOutlined style={{ 
-                            fontSize: '16px', 
-                            color: '#fff', 
-                            flexShrink: 0,
-                            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
-                        }} />
-                        <span style={{ 
-                            whiteSpace: 'nowrap', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis',
-                            fontSize: '14px'
-                        }}>停止</span>
-                    </div>
-                ),
+                label: renderMenuItem('停止', StopOutlined, classicTheme.caution, statusPalette.caution.bg),
                 className: 'menu-item-kill'
             });
         }
@@ -1201,34 +1232,7 @@ fi`,
         // 删除（Remove）- 始终显示（橙色，垃圾桶图标）
         items.push({
             key: 'delete',
-                label: (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '8px 12px',
-                        color: '#fff',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        fontWeight: 500,
-                        textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
-                    }}>
-                        <DeleteOutlined style={{ 
-                            fontSize: '16px', 
-                            color: '#fff', 
-                            flexShrink: 0,
-                            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
-                        }} />
-                        <span style={{ 
-                            whiteSpace: 'nowrap', 
-                            overflow: 'hidden', 
-                            textOverflow: 'ellipsis',
-                            fontSize: '14px'
-                        }}>删除</span>
-                    </div>
-                ),
+            label: renderMenuItem('删除', DeleteOutlined, classicTheme.danger, statusPalette.danger.bg),
             className: 'menu-item-remove'
         });
 
@@ -1265,256 +1269,15 @@ fi`,
         vm.instance_id?.toLowerCase().includes(searchText.toLowerCase()) ||
         vm.id?.toLowerCase().includes(searchText.toLowerCase())
     );
-
-    // 添加样式到 head
-    useEffect(() => {
-        const styleId = 'custom-dropdown-menu-styles';
-        if (document.getElementById(styleId)) {
-            return;
-        }
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = `
-            .custom-dropdown-menu {
-                overflow-x: hidden !important;
-                overflow-y: auto !important;
-                background: linear-gradient(135deg, rgba(41, 53, 109, 0.95) 0%, rgba(15, 24, 62, 0.98) 100%) !important;
-                border: 1px solid rgba(255, 255, 255, 0.15) !important;
-                border-radius: 12px !important;
-                padding: 8px !important;
-                backdrop-filter: blur(10px) !important;
-                box-shadow: 0 12px 28px rgba(1, 3, 13, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-            }
-            .custom-dropdown-menu .ant-dropdown-menu {
-                overflow-x: hidden !important;
-                overflow-y: auto !important;
-                background: transparent !important;
-                box-shadow: none !important;
-                padding: 0 !important;
-            }
-            .custom-dropdown-menu .ant-dropdown-menu-item {
-                padding: 0 !important;
-                margin: 0 0 8px 0 !important;
-                border-radius: 10px !important;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-                overflow: hidden !important;
-                width: 100%;
-                box-sizing: border-box;
-                border: 1px solid transparent !important;
-            }
-            .custom-dropdown-menu .ant-dropdown-menu-item:last-child {
-                margin-bottom: 0 !important;
-            }
-            .custom-dropdown-menu .menu-item-start {
-                background: linear-gradient(135deg, rgba(168, 224, 99, 0.85) 0%, rgba(97, 255, 234, 0.8) 100%) !important;
-                border: 1px solid rgba(168, 224, 99, 0.4) !important;
-                box-shadow: 0 4px 12px rgba(168, 224, 99, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-            }
-            .custom-dropdown-menu .menu-item-start:hover {
-                background: linear-gradient(135deg, rgba(168, 224, 99, 0.95) 0%, rgba(97, 255, 234, 0.9) 100%) !important;
-                transform: translateY(-2px) scale(1.02) !important;
-                box-shadow: 0 8px 20px rgba(168, 224, 99, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-                border-color: rgba(168, 224, 99, 0.6) !important;
-            }
-            .custom-dropdown-menu .menu-item-shutdown {
-                background: linear-gradient(135deg, rgba(59, 130, 246, 0.85) 0%, rgba(37, 99, 235, 0.8) 100%) !important;
-                border: 1px solid rgba(59, 130, 246, 0.4) !important;
-                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-            }
-            .custom-dropdown-menu .menu-item-shutdown:hover {
-                background: linear-gradient(135deg, rgba(59, 130, 246, 0.95) 0%, rgba(37, 99, 235, 0.9) 100%) !important;
-                transform: translateY(-2px) scale(1.02) !important;
-                box-shadow: 0 8px 20px rgba(59, 130, 246, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-                border-color: rgba(59, 130, 246, 0.6) !important;
-            }
-            .custom-dropdown-menu .menu-item-kill {
-                background: linear-gradient(135deg, rgba(159, 44, 255, 0.85) 0%, rgba(99, 102, 241, 0.8) 100%) !important;
-                border: 1px solid rgba(159, 44, 255, 0.4) !important;
-                box-shadow: 0 4px 12px rgba(159, 44, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-            }
-            .custom-dropdown-menu .menu-item-kill:hover {
-                background: linear-gradient(135deg, rgba(159, 44, 255, 0.95) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
-                transform: translateY(-2px) scale(1.02) !important;
-                box-shadow: 0 8px 20px rgba(159, 44, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-                border-color: rgba(159, 44, 255, 0.6) !important;
-            }
-            .custom-dropdown-menu .menu-item-remove {
-                background: linear-gradient(135deg, rgba(239, 68, 68, 0.85) 0%, rgba(220, 38, 38, 0.8) 100%) !important;
-                border: 1px solid rgba(239, 68, 68, 0.4) !important;
-                box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-            }
-            .custom-dropdown-menu .menu-item-remove:hover {
-                background: linear-gradient(135deg, rgba(239, 68, 68, 0.95) 0%, rgba(220, 38, 38, 0.9) 100%) !important;
-                transform: translateY(-2px) scale(1.02) !important;
-                box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-                border-color: rgba(239, 68, 68, 0.6) !important;
-            }
-            .custom-dropdown-menu .ant-dropdown-menu-item .ant-dropdown-menu-title-content {
-                width: 100%;
-                overflow: hidden;
-                box-sizing: border-box;
-            }
-        `;
-        document.head.appendChild(style);
-        return () => {
-            const existingStyle = document.getElementById(styleId);
-            if (existingStyle) {
-                existingStyle.remove();
-            }
-        };
-    }, []);
-
-    // 添加部署弹窗表单样式
-    useEffect(() => {
-        const styleId = 'deploy-modal-styles';
-        if (document.getElementById(styleId)) {
-            return;
-        }
-        const style = document.createElement('style');
-        style.id = styleId;
-        style.textContent = `
-            @keyframes pulse {
-                0%, 100% {
-                    opacity: 0.3;
-                    transform: scale(1);
-                }
-                50% {
-                    opacity: 0.6;
-                    transform: scale(1.1);
-                }
-            }
-            /* 部署弹窗表单样式 */
-            .ant-modal-content .ant-form-item-label > label {
-                color: rgba(255, 255, 255, 0.9) !important;
-                font-weight: 500 !important;
-                font-size: 14px !important;
-            }
-            .ant-modal-content .ant-input,
-            .ant-modal-content .ant-input-number-input,
-            .ant-modal-content .ant-select-selector,
-            .ant-modal-content .ant-input-number {
-                background: rgba(255, 255, 255, 0.05) !important;
-                border: 1px solid rgba(255, 255, 255, 0.15) !important;
-                border-radius: 8px !important;
-                color: rgba(255, 255, 255, 0.9) !important;
-                transition: all 0.3s ease !important;
-            }
-            .ant-modal-content .ant-input:hover,
-            .ant-modal-content .ant-input-number:hover,
-            .ant-modal-content .ant-select:hover .ant-select-selector {
-                border-color: rgba(99, 102, 241, 0.5) !important;
-                background: rgba(255, 255, 255, 0.08) !important;
-            }
-            .ant-modal-content .ant-input:focus,
-            .ant-modal-content .ant-input-focused,
-            .ant-modal-content .ant-input-number:focus,
-            .ant-modal-content .ant-input-number-focused,
-            .ant-modal-content .ant-select-focused .ant-select-selector {
-                border-color: #6366f1 !important;
-                box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
-                background: rgba(255, 255, 255, 0.08) !important;
-            }
-            .ant-modal-content .ant-input::placeholder,
-            .ant-modal-content .ant-input-number-input::placeholder {
-                color: rgba(255, 255, 255, 0.4) !important;
-            }
-            .ant-modal-content .ant-select-selection-placeholder {
-                color: rgba(255, 255, 255, 0.4) !important;
-            }
-            .ant-modal-content .ant-select-selection-item {
-                color: rgba(255, 255, 255, 0.9) !important;
-            }
-            .ant-modal-content .ant-select-arrow {
-                color: rgba(255, 255, 255, 0.5) !important;
-            }
-            .ant-modal-content .ant-select-dropdown {
-                background: linear-gradient(135deg, rgba(41, 53, 109, 0.98) 0%, rgba(15, 24, 62, 1) 100%) !important;
-                border: 1px solid rgba(255, 255, 255, 0.15) !important;
-                border-radius: 12px !important;
-                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4) !important;
-            }
-            .ant-modal-content .ant-select-item {
-                color: rgba(255, 255, 255, 0.85) !important;
-            }
-            .ant-modal-content .ant-select-item:hover {
-                background: rgba(99, 102, 241, 0.2) !important;
-            }
-            .ant-modal-content .ant-select-item-option-selected {
-                background: rgba(99, 102, 241, 0.3) !important;
-                color: #fff !important;
-            }
-            .ant-modal-content .ant-checkbox-wrapper {
-                color: rgba(255, 255, 255, 0.85) !important;
-            }
-            .ant-modal-content .ant-checkbox-inner {
-                background: rgba(255, 255, 255, 0.05) !important;
-                border-color: rgba(255, 255, 255, 0.25) !important;
-            }
-            .ant-modal-content .ant-checkbox-checked .ant-checkbox-inner {
-                background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
-                border-color: #6366f1 !important;
-            }
-            .ant-modal-content .ant-checkbox-wrapper:hover .ant-checkbox-inner {
-                border-color: #6366f1 !important;
-            }
-            .ant-modal-content .ant-btn-dashed {
-                background: rgba(255, 255, 255, 0.05) !important;
-                border: 1px dashed rgba(255, 255, 255, 0.25) !important;
-                color: rgba(255, 255, 255, 0.85) !important;
-                border-radius: 8px !important;
-            }
-            .ant-modal-content .ant-btn-dashed:hover {
-                background: rgba(255, 255, 255, 0.1) !important;
-                border-color: rgba(99, 102, 241, 0.5) !important;
-                color: #fff !important;
-            }
-            .ant-modal-content .ant-upload .ant-btn {
-                background: rgba(255, 255, 255, 0.05) !important;
-                border: 1px solid rgba(255, 255, 255, 0.15) !important;
-                color: rgba(255, 255, 255, 0.85) !important;
-                border-radius: 8px !important;
-            }
-            .ant-modal-content .ant-upload .ant-btn:hover {
-                background: rgba(255, 255, 255, 0.1) !important;
-                border-color: rgba(99, 102, 241, 0.5) !important;
-                color: #fff !important;
-            }
-            .ant-modal-content .ant-input-number-handler-wrap {
-                background: rgba(255, 255, 255, 0.05) !important;
-                border-left: 1px solid rgba(255, 255, 255, 0.15) !important;
-            }
-            .ant-modal-content .ant-input-number-handler {
-                color: rgba(255, 255, 255, 0.6) !important;
-            }
-            .ant-modal-content .ant-input-number-handler:hover {
-                color: rgba(255, 255, 255, 0.9) !important;
-            }
-            .ant-modal-content code {
-                background: rgba(99, 102, 241, 0.2) !important;
-                border: 1px solid rgba(99, 102, 241, 0.3) !important;
-                color: #a855f7 !important;
-                padding: 4px 8px !important;
-                border-radius: 6px !important;
-            }
-            .ant-modal-content .anticon {
-                color: rgba(255, 255, 255, 0.6) !important;
-            }
-            .ant-modal-content .anticon:hover {
-                color: rgba(255, 255, 255, 0.9) !important;
-            }
-        `;
-        document.head.appendChild(style);
-        return () => {
-            const existingStyle = document.getElementById(styleId);
-            if (existingStyle) {
-                existingStyle.remove();
-            }
-        };
-    }, []);
-
-    return (
+    // 采用门户首页的浅色主题，不再注入额外的下拉样式
+return (
         <PortalLayout>
-            <div className={styles.portalContent}>
+            <div 
+                className={styles.portalContent}
+                style={{
+                    background: classicTheme.background
+                }}
+            >
                 {/* Back to dashboard link */}
                 <Link 
                     href="/developers" 
@@ -1522,28 +1285,28 @@ fi`,
                         display: 'inline-flex', 
                         alignItems: 'center', 
                         gap: '10px',
-                        color: 'rgba(255, 255, 255, 0.75)',
+                        color: classicTheme.primary,
                         textDecoration: 'none',
-                        marginBottom: '0px',
+                        marginBottom: '40px',
                         fontSize: '14px',
-                        fontWeight: 500,
+                        fontWeight: 600,
                         padding: '8px 16px',
-                        borderRadius: '10px',
-                        background: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '999px',
+                        background: classicTheme.primarySoft,
+                        border: `1px solid ${classicTheme.cardBorder}`,
                         transition: 'all 0.3s ease',
-                        backdropFilter: 'blur(10px)'
+                        boxShadow: '0 8px 18px rgba(15, 24, 40, 0.12)'
                     }}
                     onMouseEnter={(e) => {
-                        e.currentTarget.style.color = '#fff';
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                        e.currentTarget.style.color = classicTheme.primaryHover;
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.borderColor = 'rgba(23, 59, 104, 0.4)';
                         e.currentTarget.style.transform = 'translateX(-4px)';
                     }}
                     onMouseLeave={(e) => {
-                        e.currentTarget.style.color = 'rgba(255, 255, 255, 0.75)';
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                        e.currentTarget.style.color = classicTheme.primary;
+                        e.currentTarget.style.background = classicTheme.primarySoft;
+                        e.currentTarget.style.borderColor = classicTheme.cardBorder;
                         e.currentTarget.style.transform = 'translateX(0)';
                     }}
                 >
@@ -1570,20 +1333,16 @@ fi`,
                             <div style={{
                                 width: '4px',
                                 height: '48px',
-                                background: 'linear-gradient(180deg, #a8e063 0%, #61ffea 100%)',
+                                background: classicTheme.primary,
                                 borderRadius: '2px',
-                                boxShadow: '0 0 20px rgba(168, 224, 99, 0.5)'
+                                boxShadow: '0 0 14px rgba(23, 59, 104, 0.4)'
                             }} />
                             <Title level={1} style={{ 
-                                color: '#fff', 
+                                color: classicTheme.highlight, 
                                 margin: 0,
                                 fontSize: '42px',
                                 fontWeight: 700,
-                                letterSpacing: '-0.5px',
-                                background: 'linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.8) 100%)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                                backgroundClip: 'text'
+                                letterSpacing: '-0.5px'
                             }}>
                                 机密虚拟机列表{/* CVMs */}
                             </Title>
@@ -1594,50 +1353,49 @@ fi`,
                             }}>
                                 <div style={{ 
                                     padding: '10px 18px',
-                                    background: 'linear-gradient(135deg, rgba(168, 224, 99, 0.15) 0%, rgba(97, 255, 234, 0.1) 100%)',
-                                    border: '1px solid rgba(168, 224, 99, 0.25)',
+                                    background: classicTheme.chipBg,
+                                    border: `1px solid ${classicTheme.cardBorder}`,
                                     borderRadius: '12px',
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '10px',
                                     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                                     width: 'fit-content',
-                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                                    backdropFilter: 'blur(10px)'
+                                    boxShadow: '0 12px 22px rgba(15, 24, 40, 0.08)',
+                                    backdropFilter: 'blur(6px)'
                                 }}
                                 onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(168, 224, 99, 0.22) 0%, rgba(97, 255, 234, 0.15) 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(168, 224, 99, 0.4)';
-                                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(168, 224, 99, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
+                                    e.currentTarget.style.background = '#fff';
+                                    e.currentTarget.style.borderColor = classicTheme.primary;
+                                    e.currentTarget.style.boxShadow = '0 16px 30px rgba(15, 24, 40, 0.15)';
                                     e.currentTarget.style.transform = 'translateY(-2px)';
                                 }}
                                 onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(168, 224, 99, 0.15) 0%, rgba(97, 255, 234, 0.1) 100%)';
-                                    e.currentTarget.style.borderColor = 'rgba(168, 224, 99, 0.25)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
+                                    e.currentTarget.style.background = classicTheme.chipBg;
+                                    e.currentTarget.style.borderColor = classicTheme.cardBorder;
+                                    e.currentTarget.style.boxShadow = '0 12px 22px rgba(15, 24, 40, 0.08)';
                                     e.currentTarget.style.transform = 'translateY(0)';
                                 }}
                                 >
                                     <ThunderboltOutlined style={{
-                                        fontSize: '14px',
-                                        color: '#a8e063',
+                                        fontSize: '15px',
+                                        color: classicTheme.primary,
                                         transition: 'all 0.3s ease',
-                                        filter: 'drop-shadow(0 0 4px rgba(168, 224, 99, 0.5))'
+                                        filter: 'drop-shadow(0 0 4px rgba(23, 60, 112, 0.25))'
                                     }} />
                                     <Text style={{ 
-                                        color: 'rgba(255, 255, 255, 0.9)',
+                                        color: classicTheme.textPrimary,
                                         fontSize: '13px',
-                                        fontWeight: 500
+                                        fontWeight: 600
                                     }}>
                                         最佳资源 IP: 
                                     </Text>
                                     <Text style={{ 
-                                        color: '#a8e063',
+                                        color: classicTheme.primaryHover,
                                         fontSize: '13px',
                                         fontFamily: 'monospace',
-                                        fontWeight: 600,
-                                        letterSpacing: '0.5px',
-                                        textShadow: '0 0 8px rgba(168, 224, 99, 0.4)'
+                                        fontWeight: 700,
+                                        letterSpacing: '0.5px'
                                     }}>
                                         {bestHostIp}
                                     </Text>
@@ -1647,19 +1405,19 @@ fi`,
                                         icon={<CopyOutlined />}
                                         onClick={() => handleCopy(bestHostIp, '最佳资源 IP')}
                                         style={{
-                                            color: 'rgba(168, 224, 99, 0.8)',
+                                            color: classicTheme.primary,
                                             padding: '0 6px',
                                             transition: 'all 0.2s ease',
                                             borderRadius: '6px'
                                         }}
                                         onMouseEnter={(e) => {
                                             e.currentTarget.style.transform = 'scale(1.15)';
-                                            e.currentTarget.style.color = '#61ffea';
-                                            e.currentTarget.style.background = 'rgba(168, 224, 99, 0.15)';
+                                            e.currentTarget.style.color = classicTheme.primaryHover;
+                                            e.currentTarget.style.background = 'rgba(23, 59, 104, 0.12)';
                                         }}
                                         onMouseLeave={(e) => {
                                             e.currentTarget.style.transform = 'scale(1)';
-                                            e.currentTarget.style.color = 'rgba(168, 224, 99, 0.8)';
+                                            e.currentTarget.style.color = classicTheme.primary;
                                             e.currentTarget.style.background = 'transparent';
                                         }}
                                     />
@@ -1673,7 +1431,7 @@ fi`,
                             size="large"
                             onClick={showDeployDialog}
                             style={{
-                                background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                                background: classicTheme.primary,
                                 border: 'none',
                                 borderRadius: '12px',
                                 padding: '10px 18px',
@@ -1681,19 +1439,19 @@ fi`,
                                 fontWeight: 500,
                                 width: '150px',
                                 height: '43px',
-                                boxShadow: '0 8px 24px rgba(99, 102, 241, 0.5), 0 4px 12px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+                                boxShadow: '0 14px 28px rgba(20, 47, 83, 0.3)',
                                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                                 color: '#fff',
                                 textShadow: 'none'
                             }}
                             onMouseEnter={(e) => {
-                                e.currentTarget.style.background = 'linear-gradient(135deg, #7c7ef8 0%, #b875f9 100%)';
-                                e.currentTarget.style.boxShadow = '0 12px 32px rgba(99, 102, 241, 0.6), 0 6px 16px rgba(168, 85, 247, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
+                                e.currentTarget.style.background = classicTheme.primaryHover;
+                                e.currentTarget.style.boxShadow = '0 18px 32px rgba(20, 47, 83, 0.4)';
                                 e.currentTarget.style.transform = 'translateY(-2px)';
                             }}
                             onMouseLeave={(e) => {
-                                e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)';
-                                e.currentTarget.style.boxShadow = '0 8px 24px rgba(99, 102, 241, 0.5), 0 4px 12px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
+                                e.currentTarget.style.background = classicTheme.primary;
+                                e.currentTarget.style.boxShadow = '0 14px 28px rgba(20, 47, 83, 0.3)';
                                 e.currentTarget.style.transform = 'translateY(0)';
                             }}
                         >
@@ -1705,27 +1463,28 @@ fi`,
                             onClick={() => fetchVMList(true)}
                             loading={loading}
                             style={{
-                                color: 'rgba(255, 255, 255, 0.75)',
+                                color: classicTheme.textPrimary,
                                 borderRadius: '50%',
-                                width: '40px',
-                                height: '40px',
+                                width: '44px',
+                                height: '44px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                background: 'rgba(255, 255, 255, 0.05)',
-                                border: '1px solid rgba(255, 255, 255, 0.1)',
-                                transition: 'all 0.3s ease'
+                                background: classicTheme.cardBg,
+                                border: `1px solid ${classicTheme.cardBorder}`,
+                                transition: 'all 0.3s ease',
+                                boxShadow: '0 10px 20px rgba(15, 24, 40, 0.08)'
                             }}
                             onMouseEnter={(e) => {
-                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                                e.currentTarget.style.color = '#fff';
+                                e.currentTarget.style.background = '#e6ebf5';
+                                e.currentTarget.style.borderColor = classicTheme.primary;
+                                e.currentTarget.style.color = classicTheme.primary;
                                 e.currentTarget.style.transform = 'rotate(180deg)';
                             }}
                             onMouseLeave={(e) => {
-                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.75)';
+                                e.currentTarget.style.background = classicTheme.cardBg;
+                                e.currentTarget.style.borderColor = classicTheme.cardBorder;
+                                e.currentTarget.style.color = classicTheme.textPrimary;
                                 e.currentTarget.style.transform = 'rotate(0deg)';
                             }}
                         />                                    
@@ -1733,13 +1492,7 @@ fi`,
                 </div>
 
                 {/* CVM Cards Section */}
-                <section className={styles.section} style={{ 
-                    padding: '32px',
-                    background: 'linear-gradient(180deg, rgba(41, 53, 109, 0.85) 0%, rgba(15, 24, 62, 0.98) 100%)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    borderRadius: '24px',
-                    boxShadow: '0 20px 60px rgba(6, 8, 18, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
-                }}>
+                <section className={styles.section}>
                     <div style={{ 
                         marginBottom: '24px',
                         display: 'flex',
@@ -1760,71 +1513,27 @@ fi`,
                                 <Input
                                     placeholder="请输入要搜索的应用信息..."
                                     prefix={<SearchOutlined style={{ 
-                                        color: 'rgba(168, 224, 99, 0.7)', 
-                                        fontSize: '16px',
-                                        transition: 'all 0.3s ease'
+                                        color: classicTheme.primary, 
+                                        fontSize: '16px'
                                     }} />}
                                     value={searchText}
                                     onChange={(e) => setSearchText(e.target.value)}
                                     style={{
                                         flex: 1,
-                                        background: 'linear-gradient(135deg, rgba(41, 53, 109, 0.4) 0%, rgba(15, 24, 62, 0.6) 100%)',
-                                        border: '1px solid rgba(168, 224, 99, 0.2)',
                                         borderRadius: '12px',
                                         height: '48px',
-                                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                        color: '#fff',
                                         fontSize: '14px',
-                                        fontWeight: 400,
-                                        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 0 rgba(168, 224, 99, 0)',
-                                        backdropFilter: 'blur(10px)',
                                         paddingLeft: '16px',
                                         paddingRight: '16px'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.background = 'linear-gradient(135deg, rgba(41, 53, 109, 0.6) 0%, rgba(25, 35, 75, 0.8) 100%)';
-                                        e.target.style.borderColor = 'rgba(168, 224, 99, 0.5)';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(168, 224, 99, 0.15), 0 8px 24px rgba(168, 224, 99, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.12)';
-                                        const prefixIcon = e.target.parentElement?.querySelector('.ant-input-prefix .anticon');
-                                        if (prefixIcon) {
-                                            (prefixIcon as HTMLElement).style.color = '#a8e063';
-                                            (prefixIcon as HTMLElement).style.transform = 'scale(1.15)';
-                                            (prefixIcon as HTMLElement).style.filter = 'drop-shadow(0 0 8px rgba(168, 224, 99, 0.6))';
-                                        }
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.background = 'linear-gradient(135deg, rgba(41, 53, 109, 0.4) 0%, rgba(15, 24, 62, 0.6) 100%)';
-                                        e.target.style.borderColor = 'rgba(168, 224, 99, 0.2)';
-                                        e.target.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 0 rgba(168, 224, 99, 0)';
-                                        const prefixIcon = e.target.parentElement?.querySelector('.ant-input-prefix .anticon');
-                                        if (prefixIcon) {
-                                            (prefixIcon as HTMLElement).style.color = 'rgba(168, 224, 99, 0.7)';
-                                            (prefixIcon as HTMLElement).style.transform = 'scale(1)';
-                                            (prefixIcon as HTMLElement).style.filter = 'none';
-                                        }
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        const target = e.target as HTMLInputElement;
-                                        if (document.activeElement !== target) {
-                                            target.style.borderColor = 'rgba(168, 224, 99, 0.35)';
-                                            target.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(168, 224, 99, 0)';
-                                        }
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        const target = e.target as HTMLInputElement;
-                                        if (document.activeElement !== target) {
-                                            target.style.borderColor = 'rgba(168, 224, 99, 0.2)';
-                                            target.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 0 rgba(168, 224, 99, 0)';
-                                        }
                                     }}
                                 />
                             </div>
                             {/* <Button
                                 // icon={<FilterOutlined />}
                                 style={{
-                                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                                    background: 'rgba(255, 255, 255, 0.08)',
-                                    color: 'rgba(255, 255, 255, 0.9)',
+                                    border: '1px solid rgba(24, 48, 80, 0.2)',
+                                    background: '#f1f3f6',
+                                    color: '#1d2538',
                                     borderRadius: '10px',
                                     height: '40px',
                                     padding: '0 20px',
@@ -1855,54 +1564,145 @@ fi`,
                                 width: '6px',
                                 height: '6px',
                                 borderRadius: '50%',
-                                background: 'linear-gradient(135deg, #a8e063 0%, #61ffea 100%)',
-                                boxShadow: '0 0 8px rgba(168, 224, 99, 0.6)'
+                                background: classicTheme.primary,
+                                boxShadow: '0 0 6px rgba(23, 59, 104, 0.4)'
                             }} />
                             <Text style={{ 
-                                color: 'rgba(255, 255, 255, 0.75)',
+                                color: classicTheme.textMuted,
                                 fontSize: '14px',
                                 fontWeight: 500
                             }}>
-                                显示 <span style={{ color: '#a8e063', fontWeight: 600 }}>{filteredVMs.length}</span> / 共 <span style={{ color: '#fff', fontWeight: 600 }}>{totalVMs}</span> 个应用
+                                显示 <span style={{ color: classicTheme.primary, fontWeight: 600 }}>{filteredVMs.length}</span> / 共 <span style={{ color: classicTheme.textPrimary, fontWeight: 600 }}>{totalVMs}</span> 个应用
                             </Text>
                         </div>
                     </div>
                     {loading ? (
-                        <div className={styles.loadingContainer}>
-                            {/* 动态旋转加载图标 */}
-                            <div className={styles.loadingSpinner}>
-                                {/* 外圈旋转 */}
-                                <div className={styles.loadingSpinnerOuter} />
-                                {/* 内圈旋转（反向） */}
-                                <div className={styles.loadingSpinnerInner} />
-                                {/* 中心脉冲点 */}
-                                <div className={styles.loadingSpinnerCenter} />
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '80px 20px',
+                            gap: '24px'
+                        }}>
+                            <div style={{
+                                position: 'relative',
+                                width: '64px',
+                                height: '64px'
+                            }}>
+                                {/* 外层旋转环 */}
+                                <div style={{
+                                    position: 'absolute',
+                                    width: '64px',
+                                    height: '64px',
+                                    border: `4px solid ${classicTheme.primary}20`,
+                                    borderTopColor: classicTheme.primary,
+                                    borderRadius: '50%',
+                                    animation: 'spin 1s linear infinite'
+                                }} />
+                                {/* 中层旋转环 */}
+                                <div style={{
+                                    position: 'absolute',
+                                    width: '48px',
+                                    height: '48px',
+                                    top: '8px',
+                                    left: '8px',
+                                    border: `3px solid ${classicTheme.primary}15`,
+                                    borderRightColor: classicTheme.primary,
+                                    borderRadius: '50%',
+                                    animation: 'spin 0.8s linear infinite reverse'
+                                }} />
+                                {/* 内层脉冲圆 */}
+                                <div style={{
+                                    position: 'absolute',
+                                    width: '24px',
+                                    height: '24px',
+                                    top: '20px',
+                                    left: '20px',
+                                    background: classicTheme.primary,
+                                    borderRadius: '50%',
+                                    animation: 'pulse 1.5s ease-in-out infinite',
+                                    boxShadow: `0 0 0 0 ${classicTheme.primary}40`
+                                }} />
+                                {/* 光晕效果 */}
+                                <div style={{
+                                    position: 'absolute',
+                                    width: '64px',
+                                    height: '64px',
+                                    borderRadius: '50%',
+                                    background: `radial-gradient(circle, ${classicTheme.primary}20 0%, transparent 70%)`,
+                                    animation: 'glow 2s ease-in-out infinite',
+                                    top: '0',
+                                    left: '0'
+                                }} />
                             </div>
-                            
-                            {/* 动态加载文字 */}
-                            <div className={styles.loadingText}>
-                                <span>加载中</span>
-                                <span className={styles.loadingDot} style={{ animationDelay: '0s' }}>.</span>
-                                <span className={styles.loadingDot} style={{ animationDelay: '0.2s' }}>.</span>
-                                <span className={styles.loadingDot} style={{ animationDelay: '0.4s' }}>.</span>
+                            {/* 进度条 */}
+                            <div style={{
+                                width: '200px',
+                                height: '4px',
+                                background: `${classicTheme.primary}15`,
+                                borderRadius: '2px',
+                                overflow: 'hidden',
+                                position: 'relative'
+                            }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    height: '100%',
+                                    width: '40%',
+                                    background: `linear-gradient(90deg, ${classicTheme.primary}, ${classicTheme.primaryHover}, ${classicTheme.primary})`,
+                                    backgroundSize: '200% 100%',
+                                    borderRadius: '2px',
+                                    animation: 'shimmer 1.5s ease-in-out infinite'
+                                }} />
                             </div>
-                            
-                            {/* 进度条动画 */}
-                            <div className={styles.loadingProgressBar}>
-                                <div className={styles.loadingProgressBarFill} />
-                            </div>
+                            <style jsx>{`
+                                @keyframes spin {
+                                    from { transform: rotate(0deg); }
+                                    to { transform: rotate(360deg); }
+                                }
+                                @keyframes pulse {
+                                    0%, 100% {
+                                        transform: scale(1);
+                                        opacity: 1;
+                                        box-shadow: 0 0 0 0 ${classicTheme.primary}40;
+                                    }
+                                    50% {
+                                        transform: scale(1.2);
+                                        opacity: 0.8;
+                                        box-shadow: 0 0 0 8px ${classicTheme.primary}00;
+                                    }
+                                }
+                                @keyframes glow {
+                                    0%, 100% {
+                                        opacity: 0.5;
+                                        transform: scale(1);
+                                    }
+                                    50% {
+                                        opacity: 0.8;
+                                        transform: scale(1.1);
+                                    }
+                                }
+                                @keyframes shimmer {
+                                    0% {
+                                        background-position: -200% 0;
+                                    }
+                                    100% {
+                                        background-position: 200% 0;
+                                    }
+                                }
+                            `}</style>
                         </div>
                     ) : filteredVMs.length === 0 ? (
                         <div style={{ 
                             textAlign: 'center', 
                             padding: '60px', 
-                            color: 'rgba(255, 255, 255, 0.65)',
+                            color: '#94a3b8',
                             fontSize: '16px'
                         }}>
                             <CloudServerOutlined style={{ 
                                 fontSize: '48px', 
                                 marginBottom: '16px',
-                                color: 'rgba(255, 255, 255, 0.3)',
+                                color: '#cbd5f5',
                                 display: 'block',
                                 margin: '0 auto 16px'
                             }} />
@@ -1916,15 +1716,16 @@ fi`,
                                         className={styles.portalCard}
                                         style={{
                                             height: '100%',
-                                            transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            transition: 'all 0.3s ease',
                                             position: 'relative',
                                             overflow: 'hidden',
                                             display: 'flex',
                                             flexDirection: 'column',
-                                            background: 'linear-gradient(135deg, rgba(41, 53, 109, 0.6) 0%, rgba(15, 24, 62, 0.8) 100%)',
-                                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                                            background: classicTheme.cardBg,
+                                            border: `1px solid ${classicTheme.cardBorder}`,
                                             borderRadius: '16px',
-                                            boxShadow: '0 12px 28px rgba(1, 3, 13, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                                            boxShadow: '0 18px 32px rgba(15, 24, 40, 0.08)',
+                                            cursor: 'pointer'
                                         }}
                                         styles={{
                                             body: {
@@ -1935,15 +1736,16 @@ fi`,
                                             }
                                         }}
                                         hoverable
+                                        onClick={() => router.push(`/developers/start/${vm.id}`)}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.transform = 'translateY(-8px) scale(1.02)';
-                                            e.currentTarget.style.boxShadow = '0 24px 48px rgba(1, 3, 13, 0.6), 0 0 0 1px rgba(168, 224, 99, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
-                                            e.currentTarget.style.borderColor = 'rgba(168, 224, 99, 0.3)';
+                                            e.currentTarget.style.transform = 'translateY(-6px)';
+                                            e.currentTarget.style.boxShadow = '0 24px 46px rgba(15, 24, 40, 0.14)';
+                                            e.currentTarget.style.borderColor = classicTheme.primary;
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                                            e.currentTarget.style.boxShadow = '0 12px 28px rgba(1, 3, 13, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                            e.currentTarget.style.boxShadow = '0 18px 32px rgba(15, 24, 40, 0.08)';
+                                            e.currentTarget.style.borderColor = classicTheme.cardBorder;
                                         }}
                                     >
                                         {/* Status indicator bar */}
@@ -2007,7 +1809,7 @@ fi`,
                                                 })()}
                                                 <div style={{ flex: 1, minWidth: 0 }}>
                                                     <Title level={5} style={{ 
-                                                        color: '#fff', 
+                                                        color: classicTheme.textPrimary, 
                                                         margin: 0,
                                                         fontSize: '16px',
                                                         fontWeight: 600,
@@ -2073,18 +1875,18 @@ fi`,
                                             {/* VM ID Section */}
                                             <div style={{ 
                                                 padding: '12px',
-                                                background: 'rgba(255, 255, 255, 0.04)',
-                                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                                background: classicTheme.primarySoft,
+                                                border: `1px solid ${classicTheme.cardBorder}`,
                                                 borderRadius: '10px',
                                                 transition: 'all 0.3s ease'
                                             }}
                                             onMouseEnter={(e) => {
-                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                                                e.currentTarget.style.borderColor = 'rgba(168, 224, 99, 0.3)';
+                                                e.currentTarget.style.background = '#fff';
+                                                e.currentTarget.style.borderColor = classicTheme.primary;
                                             }}
                                             onMouseLeave={(e) => {
-                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                                                e.currentTarget.style.background = classicTheme.primarySoft;
+                                                e.currentTarget.style.borderColor = classicTheme.cardBorder;
                                             }}
                                             >
                                                 <div style={{ 
@@ -2093,13 +1895,8 @@ fi`,
                                                     gap: '8px',
                                                     overflow: 'hidden'
                                                 }}>
-                                                    <SafetyOutlined style={{ 
-                                                        fontSize: '14px', 
-                                                        color: 'rgba(168, 224, 99, 0.8)',
-                                                        flexShrink: 0
-                                                    }} />
                                                     <Text style={{ 
-                                                        color: 'rgba(255, 255, 255, 0.7)',
+                                                        color: classicTheme.textMuted,
                                                         fontSize: '11px',
                                                         fontWeight: 500,
                                                         textTransform: 'uppercase',
@@ -2110,7 +1907,7 @@ fi`,
                                                         VM ID:
                                                     </Text>
                                                     <Text style={{ 
-                                                        color: '#fff',
+                                                        color: classicTheme.textPrimary,
                                                         fontSize: '12px',
                                                         fontFamily: 'monospace',
                                                         fontWeight: 500,
@@ -2127,9 +1924,12 @@ fi`,
                                                         type="text"
                                                         size="small"
                                                         icon={<CopyOutlined />}
-                                                        onClick={() => handleCopy(vm.instance_id || vm.id, 'VM ID')}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCopy(vm.instance_id || vm.id, 'VM ID');
+                                                        }}
                                                         style={{
-                                                            color: 'rgba(255, 255, 255, 0.5)',
+                                                            color: classicTheme.textMuted,
                                                             padding: '2px 6px',
                                                             minWidth: 'auto',
                                                             height: 'auto',
@@ -2137,12 +1937,12 @@ fi`,
                                                             flexShrink: 0
                                                         }}
                                                         onMouseEnter={(e) => {
-                                                            e.currentTarget.style.color = '#a8e063';
+                                                            e.currentTarget.style.color = classicTheme.primary;
                                                             e.currentTarget.style.transform = 'scale(1.15)';
-                                                            e.currentTarget.style.background = 'rgba(168, 224, 99, 0.1)';
+                                                            e.currentTarget.style.background = 'rgba(10, 132, 255, 0.12)';
                                                         }}
                                                         onMouseLeave={(e) => {
-                                                            e.currentTarget.style.color = 'rgba(255, 255, 255, 0.5)';
+                                                            e.currentTarget.style.color = classicTheme.textMuted;
                                                             e.currentTarget.style.transform = 'scale(1)';
                                                             e.currentTarget.style.background = 'transparent';
                                                         }}
@@ -2154,7 +1954,7 @@ fi`,
                                             {vm.app_id && (
                                                 <div style={{
                                                     height: '1px',
-                                                    background: 'linear-gradient(90deg, transparent 0%, rgba(97, 255, 234, 0.3) 20%, rgba(168, 224, 99, 0.3) 50%, rgba(97, 255, 234, 0.3) 80%, transparent 100%)',
+                                                    background: 'linear-gradient(to right, rgba(47, 47, 48, 0.06), rgba(153, 156, 160, 0.5), rgba(148, 163, 184, 0))',
                                                     margin: '4px 0'
                                                 }} />
                                             )}
@@ -2172,16 +1972,16 @@ fi`,
                                                         flex: 1,
                                                         minWidth: 0,
                                                         padding: '12px',
-                                                        background: 'rgba(255, 255, 255, 0.04)',
+                                                        background: '#f7f8fb',
                                                         borderRadius: '10px',
                                                         transition: 'all 0.3s ease',
                                                         overflow: 'hidden'
                                                     }}
                                                     onMouseEnter={(e) => {
-                                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                                        e.currentTarget.style.background = 'rgba(23, 36, 56, 0.08)';
                                                     }}
                                                     onMouseLeave={(e) => {
-                                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
+                                                        e.currentTarget.style.background = '#f7f8fb';
                                                     }}
                                                     >
                                                         <div style={{ 
@@ -2193,11 +1993,11 @@ fi`,
                                                         }}>
                                                             <GlobalOutlined style={{ 
                                                                 fontSize: '14px', 
-                                                                color: 'rgba(97, 255, 234, 0.8)',
+                                                                color: classicTheme.primary,
                                                                 flexShrink: 0
                                                             }} />
                                                             <Text style={{ 
-                                                                color: 'rgba(255, 255, 255, 0.7)',
+                                                                color: classicTheme.textMuted,
                                                                 fontSize: '11px',
                                                                 fontWeight: 500,
                                                                 textTransform: 'uppercase',
@@ -2208,7 +2008,7 @@ fi`,
                                                                 App ID:
                                                             </Text>
                                                             <Text style={{ 
-                                                                color: '#fff',
+                                                                color: classicTheme.textPrimary,
                                                                 fontSize: '12px',
                                                                 fontFamily: 'monospace',
                                                                 fontWeight: 500,
@@ -2226,7 +2026,10 @@ fi`,
                                                     <Dropdown
                                                         menu={{ 
                                                             items: getMoreMenuItems(vm),
-                                                            onClick: ({ key }) => handleMenuClick(vm, key as string),
+                                                            onClick: ({ key, domEvent }) => {
+                                                                domEvent?.stopPropagation();
+                                                                handleMenuClick(vm, key as string);
+                                                            },
                                                             style: {
                                                                 padding: '8px',
                                                                 minWidth: '160px'
@@ -2235,12 +2038,18 @@ fi`,
                                                         trigger={['click']}
                                                         placement="bottomRight"
                                                         overlayClassName="custom-dropdown-menu"
+                                                        onOpenChange={(open) => {
+                                                            // 阻止点击下拉菜单时触发卡片点击
+                                                        }}
                                                     >
                                                         <Button
                                                             type="text"
                                                             icon={<MoreOutlined />}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                            }}
                                                             style={{
-                                                                color: 'rgba(255, 255, 255, 0.85)',
+                                                                color: classicTheme.textMuted,
                                                                 padding: '8px',
                                                                 borderRadius: '8px',
                                                                 transition: 'all 0.2s ease',
@@ -2248,21 +2057,19 @@ fi`,
                                                                 width: '32px',
                                                                 height: '32px',
                                                                 flexShrink: 0,
-                                                                background: 'transparent',
+                                                                background: classicTheme.primarySoft,
                                                                 display: 'flex',
                                                                 alignItems: 'center',
                                                                 justifyContent: 'center',
-                                                                filter: 'drop-shadow(0 0 2px rgba(255, 255, 255, 0.3))'
+                                                                boxShadow: '0 6px 14px rgba(15, 24, 40, 0.08)'
                                                             }}
                                                             onMouseEnter={(e) => {
-                                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                                                                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
-                                                                e.currentTarget.style.filter = 'none';
+                                                                e.currentTarget.style.background = 'rgba(23, 59, 104, 0.15)';
+                                                                e.currentTarget.style.color = classicTheme.primary;
                                                             }}
                                                             onMouseLeave={(e) => {
-                                                                e.currentTarget.style.background = 'transparent';
-                                                                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.85)';
-                                                                e.currentTarget.style.filter = 'drop-shadow(0 0 2px rgba(255, 255, 255, 0.3))';
+                                                                e.currentTarget.style.background = classicTheme.primarySoft;
+                                                                e.currentTarget.style.color = classicTheme.textMuted;
                                                             }}
                                                         />
                                                     </Dropdown>
@@ -2284,17 +2091,17 @@ fi`,
                                                     alignItems: 'center',
                                                     gap: '8px',
                                                     padding: '8px 12px',
-                                                    background: 'rgba(255, 255, 255, 0.04)',
-                                                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                                                    background: '#fff',
+                                                    border: `1px solid ${classicTheme.cardBorder}`,
                                                     borderRadius: '8px',
-                                                    color: 'rgba(255, 255, 255, 0.8)',
+                                                    color: classicTheme.textPrimary,
                                                     fontSize: '12px',
                                                     fontWeight: 500,
                                                     width: 'fit-content'
                                                 }}>
                                                     <ClockCircleOutlined style={{ 
                                                         fontSize: '14px', 
-                                                        color: 'rgba(255, 255, 255, 0.6)'
+                                                        color: classicTheme.primary
                                                     }} />
                                                     <span>{vm.uptime}</span>
                                                 </div>
@@ -2302,28 +2109,31 @@ fi`,
                                             <Button
                                                 type="text"
                                                 icon={<FileTextOutlined />}
-                                                onClick={() => showLog(vm.id)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    showLog(vm.id);
+                                                }}
                                                 style={{
                                                     width: 'fit-content',
-                                                    color: 'rgba(255, 255, 255, 0.8)',
-                                                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                                                    color: classicTheme.primary,
+                                                    border: `1px solid ${classicTheme.cardBorder}`,
                                                     borderRadius: '8px',
                                                     padding: '6px 12px',
                                                     height: 'auto',
                                                     transition: 'all 0.3s ease',
-                                                    background: 'rgba(255, 255, 255, 0.04)',
+                                                    background: classicTheme.primarySoft,
                                                     fontSize: '12px',
                                                     fontWeight: 500
                                                 }}
                                                 onMouseEnter={(e) => {
-                                                    e.currentTarget.style.background = 'rgba(97, 255, 234, 0.15)';
-                                                    e.currentTarget.style.borderColor = 'rgba(97, 255, 234, 0.4)';
-                                                    e.currentTarget.style.color = '#61ffea';
+                                                    e.currentTarget.style.background = 'rgba(10, 132, 255, 0.2)';
+                                                    e.currentTarget.style.borderColor = classicTheme.primary;
+                                                    e.currentTarget.style.color = classicTheme.primaryHover;
                                                 }}
                                                 onMouseLeave={(e) => {
-                                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                                                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                                                    e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
+                                                    e.currentTarget.style.background = classicTheme.primarySoft;
+                                                    e.currentTarget.style.borderColor = classicTheme.cardBorder;
+                                                    e.currentTarget.style.color = classicTheme.primary;
                                                 }}
                                             >
                                                 日志
@@ -2332,28 +2142,31 @@ fi`,
                                                 <Button
                                                     type="text"
                                                     icon={<DashboardOutlined />}
-                                                    onClick={() => showDashboard(vm)}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        showDashboard(vm);
+                                                    }}
                                                     style={{
                                                         width: 'fit-content',
-                                                        color: 'rgba(255, 255, 255, 0.8)',
-                                                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                                                        color: classicTheme.textPrimary,
+                                                        border: `1px solid ${classicTheme.cardBorder}`,
                                                         borderRadius: '8px',
                                                         padding: '6px 12px',
                                                         height: 'auto',
                                                         transition: 'all 0.3s ease',
-                                                        background: 'rgba(255, 255, 255, 0.04)',
+                                                        background: '#edf0e3',
                                                         fontSize: '12px',
                                                         fontWeight: 500
                                                     }}
                                                     onMouseEnter={(e) => {
-                                                        e.currentTarget.style.background = 'rgba(168, 224, 99, 0.15)';
-                                                        e.currentTarget.style.borderColor = 'rgba(168, 224, 99, 0.4)';
-                                                        e.currentTarget.style.color = '#a8e063';
+                                                        e.currentTarget.style.background = '#dfe4d1';
+                                                        e.currentTarget.style.borderColor = '#a8b58e';
+                                                        e.currentTarget.style.color = '#394734';
                                                     }}
                                                     onMouseLeave={(e) => {
-                                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                                                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                                                        e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
+                                                        e.currentTarget.style.background = '#edf0e3';
+                                                        e.currentTarget.style.borderColor = classicTheme.cardBorder;
+                                                        e.currentTarget.style.color = classicTheme.textPrimary;
                                                     }}
                                                 >
                                                     Dashboard
@@ -2374,61 +2187,31 @@ fi`,
                         <div style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '16px',
+                            gap: '12px',
                             padding: '4px 0'
                         }}>
-                            <div style={{
-                                width: '48px',
-                                height: '48px',
-                                borderRadius: '14px',
-                                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.25) 100%)',
-                                border: '1px solid rgba(99, 102, 241, 0.4)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                boxShadow: '0 8px 24px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-                                position: 'relative',
-                                overflow: 'hidden'
-                            }}>
-                                <div style={{
-                                    position: 'absolute',
-                                    top: '-50%',
-                                    left: '-50%',
-                                    width: '200%',
-                                    height: '200%',
-                                    background: 'radial-gradient(circle, rgba(168, 85, 247, 0.3) 0%, transparent 70%)',
-                                    animation: 'pulse 3s ease-in-out infinite'
-                                }} />
-                                <CloudServerOutlined style={{ 
-                                    fontSize: '24px', 
-                                    color: '#a855f7',
-                                    position: 'relative',
-                                    zIndex: 1,
-                                    filter: 'drop-shadow(0 2px 4px rgba(168, 85, 247, 0.5))'
-                                }} />
-                            </div>
+                            <CloudServerOutlined style={{ 
+                                fontSize: '20px', 
+                                color: classicTheme.primary
+                            }} />
                             <div style={{ flex: 1 }}>
                                 <Title level={4} style={{ 
                                     margin: 0, 
-                                    color: '#fff',
-                                    fontWeight: 700,
-                                    fontSize: '22px',
-                                    letterSpacing: '-0.5px',
-                                    background: 'linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.85) 100%)',
-                                    WebkitBackgroundClip: 'text',
-                                    WebkitTextFillColor: 'transparent',
-                                    backgroundClip: 'text'
+                                    color: classicTheme.textPrimary,
+                                    fontWeight: 600,
+                                    fontSize: '20px',
+                                    letterSpacing: '0'
                                 }}>
                                     部署新实例
                                 </Title>
                                 <Text style={{
-                                    color: 'rgba(255, 255, 255, 0.6)',
+                                    color: classicTheme.textMuted,
                                     fontSize: '13px',
                                     fontWeight: 400,
-                                    marginTop: '4px',
+                                    marginTop: '2px',
                                     display: 'block'
                                 }}>
-                                    配置并启动您的计算实例
+                                    配置并启动您的计算应用实例
                                 </Text>
                             </div>
                         </div>
@@ -2438,71 +2221,6 @@ fi`,
                     width={960}
                     footer={null}
                     style={{ top: 20 }}
-                    styles={{
-                        content: {
-                            background: 'linear-gradient(135deg, rgba(41, 53, 109, 0.98) 0%, rgba(15, 24, 62, 0.98) 100%)',
-                            border: '1px solid rgba(255, 255, 255, 0.15)',
-                            borderRadius: '28px',
-                            boxShadow: '0 24px 72px rgba(6, 8, 18, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
-                            overflow: 'hidden',
-                            overflowX: 'hidden',
-                            backdropFilter: 'blur(20px)'
-                        },
-                        header: {
-                            background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 100%)',
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                            padding: '28px 36px',
-                            borderRadius: '28px 28px 0 0',
-                            position: 'relative'
-                        },
-                        body: { 
-                            maxHeight: 'calc(100vh - 220px)', 
-                            overflowY: 'auto', 
-                            overflowX: 'hidden',
-                            padding: '36px',
-                            background: 'transparent'
-                        },
-                        mask: {
-                            backdropFilter: 'blur(12px)',
-                            background: 'rgba(0, 0, 0, 0.65)'
-                        }
-                    }}
-                    closeIcon={
-                        <div 
-                            style={{
-                                color: 'rgba(255, 255, 255, 0.75)',
-                                fontSize: '22px',
-                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                width: '36px',
-                                height: '36px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: '10px',
-                                background: 'rgba(255, 255, 255, 0.05)',
-                                border: '1px solid rgba(255, 255, 255, 0.1)',
-                                cursor: 'pointer',
-                                lineHeight: '1',
-                                fontWeight: 300
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
-                                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)';
-                                e.currentTarget.style.color = '#ef4444';
-                                e.currentTarget.style.transform = 'rotate(90deg) scale(1.1)';
-                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.75)';
-                                e.currentTarget.style.transform = 'rotate(0deg) scale(1)';
-                                e.currentTarget.style.boxShadow = 'none';
-                            }}
-                        >
-                            ×
-                        </div>
-                    }
                 >
                     <Form
                         form={form}
@@ -2526,8 +2244,8 @@ fi`,
                     >
                         {/* 基本信息分组 */}
                         <div style={{
-                            background: 'rgba(255, 255, 255, 0.03)',
-                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            background: panelBackground,
+                            border: `1px solid ${panelBorder}`,
                             borderRadius: '16px',
                             padding: '24px',
                             marginBottom: '24px',
@@ -2539,21 +2257,21 @@ fi`,
                                 gap: '12px',
                                 marginBottom: '20px',
                                 paddingBottom: '16px',
-                                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                                borderBottom: `1px solid ${panelDivider}`
                             }}>
                                 <div style={{
                                     width: '36px',
                                     height: '36px',
                                     borderRadius: '10px',
-                                    background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)',
-                                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                                    background: 'rgba(20, 99, 255, 0.12)',
+                                    border: `1px solid ${classicTheme.primarySoft}`,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center'
                                 }}>
                                     <FileTextOutlined style={{ fontSize: '18px', color: '#a855f7' }} />
                                 </div>
-                                <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+                                <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
                                     基本信息
                                 </Title>
                             </div>
@@ -2602,8 +2320,8 @@ fi`,
 
                         {/* Docker Compose 配置分组 */}
                         <div style={{
-                            background: 'rgba(255, 255, 255, 0.03)',
-                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            background: panelBackground,
+                            border: `1px solid ${panelBorder}`,
                             borderRadius: '16px',
                             padding: '24px',
                             marginBottom: '24px',
@@ -2615,13 +2333,13 @@ fi`,
                                 gap: '12px',
                                 marginBottom: '20px',
                                 paddingBottom: '16px',
-                                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                                borderBottom: `1px solid ${panelDivider}`
                             }}>
                                 <div style={{
                                     width: '36px',
                                     height: '36px',
                                     borderRadius: '10px',
-                                    background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%)',
+                                    background: 'rgba(46, 180, 170, 0.2)',
                                     border: '1px solid rgba(34, 197, 94, 0.3)',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -2629,7 +2347,7 @@ fi`,
                                 }}>
                                     <ThunderboltOutlined style={{ fontSize: '18px', color: '#22c55e' }} />
                                 </div>
-                                <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+                                <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
                                     Docker Compose 配置
                                 </Title>
                             </div>
@@ -2672,15 +2390,15 @@ fi`,
                                         </Button>
                                     </Upload>
                                     <Form.Item name="dockerComposeFile" noStyle>
-                                        <Input.TextArea 
-                                            rows={8} 
-                                            placeholder="粘贴您的 docker-compose.yml 内容或使用上方按钮上传文件"
-                                            style={{ 
-                                                fontFamily: 'monospace',
-                                                fontSize: '13px',
-                                                lineHeight: '1.6'
-                                            }}
-                                        />
+                                    <Input.TextArea 
+                                        rows={8} 
+                                        placeholder="粘贴您的 docker-compose.yml 内容或使用上方按钮上传文件"
+                                        style={{ 
+                                            fontFamily: 'monospace',
+                                            fontSize: '14px',
+                                            lineHeight: '1.6'
+                                        }}
+                                    />
                                     </Form.Item>
                                 </div>
                             </Form.Item>
@@ -2688,8 +2406,8 @@ fi`,
 
                         {availableGpus.length > 0 && (
                             <div style={{
-                                background: 'rgba(255, 255, 255, 0.03)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                background: panelBackground,
+                                border: `1px solid ${panelBorder}`,
                                 borderRadius: '16px',
                                 padding: '24px',
                                 marginBottom: '24px',
@@ -2701,13 +2419,13 @@ fi`,
                                     gap: '12px',
                                     marginBottom: '20px',
                                     paddingBottom: '16px',
-                                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                                    borderBottom: `1px solid ${panelDivider}`
                                 }}>
                                     <div style={{
                                         width: '36px',
                                         height: '36px',
                                         borderRadius: '10px',
-                                        background: 'linear-gradient(135deg, rgba(251, 146, 60, 0.2) 0%, rgba(239, 68, 68, 0.2) 100%)',
+                                        background: 'rgba(247, 107, 64, 0.2)',
                                         border: '1px solid rgba(251, 146, 60, 0.3)',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -2715,7 +2433,7 @@ fi`,
                                     }}>
                                         <ThunderboltOutlined style={{ fontSize: '18px', color: '#fb923c' }} />
                                     </div>
-                                    <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+                                    <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
                                         GPU 配置
                                     </Title>
                                 </div>
@@ -2740,8 +2458,8 @@ fi`,
 
                         {/* 高级配置分组 */}
                         <div style={{
-                            background: 'rgba(255, 255, 255, 0.03)',
-                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            background: panelBackground,
+                            border: `1px solid ${panelBorder}`,
                             borderRadius: '16px',
                             padding: '24px',
                             marginBottom: '24px',
@@ -2753,21 +2471,21 @@ fi`,
                                 gap: '12px',
                                 marginBottom: '20px',
                                 paddingBottom: '16px',
-                                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                                borderBottom: `1px solid ${panelDivider}`
                             }}>
                                 <div style={{
                                     width: '36px',
                                     height: '36px',
                                     borderRadius: '10px',
-                                    background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%)',
+                                    background: 'rgba(202, 90, 200, 0.2)',
                                     border: '1px solid rgba(168, 85, 247, 0.3)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center'
                                 }}>
-                                    <SafetyOutlined style={{ fontSize: '18px', color: '#a855f7' }} />
+                                    <SettingOutlined style={{ fontSize: '18px', color: '#a855f7' }} />
                                 </div>
-                                <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+                                <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
                                     高级配置
                                 </Title>
                             </div>
@@ -2781,7 +2499,7 @@ fi`,
                                     placeholder="可选：在启动容器之前运行的 Bash 脚本"
                                     style={{ 
                                         fontFamily: 'monospace',
-                                        fontSize: '13px',
+                                        fontSize: '14px',
                                         lineHeight: '1.6'
                                     }}
                                 />
@@ -2793,35 +2511,35 @@ fi`,
                                     placeholder="可选：将放置在 CVM 中 /dstack/.user-config 的用户配置"
                                     style={{ 
                                         fontFamily: 'monospace',
-                                        fontSize: '13px',
+                                        fontSize: '14px',
                                         lineHeight: '1.6'
                                     }}
                                 />
                             </Form.Item>
                         </div>
 
-                        {portMappingEnabled && (
-                            <div style={{
-                                background: 'rgba(255, 255, 255, 0.03)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                borderRadius: '16px',
-                                padding: '24px',
-                                marginBottom: '24px',
-                                backdropFilter: 'blur(10px)'
-                            }}>
+{portMappingEnabled && (
+    <div style={{
+        background: panelBackground,
+        border: `1px solid ${panelBorder}`,
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '24px',
+        backdropFilter: 'blur(10px)'
+    }}>
                                 <div style={{
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '12px',
                                     marginBottom: '20px',
                                     paddingBottom: '16px',
-                                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+        borderBottom: `1px solid ${panelDivider}`
                                 }}>
                                     <div style={{
                                         width: '36px',
                                         height: '36px',
                                         borderRadius: '10px',
-                                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(99, 102, 241, 0.2) 100%)',
+                                        background: 'rgba(79, 116, 244, 0.2)',
                                         border: '1px solid rgba(59, 130, 246, 0.3)',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -2829,7 +2547,7 @@ fi`,
                                     }}>
                                         <GlobalOutlined style={{ fontSize: '18px', color: '#3b82f6' }} />
                                     </div>
-                                    <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+        <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
                                         端口映射
                                     </Title>
                                 </div>
@@ -2899,35 +2617,35 @@ fi`,
                         )}
 
                         {/* 功能特性分组 */}
-                        <div style={{
-                            background: 'rgba(255, 255, 255, 0.03)',
-                            border: '1px solid rgba(255, 255, 255, 0.08)',
-                            borderRadius: '16px',
-                            padding: '24px',
-                            marginBottom: '24px',
-                            backdropFilter: 'blur(10px)'
-                        }}>
+<div style={{
+    background: panelBackground,
+    border: `1px solid ${panelBorder}`,
+    borderRadius: '16px',
+    padding: '24px',
+    marginBottom: '24px',
+    backdropFilter: 'blur(10px)'
+}}>
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '12px',
                                 marginBottom: '20px',
                                 paddingBottom: '16px',
-                                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+    borderBottom: `1px solid ${panelDivider}`
                             }}>
                                 <div style={{
                                     width: '36px',
                                     height: '36px',
                                     borderRadius: '10px',
-                                    background: 'linear-gradient(135deg, rgba(168, 224, 99, 0.2) 0%, rgba(34, 197, 94, 0.2) 100%)',
-                                    border: '1px solid rgba(168, 224, 99, 0.3)',
+                                    background: 'rgba(120, 210, 96, 0.2)',
+                                    border: '1px solid rgba(39, 194, 108, 0.25)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center'
                                 }}>
                                     <DashboardOutlined style={{ fontSize: '18px', color: '#a8e063' }} />
                                 </div>
-                                <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
+    <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
                                     功能特性
                                 </Title>
                             </div>
@@ -2977,7 +2695,7 @@ fi`,
                             </Form.Item>
                         </div>
 
-                        {/* KMS 和安全配置分组 */}
+                        {/* 安全配置分组 */}
                         <Form.Item 
                             noStyle 
                             shouldUpdate={(prevValues, currentValues) => 
@@ -2990,8 +2708,8 @@ fi`,
                                 const dockerConfigEnabled = getFieldValue(['docker_config', 'enabled']);
                                 return kmsEnabled && (
                                     <div style={{
-                                        background: 'rgba(255, 255, 255, 0.03)',
-                                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                                        background: panelBackground,
+                                        border: `1px solid ${panelBorder}`,
                                         borderRadius: '16px',
                                         padding: '24px',
                                         marginBottom: '24px',
@@ -3003,13 +2721,13 @@ fi`,
                                             gap: '12px',
                                             marginBottom: '20px',
                                             paddingBottom: '16px',
-                                            borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                                            borderBottom: `1px solid ${panelDivider}`
                                         }}>
                                             <div style={{
                                                 width: '36px',
                                                 height: '36px',
                                                 borderRadius: '10px',
-                                                background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)',
+                                                background: 'rgba(210, 80, 170, 0.2)',
                                                 border: '1px solid rgba(239, 68, 68, 0.3)',
                                                 display: 'flex',
                                                 alignItems: 'center',
@@ -3017,8 +2735,8 @@ fi`,
                                             }}>
                                                 <SafetyOutlined style={{ fontSize: '18px', color: '#ef4444' }} />
                                             </div>
-                                            <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
-                                                KMS 和安全配置
+                                            <Title level={5} style={{ margin: 0, color: classicTheme.highlight, fontSize: '17px', fontWeight: 600 }}>
+                                                安全配置
                                             </Title>
                                         </div>
                                         <Form.Item label="密钥提供者 ID (可选)" name="key_provider_id" style={{ marginBottom: 20 }}>
@@ -3041,100 +2759,59 @@ fi`,
                                                 </Col>
                                             </Row>
                                         )}
+                                        <Form.Item label="加密环境变量" name="encryptedEnvs" style={{ marginTop: 16 }}>
+                                            <Form.List name="encryptedEnvs">
+                                                {(fields, { add, remove }) => (
+                                                    <>
+                                                        {fields.map(({ key, name, ...restField }) => (
+                                                            <Space key={key} style={{ display: 'flex', marginBottom: 12 }} align="baseline">
+                                                                <Form.Item {...restField} name={[name, 'key']} rules={[{ required: true }]}>
+                                                                    <Input placeholder="变量名" style={{ width: 220 }} />
+                                                                </Form.Item>
+                                                                <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true }]}>
+                                                                    <Input.Password placeholder="值" style={{ flex: 1, minWidth: 200 }} />
+                                                                </Form.Item>
+                                                                <Button
+                                                                    type="text"
+                                                                    icon={<MinusCircleOutlined />}
+                                                                    onClick={() => remove(name)}
+                                                                    style={{
+                                                                        color: 'rgba(239, 68, 68, 0.8)',
+                                                                        padding: '4px 8px'
+                                                                    }}
+                                                                    onMouseEnter={(e) => {
+                                                                        e.currentTarget.style.color = '#ef4444';
+                                                                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        e.currentTarget.style.color = 'rgba(239, 68, 68, 0.8)';
+                                                                        e.currentTarget.style.background = 'transparent';
+                                                                    }}
+                                                                />
+                                                            </Space>
+                                                        ))}
+                                                        <Form.Item>
+                                                            <Button 
+                                                                type="dashed" 
+                                                                onClick={() => add()} 
+                                                                block 
+                                                                icon={<PlusOutlined />}
+                                                                style={{
+                                                                    height: '40px',
+                                                                    borderRadius: '10px',
+                                                                    fontWeight: 500
+                                                                }}
+                                                            >
+                                                                添加环境变量
+                                                            </Button>
+                                                        </Form.Item>
+                                                    </>
+                                                )}
+                                            </Form.List>
+                                        </Form.Item>
                                     </div>
                                 );
                             }}
-                        </Form.Item>
-
-                        <Form.Item 
-                            noStyle 
-                            shouldUpdate={(prevValues, currentValues) => prevValues.kms_enabled !== currentValues.kms_enabled}
-                        >
-                            {({ getFieldValue }) => getFieldValue('kms_enabled') && (
-                                <div style={{
-                                    background: 'rgba(255, 255, 255, 0.03)',
-                                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                                    borderRadius: '16px',
-                                    padding: '24px',
-                                    marginBottom: '24px',
-                                    backdropFilter: 'blur(10px)'
-                                }}>
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '12px',
-                                        marginBottom: '20px',
-                                        paddingBottom: '16px',
-                                        borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
-                                    }}>
-                                        <div style={{
-                                            width: '36px',
-                                            height: '36px',
-                                            borderRadius: '10px',
-                                            background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)',
-                                            border: '1px solid rgba(99, 102, 241, 0.3)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center'
-                                        }}>
-                                            <SafetyOutlined style={{ fontSize: '18px', color: '#6366f1' }} />
-                                        </div>
-                                        <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '16px', fontWeight: 600 }}>
-                                            加密环境变量
-                                        </Title>
-                                    </div>
-                                    <Form.Item label="加密环境变量" name="encryptedEnvs">
-                                        <Form.List name="encryptedEnvs">
-                                            {(fields, { add, remove }) => (
-                                                <>
-                                                    {fields.map(({ key, name, ...restField }) => (
-                                                        <Space key={key} style={{ display: 'flex', marginBottom: 12 }} align="baseline">
-                                                            <Form.Item {...restField} name={[name, 'key']} rules={[{ required: true }]}>
-                                                                <Input placeholder="变量名" style={{ width: 220 }} />
-                                                            </Form.Item>
-                                                            <Form.Item {...restField} name={[name, 'value']} rules={[{ required: true }]}>
-                                                                <Input.Password placeholder="值" style={{ flex: 1, minWidth: 200 }} />
-                                                            </Form.Item>
-                                                            <Button
-                                                                type="text"
-                                                                icon={<MinusCircleOutlined />}
-                                                                onClick={() => remove(name)}
-                                                                style={{
-                                                                    color: 'rgba(239, 68, 68, 0.8)',
-                                                                    padding: '4px 8px'
-                                                                }}
-                                                                onMouseEnter={(e) => {
-                                                                    e.currentTarget.style.color = '#ef4444';
-                                                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                                                                }}
-                                                                onMouseLeave={(e) => {
-                                                                    e.currentTarget.style.color = 'rgba(239, 68, 68, 0.8)';
-                                                                    e.currentTarget.style.background = 'transparent';
-                                                                }}
-                                                            />
-                                                        </Space>
-                                                    ))}
-                                                    <Form.Item>
-                                                        <Button 
-                                                            type="dashed" 
-                                                            onClick={() => add()} 
-                                                            block 
-                                                            icon={<PlusOutlined />}
-                                                            style={{
-                                                                height: '40px',
-                                                                borderRadius: '10px',
-                                                                fontWeight: 500
-                                                            }}
-                                                        >
-                                                            添加环境变量
-                                                        </Button>
-                                                    </Form.Item>
-                                                </>
-                                            )}
-                                        </Form.List>
-                                    </Form.Item>
-                                </div>
-                            )}
                         </Form.Item>
 
                         {composeHashPreview && (
@@ -3145,7 +2822,7 @@ fi`,
                                 padding: '16px',
                                 marginBottom: '24px'
                             }}>
-                                <Text style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '13px', fontWeight: 500, marginBottom: '8px', display: 'block' }}>
+                                <Text style={{ color: '#64748b', fontSize: '14px', fontWeight: 500, marginBottom: '8px', display: 'block' }}>
                                     Compose Hash
                                 </Text>
                                 <Text code style={{
@@ -3154,7 +2831,7 @@ fi`,
                                     color: '#a855f7',
                                     padding: '8px 12px',
                                     borderRadius: '8px',
-                                    fontSize: '13px',
+                                    fontSize: '14px',
                                     fontFamily: 'monospace',
                                     display: 'inline-block'
                                 }}>
@@ -3175,14 +2852,14 @@ fi`,
                             <Button 
                                 onClick={() => setShowDeployModal(false)}
                                 style={{
-                                    background: 'rgba(255, 255, 255, 0.05)',
-                                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                                    background: '#ffffff',
+                                    border: `1px solid ${panelBorder}`,
                                     borderRadius: '12px',
                                     padding: '12px 28px',
                                     fontSize: '15px',
                                     fontWeight: 500,
                                     height: '48px',
-                                    color: 'rgba(255, 255, 255, 0.85)',
+                                    color: classicTheme.textPrimary,
                                     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                                     minWidth: '120px'
                                 }}
@@ -3205,13 +2882,13 @@ fi`,
                                 type="primary" 
                                 htmlType="submit" 
                                 loading={deployLoading}
-                                icon={<CloudServerOutlined />}
+                                // icon={<CloudServerOutlined />}
                                 style={{
-                                    background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                                    background: '#6366f1',
                                     border: 'none',
                                     borderRadius: '12px',
                                     padding: '12px 32px',
-                                    fontSize: '16px',
+                                    fontSize: '15px',
                                     fontWeight: 600,
                                     height: '48px',
                                     boxShadow: '0 8px 24px rgba(99, 102, 241, 0.5), 0 4px 12px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
@@ -3220,20 +2897,792 @@ fi`,
                                     minWidth: '140px'
                                 }}
                                 onMouseEnter={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #7c7ef8 0%, #b875f9 100%)';
+                                    e.currentTarget.style.background = '#7c7ef8';
                                     e.currentTarget.style.boxShadow = '0 12px 32px rgba(99, 102, 241, 0.6), 0 6px 16px rgba(168, 85, 247, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
                                     e.currentTarget.style.transform = 'translateY(-2px)';
                                 }}
                                 onMouseLeave={(e) => {
-                                    e.currentTarget.style.background = 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)';
+                                    e.currentTarget.style.background = '#6366f1';
                                     e.currentTarget.style.boxShadow = '0 8px 24px rgba(99, 102, 241, 0.5), 0 4px 12px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
                                     e.currentTarget.style.transform = 'translateY(0)';
                                 }}
                             >
-                                部署实例
+                                部署
                             </Button>
                         </div>
                     </Form>
+                </Modal>
+
+                {/* VM 详情模态框 */}
+                <Modal
+                    title={
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px',
+                            padding: '4px 0',
+                            position: 'relative'
+                        }}>
+                            <div style={{
+                                width: '48px',
+                                height: '48px',
+                                borderRadius: '14px',
+                                background: '#667eea',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                position: 'relative',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{
+                                    position: 'absolute',
+                                    inset: 0,
+                                    background: 'rgba(255, 255, 255, 0.2)',
+                                    borderRadius: '14px'
+                                }} />
+                                <CloudServerOutlined style={{ 
+                                    fontSize: '22px', 
+                                    color: '#fff',
+                                    position: 'relative',
+                                    zIndex: 1,
+                                    filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+                                }} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <Title level={4} style={{ 
+                                    margin: 0, 
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    fontSize: '22px',
+                                    letterSpacing: '-0.02em',
+                                    background: 'rgba(255, 255, 255, 0.95)',
+                                    WebkitBackgroundClip: 'text',
+                                    WebkitTextFillColor: 'transparent',
+                                    backgroundClip: 'text'
+                                }}>
+                                    {selectedVM?.name || 'VM 详细信息'}
+                                </Title>
+                                <Text style={{
+                                    color: '#94a3b8',
+                                    fontSize: '13px',
+                                    fontWeight: 500,
+                                    marginTop: '4px',
+                                    display: 'block',
+                                    fontFamily: 'monospace',
+                                    letterSpacing: '0.02em'
+                                }}>
+                                    {selectedVM?.id || ''}
+                                </Text>
+                            </div>
+                        </div>
+                    }
+                    open={showDetailModal}
+                    onCancel={() => {
+                        setShowDetailModal(false);
+                        setSelectedVM(null);
+                        setVmDetails(null);
+                        setNetworkInfo(null);
+                    }}
+                    width={920}
+                    footer={null}
+                    style={{ top: 20 }}
+                    styles={{
+                        content: {
+                            background: 'rgba(15, 23, 42, 0.97)',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            boxShadow: '0 32px 96px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                            overflow: 'hidden',
+                            overflowX: 'hidden',
+                            backdropFilter: 'blur(24px) saturate(180%)',
+                            position: 'relative'
+                        },
+                        header: {
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            borderBottom: '1px solid #e2e8f0',
+                            padding: '32px 40px',
+                            borderRadius: '8px 8px 0 0',
+                            position: 'relative',
+                            backdropFilter: 'blur(10px)'
+                        },
+                        body: { 
+                            maxHeight: 'calc(100vh - 240px)', 
+                            overflowY: 'auto', 
+                            overflowX: 'hidden',
+                            padding: '40px',
+                            background: 'transparent'
+                        },
+                        mask: {
+                            backdropFilter: 'blur(16px)',
+                            background: 'rgba(0, 0, 0, 0.7)'
+                        }
+                    }}
+                    closeIcon={
+                        <div 
+                            style={{
+                                color: '#64748b',
+                                fontSize: '24px',
+                                transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                                width: '40px',
+                                height: '40px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderRadius: '12px',
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                lineHeight: '1',
+                                fontWeight: 300,
+                                backdropFilter: 'blur(10px)'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)';
+                                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+                                e.currentTarget.style.color = '#fca5a5';
+                                e.currentTarget.style.transform = 'rotate(90deg) scale(1.15)';
+                                e.currentTarget.style.boxShadow = '0 8px 20px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+                                e.currentTarget.style.transform = 'rotate(0deg) scale(1)';
+                                e.currentTarget.style.boxShadow = 'none';
+                            }}
+                        >
+                            ×
+                        </div>
+                    }
+                >
+                    {loadingDetails ? (
+                        <div style={{ 
+                            textAlign: 'center', 
+                            padding: '60px', 
+                            color: '#94a3b8',
+                            fontSize: '16px'
+                        }}>
+                            <div className={styles.loadingSpinner} style={{ margin: '0 auto 20px' }}>
+                                <div className={styles.loadingSpinnerOuter} />
+                                <div className={styles.loadingSpinnerInner} />
+                                <div className={styles.loadingSpinnerCenter} />
+                            </div>
+                            <div>加载详细信息中...</div>
+                        </div>
+                    ) : vmDetails ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                            {/* Boot Status */}
+                            <div style={{
+                                background: 'rgba(139, 92, 246, 0.15)',
+                                border: '1px solid rgba(139, 92, 246, 0.3)',
+                                borderRadius: '20px',
+                                padding: '28px',
+                                backdropFilter: 'blur(16px) saturate(180%)',
+                                boxShadow: '0 8px 32px rgba(139, 92, 246, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '22px', position: 'relative', zIndex: 1 }}>
+                                    <div style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        borderRadius: '14px',
+                                        background: '#8b5cf6',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                                        boxShadow: '0 8px 24px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                        position: 'relative',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            background: 'rgba(255, 255, 255, 0.2)',
+                                            borderRadius: '14px'
+                                        }} />
+                                        <BulbOutlined style={{ fontSize: '20px', color: '#fff', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))' }} />
+                                    </div>
+                                    <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                                        启动状态
+                                    </Title>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative', zIndex: 1 }}>
+                                    <div style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: 'space-between',
+                                        padding: '16px 20px',
+                                        background: 'rgba(0, 0, 0, 0.3)',
+                                        borderRadius: '14px',
+                                        border: '1px solid #e2e8f0',
+                                        backdropFilter: 'blur(10px)',
+                                        transition: 'all 0.2s ease'
+                                    }}>
+                                        <span style={{ color: '#334155', fontSize: '15px', fontWeight: 600 }}>启动进度</span>
+                                        <Tag 
+                                            color={vmDetails.boot_progress === 'done' ? 'success' : 'processing'}
+                                            style={{
+                                                margin: 0,
+                                                padding: '6px 16px',
+                                                borderRadius: '10px',
+                                                fontWeight: 600,
+                                                fontSize: '13px',
+                                                border: 'none',
+                                                boxShadow: vmDetails.boot_progress === 'done' 
+                                                    ? '0 4px 12px rgba(34, 197, 94, 0.3)' 
+                                                    : '0 4px 12px rgba(59, 130, 246, 0.3)',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.05em'
+                                            }}
+                                        >
+                                            {vmDetails.boot_progress || 'N/A'}
+                                        </Tag>
+                                    </div>
+                                    {vmDetails.boot_error && (
+                                        <div style={{
+                                            padding: '16px 20px',
+                                            background: 'rgba(239, 68, 68, 0.2)',
+                                            borderRadius: '14px',
+                                            border: '1px solid rgba(239, 68, 68, 0.4)',
+                                            display: 'flex',
+                                            alignItems: 'flex-start',
+                                            gap: '12px',
+                                            backdropFilter: 'blur(10px)',
+                                            boxShadow: '0 4px 16px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+                                        }}>
+                                            <div style={{
+                                                width: '32px',
+                                                height: '32px',
+                                                borderRadius: '10px',
+                                                background: 'rgba(239, 68, 68, 0.3)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                flexShrink: 0
+                                            }}>
+                                                <SafetyOutlined style={{ color: '#fca5a5', fontSize: '16px' }} />
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ color: '#fca5a5', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>启动错误</div>
+                                                <div style={{ color: 'rgba(252, 165, 165, 0.95)', fontSize: '13px', lineHeight: '1.6' }}>{vmDetails.boot_error}</div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Network Information */}
+                            {networkInfo && (
+                                <div style={{
+                                    background: 'rgba(59, 130, 246, 0.15)',
+                                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                                    borderRadius: '20px',
+                                    padding: '28px',
+                                    backdropFilter: 'blur(16px) saturate(180%)',
+                                    boxShadow: '0 8px 32px rgba(59, 130, 246, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '22px', position: 'relative', zIndex: 1 }}>
+                                        <div style={{
+                                            width: '48px',
+                                            height: '48px',
+                                            borderRadius: '14px',
+                                            background: '#2563eb',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                                            boxShadow: '0 8px 24px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                            position: 'relative',
+                                            overflow: 'hidden'
+                                        }}>
+                                            <div style={{
+                                                position: 'absolute',
+                                                inset: 0,
+                                                background: 'rgba(255, 255, 255, 0.2)',
+                                                borderRadius: '14px'
+                                            }} />
+                                            <GlobalOutlined style={{ fontSize: '20px', color: '#fff', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))' }} />
+                                        </div>
+                                        <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                                            网络信息
+                                        </Title>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative', zIndex: 1 }}>
+                                        {networkInfo.dns_servers && (
+                                            <div style={{
+                                                padding: '16px 20px',
+                                                background: 'rgba(0, 0, 0, 0.3)',
+                                                borderRadius: '14px',
+                                                border: '1px solid #e2e8f0',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                backdropFilter: 'blur(10px)',
+                                                transition: 'all 0.2s ease'
+                                            }}>
+                                                <span style={{ color: '#334155', fontSize: '15px', fontWeight: 600 }}>DNS 服务器</span>
+                                                <span style={{ 
+                                                    color: '#93c5fd', 
+                                                    fontSize: '14px',
+                                                    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                                                    background: 'rgba(59, 130, 246, 0.2)',
+                                                    padding: '6px 14px',
+                                                    borderRadius: '10px',
+                                                    border: '1px solid rgba(59, 130, 246, 0.4)',
+                                                    fontWeight: 500,
+                                                    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.2)'
+                                                }}>
+                                                    {networkInfo.dns_servers.join(', ')}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {networkInfo.gateways && (
+                                            <div style={{
+                                                padding: '16px 20px',
+                                                background: 'rgba(0, 0, 0, 0.3)',
+                                                borderRadius: '14px',
+                                                border: '1px solid #e2e8f0',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                backdropFilter: 'blur(10px)',
+                                                transition: 'all 0.2s ease'
+                                            }}>
+                                                <span style={{ color: '#334155', fontSize: '15px', fontWeight: 600 }}>网关</span>
+                                                <span style={{ 
+                                                    color: '#93c5fd', 
+                                                    fontSize: '14px',
+                                                    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                                                    background: 'rgba(59, 130, 246, 0.2)',
+                                                    padding: '6px 14px',
+                                                    borderRadius: '10px',
+                                                    border: '1px solid rgba(59, 130, 246, 0.4)',
+                                                    fontWeight: 500,
+                                                    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.2)'
+                                                }}>
+                                                    {networkInfo.gateways.map((gw: any) => gw.address).join(', ')}
+                                                </span>
+                                            </div>
+                                        )}
+                                        {networkInfo.interfaces && networkInfo.interfaces.map((iface: any, idx: number) => (
+                                            <div key={idx} style={{ 
+                                                padding: '16px',
+                                                background: 'rgba(0, 0, 0, 0.25)',
+                                                borderRadius: '12px',
+                                                border: '1px solid #e2e8f0',
+                                                marginTop: '4px'
+                                            }}>
+                                                <div style={{ 
+                                                    display: 'flex', 
+                                                    alignItems: 'center', 
+                                                    gap: '8px',
+                                                    marginBottom: '12px',
+                                                    color: classicTheme.textPrimary, 
+                                                    fontSize: '14px', 
+                                                    fontWeight: 600 
+                                                }}>
+                                                    <div style={{
+                                                        width: '6px',
+                                                        height: '6px',
+                                                        borderRadius: '50%',
+                                                        background: '#2563eb',
+                                                        boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)'
+                                                    }} />
+                                                    接口 {iface.name}
+                                                </div>
+                                                <div style={{ 
+                                                    display: 'grid', 
+                                                    gridTemplateColumns: 'auto 1fr', 
+                                                    gap: '8px 12px',
+                                                    color: classicTheme.textMuted, 
+                                                    fontSize: '13px',
+                                                    marginLeft: '14px'
+                                                }}>
+                                                    <span style={{ color: '#a5b4fc' }}>IP:</span>
+                                                    <span style={{ fontFamily: 'monospace' }}>{iface.addresses?.map((addr: any) => `${addr.address}/${addr.prefix}`).join(', ') || 'N/A'}</span>
+                                                    <span style={{ color: '#a5b4fc' }}>RX:</span>
+                                                    <span>{iface.rx_bytes || 0} bytes {iface.rx_errors > 0 && <span style={{ color: '#ef4444' }}>({iface.rx_errors} errors)</span>}</span>
+                                                    <span style={{ color: '#a5b4fc' }}>TX:</span>
+                                                    <span>{iface.tx_bytes || 0} bytes {iface.tx_errors > 0 && <span style={{ color: '#ef4444' }}>({iface.tx_errors} errors)</span>}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {networkInfo.wg_info && (
+                                            <div style={{ marginTop: '8px' }}>
+                                                <div style={{ 
+                                                    display: 'flex', 
+                                                    alignItems: 'center', 
+                                                    gap: '8px',
+                                                    color: classicTheme.textPrimary, 
+                                                    fontSize: '14px', 
+                                                    fontWeight: 600,
+                                                    marginBottom: '12px'
+                                                }}>
+                                                    <SafetyOutlined style={{ fontSize: '16px', color: '#3b82f6' }} />
+                                                    WireGuard 信息
+                                                </div>
+                                                <div style={{
+                                                    background: 'rgba(15, 23, 42, 0.45)',
+                                                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                                                    borderRadius: '12px',
+                                                    padding: '16px',
+                                                    position: 'relative',
+                                                    overflow: 'hidden'
+                                                }}>
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        top: 0,
+                                                        left: 0,
+                                                        right: 0,
+                                                        height: '2px',
+                                                        background: 'rgba(59, 130, 246, 0.6)'
+                                                    }} />
+                                                    <pre style={{
+                                                        margin: 0,
+                                                        color: classicTheme.textPrimary,
+                                                        fontSize: '12px',
+                                                        fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+                                                        lineHeight: '1.6',
+                                                        overflow: 'auto',
+                                                        maxHeight: '280px',
+                                                        padding: '4px 0'
+                                                    }}>{networkInfo.wg_info}</pre>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* VM Configuration */}
+                            <div style={{
+                                background: 'rgba(34, 197, 94, 0.15)',
+                                border: '1px solid rgba(34, 197, 94, 0.3)',
+                                borderRadius: '20px',
+                                padding: '28px',
+                                backdropFilter: 'blur(16px) saturate(180%)',
+                                boxShadow: '0 8px 32px rgba(34, 197, 94, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '22px', position: 'relative', zIndex: 1 }}>
+                                    <div style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        borderRadius: '14px',
+                                        background: '#16a34a',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                                        boxShadow: '0 8px 24px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                        position: 'relative',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            background: 'rgba(255, 255, 255, 0.2)',
+                                            borderRadius: '14px'
+                                        }} />
+                                        <SettingOutlined style={{ fontSize: '20px', color: '#fff', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))' }} />
+                                    </div>
+                                    <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                                        VM 配置
+                                    </Title>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '14px', color: '#1f2937', position: 'relative', zIndex: 1 }}>
+                                    {[
+                                        { label: '镜像', value: vmDetails.configuration?.image || 'N/A', monospace: true },
+                                        { label: 'vCPUs', value: vmDetails.configuration?.vcpu || 'N/A', monospace: false },
+                                        { label: '内存', value: formatMemory(vmDetails.configuration?.memory), monospace: false },
+                                        { label: '磁盘大小', value: vmDetails.configuration?.disk_size ? `${vmDetails.configuration.disk_size} GB` : 'N/A', monospace: false },
+                                        ...(vmDetails.configuration?.gpus && vmDetails.configuration.gpus.length > 0 ? [{
+                                            label: 'GPUs',
+                                            value: vmDetails.configuration.gpus.map((gpu: any) => gpu.slot || gpu.product_id).join(', '),
+                                            monospace: true
+                                        }] : []),
+                                        { label: 'VM ID', value: vmDetails.id, monospace: true }
+                                    ].map((item, idx) => (
+                                        <React.Fragment key={idx}>
+                                            <div style={{ 
+                                                color: '#475569', 
+                                                fontSize: '15px',
+                                                fontWeight: 600,
+                                                padding: '12px 0',
+                                                display: 'flex',
+                                                alignItems: 'center'
+                                            }}>{item.label}:</div>
+                                            <div style={{ 
+                                                fontSize: '14px',
+                                                fontFamily: item.monospace ? 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace' : 'inherit',
+                                                padding: '12px 16px',
+                                                background: 'rgba(0, 0, 0, 0.3)',
+                                                borderRadius: '12px',
+                                                border: '1px solid #e2e8f0',
+                                                backdropFilter: 'blur(10px)',
+                                                color: item.monospace ? '#86efac' : 'rgba(255, 255, 255, 0.9)',
+                                                fontWeight: item.monospace ? 500 : 400
+                                            }}>{item.value}</div>
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Port Mappings */}
+                            {vmDetails.configuration?.ports && vmDetails.configuration.ports.length > 0 && (
+                                <div style={{
+                                    background: 'rgba(251, 146, 60, 0.15)',
+                                    border: '1px solid rgba(251, 146, 60, 0.3)',
+                                    borderRadius: '20px',
+                                    padding: '28px',
+                                    backdropFilter: 'blur(16px) saturate(180%)',
+                                    boxShadow: '0 8px 32px rgba(251, 146, 60, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '22px', position: 'relative', zIndex: 1 }}>
+                                        <div style={{
+                                            width: '48px',
+                                            height: '48px',
+                                            borderRadius: '14px',
+                                            background: '#ea580c',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                                            boxShadow: '0 8px 24px rgba(251, 146, 60, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                            position: 'relative',
+                                            overflow: 'hidden'
+                                        }}>
+                                            <div style={{
+                                                position: 'absolute',
+                                                inset: 0,
+                                                background: 'rgba(255, 255, 255, 0.2)',
+                                                borderRadius: '14px'
+                                            }} />
+                                            <ApiOutlined style={{ fontSize: '20px', color: '#fff', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))' }} />
+                                        </div>
+                                        <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                                            端口映射
+                                        </Title>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', position: 'relative', zIndex: 1 }}>
+                                        {vmDetails.configuration.ports.map((port: any, idx: number) => {
+                                            const isLocal = !port.host_address || port.host_address === '127.0.0.1';
+                                            return (
+                                                <div key={idx} style={{
+                                                    padding: '16px 20px',
+                                                    background: 'rgba(0, 0, 0, 0.3)',
+                                                    borderRadius: '14px',
+                                                    border: '1px solid #e2e8f0',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '14px',
+                                                    backdropFilter: 'blur(10px)',
+                                                    transition: 'all 0.2s ease'
+                                                }}>
+                                                    <Tag 
+                                                        color={isLocal ? 'success' : 'warning'}
+                                                        style={{
+                                                            margin: 0,
+                                                            padding: '6px 14px',
+                                                            borderRadius: '10px',
+                                                            fontWeight: 700,
+                                                            fontSize: '12px',
+                                                            border: 'none',
+                                                            minWidth: '60px',
+                                                            textAlign: 'center',
+                                                            boxShadow: isLocal 
+                                                                ? '0 4px 12px rgba(34, 197, 94, 0.3)' 
+                                                                : '0 4px 12px rgba(251, 146, 60, 0.3)',
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.05em'
+                                                        }}
+                                                    >
+                                                        {isLocal ? '本地' : '公开'}
+                                                    </Tag>
+                                                    <span style={{
+                                                        color: '#fed7aa',
+                                                        fontSize: '14px',
+                                                        fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                                                        flex: 1,
+                                                        fontWeight: 500
+                                                    }}>
+                                                        {port.protocol?.toUpperCase()}: {port.host_port} → {port.vm_port}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* App Information */}
+                            <div style={{
+                                background: 'rgba(168, 85, 247, 0.15)',
+                                border: '1px solid rgba(168, 85, 247, 0.3)',
+                                borderRadius: '20px',
+                                padding: '28px',
+                                backdropFilter: 'blur(16px) saturate(180%)',
+                                boxShadow: '0 8px 32px rgba(168, 85, 247, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.15)',
+                                position: 'relative',
+                                overflow: 'hidden',
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '22px', position: 'relative', zIndex: 1 }}>
+                                    <div style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        borderRadius: '14px',
+                                        background: '#8b5cf6',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                                        boxShadow: '0 8px 24px rgba(168, 85, 247, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)',
+                                        position: 'relative',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <div style={{
+                                            position: 'absolute',
+                                            inset: 0,
+                                            background: 'rgba(255, 255, 255, 0.2)',
+                                            borderRadius: '14px'
+                                        }} />
+                                        <AppstoreOutlined style={{ fontSize: '20px', color: '#fff', position: 'relative', zIndex: 1, filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))' }} />
+                                    </div>
+                                    <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                                        应用信息
+                                    </Title>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '14px', color: '#1f2937', marginBottom: '20px', position: 'relative', zIndex: 1 }}>
+                                    {[
+                                        { label: '应用名称', value: vmDetails.appCompose?.name || 'N/A', monospace: false },
+                                        { label: 'App ID', value: vmDetails.app_id || 'N/A', monospace: true },
+                                        { label: 'Instance ID', value: vmDetails.instance_id || 'N/A', monospace: true },
+                                        { label: 'Runner', value: vmDetails.appCompose?.runner || 'N/A', monospace: false },
+                                        { label: '功能特性', value: getFlags(vmDetails), monospace: false }
+                                    ].map((item, idx) => (
+                                        <React.Fragment key={idx}>
+                                            <div style={{ 
+                                                color: '#475569', 
+                                                fontSize: '15px',
+                                                fontWeight: 600,
+                                                padding: '12px 0',
+                                                display: 'flex',
+                                                alignItems: 'center'
+                                            }}>{item.label}:</div>
+                                            <div style={{ 
+                                                fontSize: '14px',
+                                                fontFamily: item.monospace ? 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace' : 'inherit',
+                                                padding: '12px 16px',
+                                                background: 'rgba(0, 0, 0, 0.3)',
+                                                borderRadius: '12px',
+                                                border: '1px solid #e2e8f0',
+                                                backdropFilter: 'blur(10px)',
+                                                color: item.monospace ? '#c4b5fd' : 'rgba(255, 255, 255, 0.9)',
+                                                fontWeight: item.monospace ? 500 : 400
+                                            }}>{item.value}</div>
+                                        </React.Fragment>
+                                    ))}
+                                </div>
+
+                                {vmDetails.appCompose?.docker_compose_file && (
+                                    <>
+                                        <div style={{ marginTop: '20px', marginBottom: '12px', position: 'relative', zIndex: 1 }}>
+                                            <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '15px', fontWeight: 600 }}>
+                                                Docker Compose 文件
+                                            </Title>
+                                        </div>
+                                        <div style={{
+                                            background: 'rgba(15, 23, 42, 0.45)',
+                                            border: '1px solid rgba(139, 92, 246, 0.3)',
+                                            borderRadius: '12px',
+                                            padding: '16px',
+                                            position: 'relative',
+                                            overflow: 'hidden',
+                                            marginBottom: '16px'
+                                        }}>
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                right: 0,
+                                                height: '2px',
+                                                background: 'rgba(139, 92, 246, 0.6)'
+                                            }} />
+                                            <pre style={{
+                                                margin: 0,
+                                                color: classicTheme.textPrimary,
+                                                fontSize: '12px',
+                                                fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+                                                lineHeight: '1.6',
+                                                overflow: 'auto',
+                                                maxHeight: '300px',
+                                                padding: '4px 0'
+                                            }}>{vmDetails.appCompose.docker_compose_file}</pre>
+                                        </div>
+                                    </>
+                                )}
+
+                                {vmDetails.appCompose?.pre_launch_script && (
+                                    <>
+                                        <div style={{ marginTop: '20px', marginBottom: '12px', position: 'relative', zIndex: 1 }}>
+                                            <Title level={5} style={{ margin: 0, color: '#fff', fontSize: '15px', fontWeight: 600 }}>
+                                                预启动脚本
+                                            </Title>
+                                        </div>
+                                        <div style={{
+                                            background: 'rgba(15, 23, 42, 0.45)',
+                                            border: '1px solid rgba(139, 92, 246, 0.3)',
+                                            borderRadius: '12px',
+                                            padding: '16px',
+                                            position: 'relative',
+                                            overflow: 'hidden'
+                                        }}>
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                right: 0,
+                                                height: '2px',
+                                                background: 'rgba(139, 92, 246, 0.6)'
+                                            }} />
+                                            <pre style={{
+                                                margin: 0,
+                                                color: classicTheme.textPrimary,
+                                                fontSize: '12px',
+                                                fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+                                                lineHeight: '1.6',
+                                                overflow: 'auto',
+                                                maxHeight: '300px',
+                                                padding: '4px 0'
+                                            }}>{vmDetails.appCompose.pre_launch_script}</pre>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ 
+                            textAlign: 'center', 
+                            padding: '60px', 
+                            color: '#94a3b8',
+                            fontSize: '16px'
+                        }}>
+                            无法加载详细信息
+                        </div>
+                    )}
                 </Modal>
             </PortalLayout>
     );

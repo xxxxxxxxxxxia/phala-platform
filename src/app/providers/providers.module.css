@@ -1,0 +1,204 @@
+/* 资源提供页面样式 - 浅蓝色主题 */
+.providersContent {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    padding-bottom: 48px;
+    padding-top: 32px;
+}
+
+/* 资源提供页面专用背景 - 覆盖 PortalLayout 背景 */
+.providersPageWrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%);
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* 确保 main 内容在背景之上 */
+.providersContent {
+    position: relative;
+    z-index: 1;
+}
+
+/* Hero 区域 - 浅蓝色渐变背景 */
+.hero {
+    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 50%, #93c5fd 100%);
+    border-radius: 16px;
+    padding: 64px 48px;
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 48px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.heroBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #1e40af;
+    font-size: 13px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.heroTitle {
+    font-size: 48px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #1e3a8a;
+}
+
+.heroSubtitle {
+    font-size: 18px;
+    color: #1e40af;
+    margin-bottom: 32px;
+    max-width: 720px;
+    line-height: 1.6;
+}
+
+.heroActions {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+}
+
+.heroStats {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.heroStat {
+    flex: 1;
+    min-width: 180px;
+    padding: 16px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.heroStatValue {
+    font-size: 32px;
+    font-weight: 600;
+    color: #1e40af;
+}
+
+.heroStatLabel {
+    color: #475569;
+    font-size: 14px;
+}
+
+/* 卡片区域和章节 - 浅蓝色背景 */
+.section {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 16px;
+    padding: 48px;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
+    color: #1f2937;
+    margin-bottom: 48px;
+}
+
+.sectionTitle {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #1e3a8a !important;
+}
+
+.sectionDescription {
+    color: #475569 !important;
+    margin-bottom: 32px;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+/* 门户卡片 - 白色卡片样式，带浅蓝色边框 */
+.portalCard {
+    height: 100%;
+    border-radius: 12px;
+    border: 1px solid rgba(59, 130, 246, 0.3) !important;
+    background: #ffffff !important;
+    color: #1f2937;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+    transition: all 0.3s ease;
+}
+
+.portalCard:hover {
+    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
+    transform: translateY(-2px);
+    border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+.cardTitle {
+    color: #1e3a8a !important;
+    margin-bottom: 12px !important;
+}
+
+.cardDescription {
+    color: #475569 !important;
+    line-height: 1.6;
+}
+
+.cardIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 24px;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+}
+
+.cardIcon :global(.anticon) {
+    color: #1e40af;
+}
+
+.cardFooter {
+    margin-top: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cardTag {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .hero {
+        padding: 32px 24px;
+    }
+
+    .heroTitle {
+        font-size: 36px;
+    }
+
+    .section {
+        padding: 24px;
+    }
+
+    .cardFooter {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}

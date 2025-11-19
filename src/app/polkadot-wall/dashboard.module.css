@@ -59,6 +59,12 @@
     gap: 8px;
 }
 
+.headerCenter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .heroBadge {
     display: inline-flex;
     align-items: center;
@@ -77,6 +83,16 @@
     margin: 0 !important;
     font-size: 32px !important;
     font-weight: 700 !important;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.titleLogo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* 移除背景、边框和阴影，只用于对齐 LOGO */
 }
 
 .subtitle {
@@ -88,11 +104,48 @@
 .headerRight {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.refreshControls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.refreshControls :global(.ant-btn) {
+    border-radius: 999px !important;
+    height: 36px !important;
+    padding: 0 20px !important;
+    font-size: 13px !important;
+    font-weight: 500;
+    color: #fff !important;
+    background: rgba(0, 229, 255, 0.08) !important;
+    border: 1px solid rgba(0, 229, 255, 0.35) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition: all 0.2s ease;
+}
+
+.refreshControls :global(.ant-btn:hover) {
+    background: rgba(0, 229, 255, 0.15) !important;
+}
+
+.refreshControls :global(.ant-btn-primary) {
+    background: linear-gradient(135deg, #00e5ff, #0a5bff) !important;
+    border: none !important;
+    box-shadow: 0 10px 24px rgba(0, 229, 255, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.timeBadge {
+    display: inline-flex;
+    align-items: center;
     gap: 8px;
-    padding: 8px 16px;
+    padding: 8px 18px;
     border-radius: 999px;
     background: rgba(0, 229, 255, 0.15);
-    border: 1px solid rgba(0, 229, 255, 0.2);
+    border: 1px solid rgba(0, 229, 255, 0.25);
 }
 
 .timeText {
@@ -105,8 +158,8 @@
 .content {
     flex: 1;
     display: grid;
-    grid-template-columns: 380px 1fr 380px;
-    gap: 12px;
+    grid-template-columns: 360px 1fr 360px;
+    gap: 4px;
     overflow: hidden;
     min-height: 0;
     position: relative;
@@ -118,7 +171,7 @@
 .rightColumn {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 2px;
     overflow: hidden;
     min-height: 0;
 }
@@ -149,7 +202,7 @@
 .centerColumn {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 2px;
     overflow: hidden;
     min-height: 0;
 }
@@ -204,7 +257,7 @@
 
 .dataCard :global(.content) {
     color: rgba(243, 246, 255, 0.85) !important;
-    padding: 16px !important;
+    padding: 14px !important;
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -282,16 +335,52 @@
     color: rgba(255, 255, 255, 0.75) !important;
 }
 
+/* 统计框 - 圆框样式 */
+.statisticBox {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    background: rgba(86, 111, 196, 0.15);
+    backdrop-filter: blur(5px);
+    text-align: center;
+}
+
+.statisticBox :global(.ant-statistic) {
+    text-align: center;
+}
+
+.statisticBox :global(.ant-statistic-title) {
+    text-align: center !important;
+}
+
+.statisticBox :global(.ant-statistic-content) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
 /* 图表容器 */
 .chartContainer {
     width: 100%;
     margin-top: 12px;
     flex: 1;
     min-height: 0;
-    max-height: 200px;
+    max-height: 180px;
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.rewardChart {
+    height: 120px;
+    max-height: 150px;
+    padding-bottom: 40px;
 }
 
 /* 表格容器 */
@@ -302,6 +391,50 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+}
+
+.equalHeightTable {
+    height: 320px;
+}
+
+.equalHeightTableFull {
+    height: 320px;
+}
+
+.equalHeightTable :global(.ant-table-wrapper) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.equalHeightTable :global(.ant-table) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.equalHeightTable :global(.ant-table-container) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.equalHeightTable :global(.ant-table-body) {
+    flex: 1;
+    overflow-y: auto !important;
+}
+
+.equalHeightTableFull :global(.ant-table-wrapper),
+.equalHeightTableFull :global(.ant-table),
+.equalHeightTableFull :global(.ant-table-container) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.equalHeightTableFull :global(.ant-table-body) {
+    flex: 1;
+    overflow-y: auto !important;
 }
 
 .tableContainer::-webkit-scrollbar {
@@ -331,11 +464,6 @@
     color: #fff;
 }
 
-.table :global(.ant-table-body) {
-    max-height: none;
-    overflow: visible;
-}
-
 .table :global(.ant-table-thead > tr > th) {
     background: rgba(0, 229, 255, 0.1) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -356,6 +484,902 @@
     background: rgba(0, 229, 255, 0.1) !important;
 }
 
+.compactTable :global(.ant-table-tbody > tr > td) {
+    padding: 6px 8px !important;
+}
+
+.compactTable :global(.ant-table-tbody > tr) {
+    height: 26px !important;
+}
+
+.compactTable :global(.ant-table-tbody > tr > td) {
+    white-space: nowrap;
+}
+
+.compactRow {
+    height: 26px;
+}
+
+.compactRowEven {
+    background: rgba(0, 229, 255, 0.06);
+}
+
+.compactRowOdd {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.compactRow td {
+    padding: 4px 8px !important;
+    height: 26px;
+    vertical-align: middle;
+}
+
+.compactRow :global(.ant-typography) {
+    line-height: 1.2 !important;
+}
+
+.compactRow :global(.ant-tag) {
+    height: 20px;
+    line-height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+}
+
+.dualTables {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.sectionHeader {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.sectionTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.sectionSubtitle {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    margin-top: 2px;
+}
+
+.rewardList {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 140px;
+    overflow-y: auto;
+}
+
+.rewardItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 12px;
+}
+
+.rewardAmount {
+    font-weight: 600;
+    color: #fff;
+    margin-right: 8px;
+}
+
+.rewardMeta {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    margin-left: 4px;
+}
+
+.rewardTime {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.workerTable {
+    margin-top: 12px;
+}
+
+.workerTable :global(.ant-table-body) {
+    max-height: 180px;
+}
+
+.accountList {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.accountItem {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 229, 255, 0.04);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.accountHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #fff;
+}
+
+.accountMeta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.accountLabel {
+    color: rgba(255, 255, 255, 0.6);
+    margin-right: 6px;
+}
+
+.accountValue {
+    font-weight: 600;
+    color: #fff;
+}
+
+.emptyBox {
+    margin-top: 0;
+}
+
+.explorerToolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.searchConsole {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 220px;
+    justify-content: flex-end;
+    padding: 0;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+}
+
+.searchSelect {
+    min-width: 88px;
+    max-width: 120px;
+}
+
+.searchSelect :global(.ant-select-selector) {
+    background: rgba(0, 229, 255, 0.08) !important;
+    border: 1px solid rgba(0, 229, 255, 0.25) !important;
+    color: #fff !important;
+    height: 34px !important;
+    line-height: 34px !important;
+    padding: 0 16px !important;
+    border-radius: 999px !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+.searchSelect :global(.ant-select-selection-item) {
+    line-height: 1 !important;
+}
+
+.searchSelect :global(.ant-select-arrow) {
+    color: #fff !important;
+}
+
+.searchInputGroup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.searchInputWrapper {
+    flex: 1;
+    min-width: 200px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    background: rgba(255, 255, 255, 0.04);
+    padding: 0 12px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+}
+
+.searchInput {
+    color: #fff !important;
+    background: transparent !important;
+    height: 32px !important;
+}
+
+.searchInput::placeholder {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.searchInputWrapper :global(.ant-input-clear-icon) {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.searchButton {
+    border-radius: 999px !important;
+    padding: 0 18px !important;
+    height: 34px !important;
+    display: flex;
+    align-items: center;
+    background: linear-gradient(135deg, #00e5ff, #0a5bff) !important;
+    border: none !important;
+    box-shadow: 0 8px 16px rgba(0, 229, 255, 0.35);
+}
+
+.searchError {
+    color: #ff7875;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.tablePanel {
+    border: 1px solid rgba(0, 229, 255, 0.18);
+    border-radius: 14px;
+    padding: 12px;
+    background: radial-gradient(circle at top, rgba(0, 229, 255, 0.12), transparent 55%),
+        rgba(8, 16, 45, 0.45);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 20px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.tablePanelFull {
+    width: 100%;
+}
+
+.tablePanelHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.tablePanelTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.5px;
+}
+
+.singleTableWrapper {
+    margin-top: 12px;
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.viewSwitch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    background: rgba(0, 229, 255, 0.08);
+    border: 1px solid rgba(0, 229, 255, 0.18);
+    border-radius: 999px;
+    padding: 4px;
+}
+
+.viewSwitchButton {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 12px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.viewSwitchButton:hover {
+    color: #00e5ff;
+}
+
+.viewSwitchButtonActive {
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.35), rgba(8, 102, 255, 0.35));
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.45);
+}
+
+.resultCard {
+    width: 100%;
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    border-radius: 16px;
+    padding: 16px;
+    background: linear-gradient(140deg, rgba(8, 16, 45, 0.95), rgba(6, 21, 60, 0.9));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 32px rgba(1, 4, 18, 0.55);
+    color: #fff;
+}
+
+.resultHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.resultTitle {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+}
+
+.resultSubtitle {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+    margin-top: 4px;
+}
+
+.resultTag {
+    border-radius: 999px;
+    border: none;
+}
+
+.resultMetaGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.resultMetaItem {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.resultLabel {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 4px;
+    letter-spacing: 0.3px;
+}
+
+.resultValue {
+    font-size: 12px;
+    word-break: break-all;
+}
+
+.resultSection {
+    margin-top: 8px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.resultSectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.resultSectionTitle {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sectionTag {
+    border-radius: 999px;
+    margin: 0;
+    border: none;
+}
+
+.resultList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.resultListItem {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.resultListPrimary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+
+.resultListSecondary {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    margin-top: 6px;
+}
+
+.resultBadge {
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    background: rgba(0, 229, 255, 0.12);
+    font-size: 11px;
+    color: #00e5ff;
+}
+
+.resultMethod {
+    color: #fff;
+    font-weight: 500;
+}
+
+.resultHash {
+    color: rgba(255, 255, 255, 0.85);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.argItem {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 12px;
+    word-break: break-all;
+}
+
+.resultPagination {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+}
+
+.chipRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.statChip {
+    flex: 1;
+    min-width: 90px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 229, 255, 0.18);
+    background: rgba(0, 229, 255, 0.08);
+    text-align: center;
+}
+
+.chipLabel {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 4px;
+}
+
+.chipSub {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.rewardList {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.rewardItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 12px;
+}
+
+.rewardAmount {
+    font-weight: 600;
+    color: #ffd666;
+    margin-right: 12px;
+}
+
+.rewardMeta {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 11px;
+}
+
+.rewardTime {
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 11px;
+}
+
+.snapshotGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.snapshotCard {
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(0, 229, 255, 0.18);
+    background: rgba(0, 229, 255, 0.08);
+}
+
+.snapshotLabel {
+    display: block;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    margin-bottom: 4px;
+}
+
+.snapshotValue {
+    font-size: 20px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.snapshotCard:nth-child(1) .snapshotValue {
+    color: #ff7875;
+}
+
+.snapshotCard:nth-child(2) .snapshotValue {
+    color: #69c0ff;
+}
+
+.snapshotCard:nth-child(3) .snapshotValue {
+    color: #52c41a;
+}
+
+.snapshotDesc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.snapshotProgress {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.progressItem {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.progressLabelRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.progressTrack {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #00e5ff, #0aa2ff);
+}
+
+.snapshotProgress .progressItem:nth-child(1) .progressFill {
+    background: linear-gradient(135deg, #ff7875, #ff9a8b);
+}
+
+.snapshotProgress .progressItem:nth-child(2) .progressFill {
+    background: linear-gradient(135deg, #69c0ff, #4096ff);
+}
+
+.timelineList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.timelineItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 12px;
+}
+
+.timelineTitle {
+    font-weight: 600;
+    color: #fff;
+}
+
+.timelineMeta {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.timelineTime {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.rotationMetaGrid {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.rotationMetaItem {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.rotationMetaLabel {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.rotationMetaValue {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.rotationMetaNote {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.rotationKeyList {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.rotationKeyItem {
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 229, 255, 0.05);
+}
+
+.rotationKeyHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: #fff;
+    margin-bottom: 1px;
+}
+
+.rotationKeyMeta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.rotationPagination {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.rotationPagination :global(.ant-btn) {
+    height: 22px !important;
+    padding: 0 10px !important;
+    font-size: 11px !important;
+}
+
+.tablePagination,
+.accountPagination {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.accountPagination {
+    margin-top: 12px;
+}
+
+.workerNotice {
+    margin-top: 16px;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    text-align: center;
+}
+
+.serviceGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.serviceTile {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 229, 255, 0.08);
+}
+
+.serviceLabel {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    margin-bottom: 4px;
+}
+
+.serviceValue {
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.serviceDesc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.schedulingSummary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.summaryItem {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.summaryValue {
+    font-size: 18px;
+    font-weight: 600;
+    color: #00e5ff;
+}
+
+.summaryLabel {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.summaryDesc {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.schedulingBody {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    gap: 12px;
+}
+
+.schedulingChart,
+.schedulingInsights {
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 12px;
+}
+
+.schedulingChart {
+    min-height: 200px;
+}
+
+.schedulingInsights {
+    display: flex;
+    flex-direction: column;
+}
+
+.insightTitle {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.75);
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.schedulingInsights .serviceGrid {
+    margin-top: 4px;
+}
+
+@media (max-width: 1680px) {
+    .schedulingBody {
+        grid-template-columns: 1fr;
+    }
+}
+
+.contractList {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.contractItem {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.contractMetaRow {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+
+.contractType {
+    font-weight: 600;
+}
+
+.contractCount {
+    color: rgba(255, 255, 255, 0.65);
+}
+
 /* 标签容器 */
 .tagContainer {
     display: flex;
@@ -368,9 +1392,19 @@
     background: rgba(0, 229, 255, 0.1) !important;
     border: 1px solid rgba(0, 229, 255, 0.2) !important;
     color: #00e5ff !important;
-    border-radius: 6px;
-    padding: 4px 12px;
-    font-size: 12px;
+    border-radius: 999px;
+    padding: 1px 10px;
+    font-size: 10px;
+    line-height: 14px;
+}
+
+.contractItem {
+    padding: 8px 10px;
+}
+
+.contractItem .progressTrack {
+    height: 6px;
+    margin-top: 2px;
 }
 
 /* 信息框 */
