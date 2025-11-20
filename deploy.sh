@@ -82,4 +82,9 @@ curl -X POST http://localhost:3000/api/contracts/deploy-system \
   -H "Content-Type: application/json" \
   -s | grep -q "success.*true" && echo "✅ 隐私合约部署功能正常" || echo "⚠️ 隐私合约部署功能可能有问题"
 
+# 9. 清理悬空镜像（节省磁盘空间）
+echo "🧹 清理悬空镜像..."
+docker image prune -f > /dev/null 2>&1
+echo "✅ 清理完成"
+
 echo "🎯 部署完成！"

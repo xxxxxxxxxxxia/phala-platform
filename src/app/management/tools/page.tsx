@@ -61,8 +61,9 @@ const ToolsPage = () => {
           signal: AbortSignal.timeout(5000)
         });
       } else if (service.name === '中继器服务') {
-        // 检查 pRuntime 状态
-        response = await fetch('/api/pruntime-proxy?endpoint=prpc/PhactoryAPI.GetInfo', {
+        // 检查 pRuntime 状态，需要传递 target 参数
+        const targetUrl = encodeURIComponent(service.url);
+        response = await fetch(`/api/pruntime-proxy?target=${targetUrl}&endpoint=prpc/PhactoryAPI.GetInfo`, {
           method: 'GET',
           signal: AbortSignal.timeout(5000)
         });

@@ -1,0 +1,368 @@
+/* 登录页面容器 */
+.loginContainer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+    z-index: 1000;
+}
+
+/* 顶部菜单栏 */
+.topHeader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(229, 231, 235, 0.5);
+    z-index: 1001;
+    padding: 0;
+    margin: 0;
+}
+
+.headerContent {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 48px;
+    height: auto;
+}
+
+.headerTitle {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #1890ff;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.headerNav {
+    display: flex;
+    gap: 32px;
+    align-items: center;
+}
+
+.navItem {
+    color: #4b5563;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    cursor: pointer;
+    position: relative;
+}
+
+.navItem:hover {
+    color: #1890ff;
+}
+
+.navItemActive {
+    color: #1890ff !important;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+/* 确保页面完全覆盖 */
+.loginContainer * {
+    box-sizing: border-box;
+}
+
+/* 背景渐变效果 */
+.loginBackground {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(ellipse at center, #f0f4f8 0%, #e2e8f0 100%);
+    z-index: 1;
+}
+
+/* 登录卡片容器 */
+.loginCard {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+    margin-top: 80px;
+}
+
+/* 返回开发者中心链接 */
+.backLink {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #4b5563;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 16px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.backLink:hover {
+    color: #1890ff;
+}
+
+.backLink span {
+    line-height: 1;
+}
+
+/* 卡片样式 */
+.card {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border: 1px solid rgba(59, 130, 246, 0.2) !important;
+    border-radius: 16px !important;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+}
+
+/* 登录头部 */
+.loginHeader {
+    text-align: center;
+    margin-bottom: 24px;
+    padding: 0;
+}
+
+/* LOGO容器 */
+.logoContainer {
+    margin-bottom: 0px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0;
+}
+
+.logo {
+    border-radius: 8px;
+    object-fit: contain;
+    margin: 0;
+    padding: 0;
+}
+
+.title {
+    color: #1e293b !important;
+    margin-bottom: 8px !important;
+    margin-top: 0px !important;
+    font-weight: 600;
+    font-size: 20px !important;
+}
+
+.subtitle {
+    color: rgba(51, 65, 85, 0.75) !important;
+    font-size: 14px;
+}
+
+/* 登录表单 */
+.loginForm {
+    margin-top: 24px;
+}
+
+/* 输入框样式 */
+.input {
+    background: #ffffff !important;
+    border: 1px solid rgba(59, 130, 246, 0.3) !important;
+    border-radius: 8px !important;
+    color: #1e293b !important;
+    height: 48px;
+}
+
+.input :global(.ant-input),
+.input :global(input) {
+    color: #1e293b !important;
+    background: transparent !important;
+}
+
+.input:hover {
+    border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+.input:focus {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+.input:focus :global(.ant-input),
+.input:focus :global(input) {
+    color: #1e293b !important;
+}
+
+.input::placeholder {
+    color: rgba(100, 116, 139, 0.6) !important;
+}
+
+.input :global(.ant-input::placeholder) {
+    color: rgba(100, 116, 139, 0.6) !important;
+}
+
+/* 密码输入框特殊样式 */
+.input :global(.ant-input-password) {
+    background: transparent !important;
+}
+
+.input :global(.ant-input-password .ant-input) {
+    color: #1e293b !important;
+    background: transparent !important;
+}
+
+.input :global(.ant-input-password .ant-input::placeholder) {
+    color: rgba(100, 116, 139, 0.6) !important;
+}
+
+/* 输入框前缀图标 */
+.input .ant-input-prefix {
+    color: rgba(59, 130, 246, 0.7) !important;
+}
+
+/* 密码输入框眼睛图标样式 */
+.input :global(.ant-input-password-icon) {
+    color: #64748b !important;
+    opacity: 0.85;
+    transition: opacity 0.3s ease;
+}
+
+.input :global(.ant-input-password-icon:hover) {
+    opacity: 1;
+    color: #3b82f6 !important;
+}
+
+/* 登录按钮 */
+.loginButton {
+    height: 48px !important;
+    background: #3b82f6 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 16px !important;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+.loginButton:hover {
+    background: #2563eb !important;
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    transform: translateY(-1px) !important;
+}
+
+.loginButton:active {
+    transform: translateY(0) !important;
+    background: #1d4ed8 !important;
+}
+
+/* 错误提示 */
+.alert {
+    margin-bottom: 16px;
+    border-radius: 8px;
+}
+
+/* 版权信息 */
+.copyright {
+    text-align: center;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.copyrightText {
+    color: rgba(100, 116, 139, 0.7) !important;
+    font-size: 12px !important;
+    white-space: pre;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+    .headerContent {
+        padding: 24px 24px;
+    }
+
+    .headerNav {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .headerContent {
+        padding: 12px 16px;
+        height: auto;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .headerTitle {
+        font-size: 16px;
+    }
+
+    .headerNav {
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .navItem {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    .loginCard {
+        padding: 16px;
+        margin-top: 100px;
+    }
+
+    .title {
+        font-size: 24px !important;
+    }
+
+    .input,
+    .loginButton {
+        height: 44px !important;
+    }
+
+    .headerContent {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 12px;
+    }
+
+    .headerNav {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 12px;
+    }
+}
+
+/* 动画效果 */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.card {
+    animation: fadeInUp 0.6s ease-out;
+}

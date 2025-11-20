@@ -24,6 +24,7 @@ import {
     EditOutlined,
 } from '@ant-design/icons';
 import PortalLayout from '@/components/layout/PortalLayout';
+import DeveloperAuthGuard from '@/components/DeveloperAuthGuard';
 import styles from '../../../portal.module.css';
 import Link from 'next/link';
 import { DEFAULT_BEST_HOST_IP, rpcCall, VMData } from '../page';
@@ -74,12 +75,40 @@ const formatUptime = (uptime?: string): string => {
     return uptime;
 };
 
+// 获取 VM 状态，参考 console.html 的逻辑
+const getVMStatus = (vm: any): string => {
+    if (!vm) return '';
+    const status = vm.status?.toLowerCase() || '';
+
+    // 如果状态不是 running，直接返回状态
+    if (status !== 'running') {
+        return status;
+    }
+
+    // 处理 running 状态的子状态
+    if (vm.shutdown_progress) {
+        return 'shutting down';
+    }
+
+    // 如果 boot_progress 是 'running'，表示 VM 在 dstack-vmm 启动前就已经在运行
+    if (vm.boot_progress === 'running') {
+        return 'running';
+    }
+
+    // 如果 boot_progress 不是 'done'，表示正在启动
+    if (vm.boot_progress && vm.boot_progress !== 'done') {
+        return 'booting';
+    }
+
+    return 'running';
+};
+
 const getStatusColor = (status?: string): string => {
     if (!status) return 'default';
     const lowerStatus = status.toLowerCase();
     if (lowerStatus === 'running') return 'success';
-    if (lowerStatus === 'stopped' || lowerStatus === 'stopping') return 'error';
-    if (lowerStatus === 'starting') return 'processing';
+    if (lowerStatus === 'stopped' || lowerStatus === 'stopping' || lowerStatus === 'shutting down') return 'error';
+    if (lowerStatus === 'starting' || lowerStatus === 'booting') return 'processing';
     return 'warning';
 };
 
@@ -579,7 +608,7 @@ export default function VmDetailPage() {
     };
 
     const loadNetwork = async () => {
-        if (!bestHostIp || !vmId || !vmDetails || vmDetails.status !== 'running') return;
+        if (!bestHostIp || !vmId || !vmDetails || getVMStatus(vmDetails) !== 'running') return;
         setLoadingNetwork(true);
         try {
             const response = await guestRpcCall(bestHostIp, 'NetworkInfo', { id: vmId });
@@ -642,7 +671,7 @@ export default function VmDetailPage() {
     }, [bestHostIp, vmId]);
 
     useEffect(() => {
-        if (vmDetails && vmDetails.status === 'running') {
+        if (vmDetails && getVMStatus(vmDetails) === 'running') {
             loadNetwork();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -695,23 +724,47 @@ export default function VmDetailPage() {
         const style = document.createElement('style');
         style.id = styleId;
         style.textContent = `
+            .vm-detail-menu {
+                background: transparent !important;
+            }
             .vm-detail-menu .ant-menu-item {
-                border-radius: 8px !important;
-                transition: background-color 0.2s ease, color 0.2s ease;
+                border-radius: 10px !important;
+                margin: 4px 8px !important;
+                padding: 12px 16px !important;
+                height: auto !important;
+                line-height: 1.5 !important;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                border: none !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 12px !important;
+                font-size: 14px !important;
+                font-weight: 400 !important;
+                color: #333 !important;
+            }
+            .vm-detail-menu .ant-menu-item .anticon {
+                font-size: 16px !important;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                color: #666 !important;
             }
             .vm-detail-menu .ant-menu-item-selected {
                 background-color: #E6F2FF !important;
                 color: #1677ff !important;
+                font-weight: 500 !important;
+                box-shadow: 0 2px 4px rgba(22, 119, 255, 0.1) !important;
             }
             .vm-detail-menu .ant-menu-item-selected .anticon {
                 color: #1677ff !important;
             }
-            .vm-detail-menu .ant-menu-item:hover {
-                background-color: #F2F4F7 !important;
-                color: #0F172A !important;
+            .vm-detail-menu .ant-menu-item:hover:not(.ant-menu-item-selected) {
+                background-color: #F5F7FA !important;
+                color: #333 !important;
             }
-            .vm-detail-menu .ant-menu-item:hover .anticon {
-                color: #0F172A !important;
+            .vm-detail-menu .ant-menu-item:hover:not(.ant-menu-item-selected) .anticon {
+                color: #333 !important;
+            }
+            .vm-detail-menu .ant-menu-item:active {
+                transform: scale(0.98) !important;
             }
         `;
         document.head.appendChild(style);
@@ -723,12 +776,13 @@ export default function VmDetailPage() {
         };
     }, []);
 
-    const statusText = vmDetails?.status || '暂无';
-    const statusColor = getStatusColor(vmDetails?.status);
-    const statusDotColor = getStatusDotColor(vmDetails?.status);
-    const normalizedStatus = (vmDetails?.status || '').toLowerCase();
+    const vmStatus = getVMStatus(vmDetails);
+    const statusText = vmStatus || '暂无';
+    const statusColor = getStatusColor(vmStatus);
+    const statusDotColor = getStatusDotColor(vmStatus);
+    const normalizedStatus = (vmStatus || '').toLowerCase();
     const isStoppedState = normalizedStatus === 'stopped' || normalizedStatus === 'exited' || normalizedStatus === 'created';
-    const disableUpdateAndResize = normalizedStatus === 'running';
+    const disableUpdateAndResize = normalizedStatus === 'running' || normalizedStatus === 'booting' || normalizedStatus === 'shutting down';
 
     const memoryTotal = vmDetails?.configuration?.memory || 0;
     const memoryTotalGB = memoryTotal / 1024; // 转换为GB
@@ -828,13 +882,14 @@ export default function VmDetailPage() {
     };
 
     const renderOverviewContent = () => (
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Row gutter={[16, 16]} align="stretch">
-                <Col xs={24} md={8}>
+        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Row gutter={[16, 16]} align="stretch" style={{ flex: 1, height: '100%' }}>
+                <Col xs={24} md={8} style={{ display: 'flex', flexDirection: 'column' }}>
                     <Card
                         title="系统信息"
                         bordered={false}
-                        style={{ borderRadius: 16, height: '100%' }}
+                        style={{ borderRadius: 16, height: '100%', display: 'flex', flexDirection: 'column' }}
+                        bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column' }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             <div>
@@ -858,11 +913,12 @@ export default function VmDetailPage() {
                         </div>
                     </Card>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={8} style={{ display: 'flex', flexDirection: 'column' }}>
                     <Card
                         title="内存使用"
                         bordered={false}
-                        style={{ borderRadius: 16, height: '100%' }}
+                        style={{ borderRadius: 16, height: '100%', display: 'flex', flexDirection: 'column' }}
+                        bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column' }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             <Text type="secondary" style={{ fontSize: 12 }}>配置内存</Text>
@@ -872,11 +928,12 @@ export default function VmDetailPage() {
                         </div>
                     </Card>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={8} style={{ display: 'flex', flexDirection: 'column' }}>
                     <Card
                         title="存储空间"
                         bordered={false}
-                        style={{ borderRadius: 16, height: '100%' }}
+                        style={{ borderRadius: 16, height: '100%', display: 'flex', flexDirection: 'column' }}
+                        bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column' }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             <Text type="secondary" style={{ fontSize: 12 }}>配置磁盘大小</Text>
@@ -887,7 +944,7 @@ export default function VmDetailPage() {
                     </Card>
                 </Col>
             </Row>
-        </Space>
+        </div>
     );
 
     const renderLogsContent = () => {
@@ -1148,7 +1205,7 @@ export default function VmDetailPage() {
         if (!vmDetails) {
             return <Empty description="未加载虚拟机数据" />;
         }
-        if (vmDetails.status !== 'running') {
+        if (getVMStatus(vmDetails) !== 'running') {
             return (
                 <Card bordered={false} style={{ borderRadius: 16 }}>
                     <Title level={4} style={{ marginBottom: 12 }}>网络</Title>
@@ -1233,7 +1290,6 @@ export default function VmDetailPage() {
                                             borderRadius: 12,
                                             padding: 12,
                                             background: '#fafafa',
-                                            height: '100%',
                                         }}
                                     >
                                         <Text type="secondary">{item.label}</Text>
@@ -1693,83 +1749,91 @@ export default function VmDetailPage() {
                                 </Text>
                             )}
                         </div>
-                    </Space>
-                </Card>
 
-                <Card bordered={false} style={{ borderRadius: 16 }} title="事件日志">
-                    {eventLogEntries.length > 0 ? (
-                        <div
-                            style={{
-                                border: '1px solid #e6ebf1',
-                                borderRadius: 12,
-                                overflow: 'hidden',
-                            }}
-                        >
-                            {eventLogEntries.map((entry, index) => (
+                        <Divider style={{ margin: 0 }} />
+
+                        <div>
+                            <Text strong>事件日志</Text>
+                            {eventLogEntries.length > 0 ? (
                                 <div
-                                    key={`${entry.label}-${index}`}
                                     style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: '160px 1fr auto',
-                                        gap: 16,
-                                        padding: '12px 16px',
-                                        alignItems: 'center',
-                                        background: index % 2 === 0 ? '#fcfcfd' : '#ffffff',
-                                        borderBottom:
-                                            index === eventLogEntries.length - 1
-                                                ? 'none'
-                                                : '1px solid #f0f2f5',
+                                        border: '1px solid #e6ebf1',
+                                        borderRadius: 12,
+                                        overflow: 'hidden',
+                                        marginTop: 12,
                                     }}
                                 >
-                                    <Text strong style={{ fontSize: 13 }}>
-                                        {entry.label}
-                                    </Text>
-                                    <div
-                                        style={{
-                                            fontFamily: 'monospace',
-                                            wordBreak: 'break-all',
-                                            fontSize: 12,
-                                            color: '#0f172a',
-                                        }}
-                                    >
-                                        {entry.value}
-                                    </div>
-                                    <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<CopyOutlined />}
-                                        onClick={() => copyTextToClipboard(entry.value, entry.label)}
-                                    />
+                                    {eventLogEntries.map((entry, index) => (
+                                        <div
+                                            key={`${entry.label}-${index}`}
+                                            style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: '160px 1fr auto',
+                                                gap: 16,
+                                                padding: '12px 16px',
+                                                alignItems: 'center',
+                                                background: index % 2 === 0 ? '#fcfcfd' : '#ffffff',
+                                                borderBottom:
+                                                    index === eventLogEntries.length - 1
+                                                        ? 'none'
+                                                        : '1px solid #f0f2f5',
+                                            }}
+                                        >
+                                            <Text strong style={{ fontSize: 13 }}>
+                                                {entry.label}
+                                            </Text>
+                                            <div
+                                                style={{
+                                                    fontFamily: 'monospace',
+                                                    wordBreak: 'break-all',
+                                                    fontSize: 12,
+                                                    color: '#0f172a',
+                                                }}
+                                            >
+                                                {entry.value}
+                                            </div>
+                                            <Button
+                                                type="text"
+                                                size="small"
+                                                icon={<CopyOutlined />}
+                                                onClick={() => copyTextToClipboard(entry.value, entry.label)}
+                                            />
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
+                            ) : (
+                                <Text type="secondary">未找到事件日志，可能尚未生成可信事件。</Text>
+                            )} 
                         </div>
-                    ) : (
-                        <Text type="secondary">未找到事件日志，可能尚未生成可信事件。</Text>
-                    )}
-                </Card>
 
-                <Card bordered={false} style={{ borderRadius: 16 }} title="原始数据">
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                        <Button
-                            icon={<CopyOutlined />}
-                            onClick={() => copyTextToClipboard(attestationJson, 'Attestation JSON')}
-                        >
-                            复制 JSON
-                        </Button>
-                    </div>
-                    <pre
-                        style={{
-                            whiteSpace: 'pre-wrap',
-                            fontSize: 12,
-                            background: '#0f172a',
-                            color: '#e2e8f0',
-                            borderRadius: 12,
-                            padding: 16,
-                            overflowX: 'auto',
-                        }}
-                    >
-                        {attestationJson}
-                    </pre>
+                        <Divider style={{ margin: 0 }} />
+
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Text strong>原始数据</Text>
+                                <Button
+                                    icon={<CopyOutlined />}
+                                    onClick={() => copyTextToClipboard(attestationJson, 'Attestation JSON')}
+                                >
+                                    复制 JSON
+                                </Button>
+                            </div>
+                            <pre
+                                style={{
+                                    whiteSpace: 'pre-wrap',
+                                    fontSize: 12,
+                                    maxHeight: 320,
+                                    overflow: 'auto',
+                                    background: '#f7f9fc',
+                                    borderRadius: 12,
+                                    padding: 12,
+                                    marginTop: 12,
+                                }}
+                            >
+                                {attestationJson}
+                            </pre>
+                        </div>
+                    </Space>
                 </Card>
             </Space>
         );
@@ -1952,8 +2016,8 @@ export default function VmDetailPage() {
     };
 
     const renderSettingsContent = () => (
-        <Card bordered={false} style={{ borderRadius: 16 }}>
-            <Title level={4} style={{ marginBottom: 12 }}>设置</Title>
+        <Card bordered={false} style={{ borderRadius: 16 }} title="设置">
+            {/* <Title level={4} style={{ marginBottom: 12 }}>设置</Title> */}
             <Space direction="vertical" size={24} style={{ width: '100%' }}>
                 <Card bordered style={{ borderRadius: 16 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -2176,7 +2240,7 @@ export default function VmDetailPage() {
                 } catch (error) {
                     console.error('Error shutting down VM:', error);
                     const updatedVm = await loadDetails({ silent: true });
-                    const isStopped = updatedVm && updatedVm.status && updatedVm.status.toLowerCase() !== 'running';
+                    const isStopped = updatedVm && getVMStatus(updatedVm) !== 'running';
                     if (isStopped) {
                         messageApi.success('虚拟机已关闭');
                         return;
@@ -2449,36 +2513,38 @@ export default function VmDetailPage() {
           ];
 
     return (
-        <PortalLayout>
-            {messageContextHolder}
-            {modalContextHolder}
-            <div className={styles.portalContent}>
-                {/* 返回按钮 */}
-                <div
-                    style={{
-                        marginBottom: 16,
-                        borderRadius: 16,
-                        background: '#fafafa',
-                        padding: '10px 16px',
-                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        transition: 'all 0.2s',
-                        border: 'none',
-                    }}
-                    onClick={() => router.push('/developers/start')}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f0f0f0';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#fafafa';
-                    }}
-                >
-                    <ArrowLeftOutlined style={{ fontSize: 14, color: '#333' }} />
-                    <span style={{ fontSize: 14, color: '#333', fontWeight: 400 }}>返回应用列表</span>
-                </div>
+        <DeveloperAuthGuard>
+            <PortalLayout>
+                {messageContextHolder}
+                {modalContextHolder}
+            <div style={{ background: '#f5f7faf', minHeight: '100vh' }}>
+                <div className={styles.portalContent} style={{ background: 'transparent' }}>
+                    {/* 返回按钮 */}
+                    <div
+                        style={{
+                            marginBottom: 16,
+                            borderRadius: 16,
+                            background: '#fafafa',
+                            padding: '10px 16px',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            transition: 'all 0.2s',
+                            border: 'none',
+                        }}
+                        onClick={() => router.push('/developers/start')}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#f0f0f0';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#fafafa';
+                        }}
+                    >
+                        <ArrowLeftOutlined style={{ fontSize: 14, color: '#333' }} />
+                        <span style={{ fontSize: 14, color: '#333', fontWeight: 400 }}>返回应用列表</span>
+                    </div>
                 {/* 顶部Header区域 - 参考图片布局 */}
                 <Card
                     bordered={false}
@@ -2605,13 +2671,17 @@ export default function VmDetailPage() {
                     </div>
                 </Card>
 
-                <Row gutter={[24, 24]}>
+                <Row gutter={[24, 24]} align="stretch">
                     {/* 左侧菜单 */}
                     <Col xs={24} md={6} lg={5}>
                         <Card
                             bordered={false}
-                            style={{ borderRadius: 16 }}
-                            bodyStyle={{ padding: 0 }}
+                            style={{ 
+                                borderRadius: 16,
+                                background: '#fff',
+                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+                            }}
+                            bodyStyle={{ padding: '12px 8px' }}
                         >
                             <Menu
                                 mode="inline"
@@ -2621,14 +2691,17 @@ export default function VmDetailPage() {
                                 className="vm-detail-menu"
                                 style={{
                                     border: 'none',
+                                    background: 'transparent',
                                 }}
                             />
                         </Card>
                     </Col>
 
                     {/* 右侧内容区域 */}
-                    <Col xs={24} md={18} lg={19}>
-                        {renderContent()}
+                    <Col xs={24} md={18} lg={19} style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            {renderContent()}
+                        </div>
                     </Col>
                 </Row>
 
@@ -2738,8 +2811,10 @@ export default function VmDetailPage() {
                         </Form.Item>
                     </Form>
                 </Modal>
+                </div>
             </div>
         </PortalLayout>
+        </DeveloperAuthGuard>
     );
 }
 

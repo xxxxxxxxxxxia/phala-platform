@@ -48,6 +48,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import PortalLayout from "@/components/layout/PortalLayout";
+import DeveloperAuthGuard from "@/components/DeveloperAuthGuard";
 import styles from "../../portal.module.css";
 
 const { Title, Text, Paragraph } = Typography;
@@ -3766,8 +3767,10 @@ fi`,
 
 export default function StartPage() {
   return (
-    <App>
-      <StartPageContent />
-    </App>
+    <DeveloperAuthGuard>
+      <App>
+        <StartPageContent />
+      </App>
+    </DeveloperAuthGuard>
   );
 }

@@ -570,10 +570,11 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!sgxAutoRefresh) return;
+    // 将刷新间隔从8秒增加到30秒，减少服务器访问频率
     const timer = setInterval(() => {
       loadWorkerInsights();
       loadSFQStatus();
-    }, 8000);
+    }, 60000); // 30秒刷新一次
     return () => clearInterval(timer);
   }, [sgxAutoRefresh, loadWorkerInsights, loadSFQStatus]);
 
@@ -1781,7 +1782,7 @@ export default function HomePage() {
                       </Col>
                       <Col span={24}>
                         <Space direction="vertical" size="small" style={{ width: "100%" }}>
-                          <Text strong>选择 Worker（可选）</Text>
+                          <Text strong>已自动选择推荐 Worker</Text>
                           <Select
                             placeholder="选择 worker（留空则使用默认worker）"
                             options={workerSelectOptions}

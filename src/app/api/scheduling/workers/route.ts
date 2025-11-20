@@ -27,6 +27,11 @@ const DEFAULT_WORKER_ENDPOINTS =
     process.env.WORKER_ENDPOINTS ??
     "http://127.0.0.1:18000,http://127.0.0.1:18001,http://8.147.106.136:8000";
 
+// 计算fallback worker的评分（使用相同的评分函数）
+function calculateFallbackScore(latencyMs: number, online: boolean, registered: boolean): number {
+    return scoreWorker(latencyMs || 100, 0, online, registered);
+}
+
 const FALLBACK_WORKERS: WorkerInsight[] = [
     {
         pubkey:
@@ -40,7 +45,7 @@ const FALLBACK_WORKERS: WorkerInsight[] = [
         gatekeeper: false,
         inCluster: true,
         lastUpdated: Date.now() - 4_000,
-        score: 91.4,
+        score: calculateFallbackScore(25, true, true),
         isRecommended: true,
     },
     {
@@ -55,7 +60,7 @@ const FALLBACK_WORKERS: WorkerInsight[] = [
         gatekeeper: false,
         inCluster: true,
         lastUpdated: Date.now() - 6_500,
-        score: 87.2,
+        score: calculateFallbackScore(34, true, true),
     },
     {
         pubkey:
@@ -69,7 +74,7 @@ const FALLBACK_WORKERS: WorkerInsight[] = [
         gatekeeper: true,
         inCluster: false,
         lastUpdated: Date.now() - 28_000,
-        score: 65.1,
+        score: calculateFallbackScore(100, false, true), // 离线worker分数较低
     },
     {
         pubkey:
@@ -83,7 +88,7 @@ const FALLBACK_WORKERS: WorkerInsight[] = [
         gatekeeper: false,
         inCluster: true,
         lastUpdated: Date.now() - 5_000,
-        score: 88.5,
+        score: calculateFallbackScore(30, true, true),
     },
 ];
 
@@ -128,10 +133,24 @@ function normalizeEndpoint(endpoint: string) {
     return endpoint.replace(/\/$/, "");
 }
 
-function scoreWorker(latency: number, blocknum = 0) {
-    const latencyScore = Math.max(0, 100 - latency / 2);
-    const blockScore = Math.min(100, Math.max(0, Number(blocknum) % 150));
-    return Number((0.6 * latencyScore + 0.4 * blockScore).toFixed(1));
+function scoreWorker(latency: number, blocknum = 0, online = true, registered = true) {
+    // 延迟评分：延迟越低分数越高，200ms延迟为0分，0ms延迟为100分
+    const latencyScore = Math.max(0, Math.min(100, 100 - latency / 2));
+
+    // 在线状态评分：在线且已注册的worker获得基础分数
+    let statusScore = 0;
+    if (online && registered) {
+        statusScore = 100; // 在线且已注册
+    } else if (online) {
+        statusScore = 50; // 在线但未注册
+    } else {
+        statusScore = 0; // 离线
+    }
+
+    // 综合评分：70%延迟权重 + 30%状态权重
+    // 这样延迟是主要因素，但状态也很重要
+    const finalScore = 0.7 * latencyScore + 0.3 * statusScore;
+    return Number(finalScore.toFixed(1));
 }
 
 async function fetchWorkerInfo(endpoint: string): Promise<WorkerInsight | null> {
@@ -155,26 +174,53 @@ async function fetchWorkerInfo(endpoint: string): Promise<WorkerInsight | null> 
             initialized: data.initialized,
             registered: data.registered,
             version: data.version || data.git_revision,
+            score: data.score,
+            rating: data.rating,
         });
         const pubkey = data.public_key ?? url;
         // 处理gatekeeper字段，可能是对象或布尔值
         const isGatekeeper = data.gatekeeper
             ? (typeof data.gatekeeper === 'object' ? (data.gatekeeper.role !== undefined && data.gatekeeper.role !== 0) : Boolean(data.gatekeeper))
             : false;
+        const isOnline = Boolean(data.initialized);
+        const isRegistered = Boolean(data.registered);
+
+        // 优先使用worker返回的评分，如果score为0则默认显示90分
+        let workerScore: number;
+        if (typeof data.score === 'number') {
+            if (data.score > 0) {
+                // worker返回了有效的评分（大于0）
+                workerScore = data.score;
+                console.log(`[scheduling/workers] ${url} 使用worker返回的评分: ${workerScore}`);
+            } else {
+                // score为0，使用默认90分
+                workerScore = 90;
+                console.log(`[scheduling/workers] ${url} worker返回的score=0，使用默认评分: ${workerScore}`);
+            }
+        } else if (typeof data.rating === 'number' && data.rating > 0) {
+            // 使用rating字段（如果score不存在但rating有效）
+            workerScore = data.rating;
+            console.log(`[scheduling/workers] ${url} 使用worker返回的rating: ${workerScore}`);
+        } else {
+            // 如果score和rating都不存在，使用默认90分
+            workerScore = 90;
+            console.log(`[scheduling/workers] ${url} worker未返回评分字段，使用默认评分: ${workerScore}`);
+        }
+
         const result = {
             pubkey,
             endpoint: url,
-            online: Boolean(data.initialized),
+            online: isOnline,
             latencyMs,
             version: data.git_revision ?? data.version ?? "unknown",
-            registered: Boolean(data.registered),
+            registered: isRegistered,
             state: data.state ?? (data.initialized ? "Ready" : "Unknown"),
             gatekeeper: isGatekeeper,
             inCluster: Boolean(data.registered),
             lastUpdated: Date.now(),
-            score: scoreWorker(latencyMs, data.blocknum),
+            score: workerScore,
         };
-        console.log(`[scheduling/workers] ${url} 成功获取信息，score: ${result.score}`);
+        console.log(`[scheduling/workers] ${url} 成功获取信息，最终score: ${result.score}`);
         return result;
     } catch (error) {
         console.error(
