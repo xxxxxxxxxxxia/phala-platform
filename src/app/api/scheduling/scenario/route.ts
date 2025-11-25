@@ -36,14 +36,15 @@ const SCENARIOS: ScenarioConfig[] = [
     {
         id: "weight-distribution",
         name: "带权重调度",
-        description: "三个不同权重流（1:2:3）同时调度，观察资源是否按权重比例分配。高权重流应获得更多资源，表现为更多接受数、更少的积压和更快的处理速度。",
+        description: "三个不同权重流（1:2:3）同时发送大量并发请求，观察系统过载时的拒绝策略。高权重流应被拒绝更少，低权重流被拒绝更多，通过拒绝数差异展示权重效果。",
         flows: [
             // 权重1:2:3，总权重=6
-            // 重要：所有流发送相同数量的请求，这样可以公平对比权重效果
-            // 但高权重流应该处理得更快，从而接受更多请求
-            { id: "weight-low", flow: "weight_low", weight: 1, cost: 40, requests: 40 },
-            { id: "weight-mid", flow: "weight_mid", weight: 2, cost: 40, requests: 40 },
-            { id: "weight-high", flow: "weight_high", weight: 3, cost: 40, requests: 40 },
+            // 使用大量并发请求，让系统过载，触发拒绝机制
+            // 通过拒绝数的差异来展示权重效果：权重高的被拒绝少，权重低的被拒绝多
+            // 增加请求数量，确保系统过载，触发拒绝机制
+            { id: "weight-low", flow: "weight_low", weight: 1, cost: 50, requests: 150 },
+            { id: "weight-mid", flow: "weight_mid", weight: 2, cost: 50, requests: 150 },
+            { id: "weight-high", flow: "weight_high", weight: 3, cost: 50, requests: 150 },
         ],
     },
     {
@@ -63,21 +64,58 @@ async function runScenario(config: ScenarioConfig) {
 
     const start = Date.now();
 
-    // 对于带权重场景，采用顺序发送（带小延迟）以更清晰地展示权重效果
-    // 这样可以避免所有请求同时到达导致队列瞬间被填满
+    // 对于带权重场景，使用预热+快速连续发送策略，让系统过载并展示权重差异
     if (config.id === "weight-distribution") {
-        // 交错发送请求，让调度器有时间处理
-        const maxRequests = Math.max(...config.flows.map(f => f.requests));
-        for (let i = 0; i < maxRequests; i++) {
-            const promises = config.flows
-                .filter(spec => i < spec.requests)
-                .map(spec =>
-                    requestSfqFlow(spec.flow, spec.weight, spec.cost)
-                        .catch(() => null)
-                        .then(() => new Promise(resolve => setTimeout(resolve, 5))) // 5ms延迟
-                );
-            await Promise.all(promises);
+        // 策略：先预热建立average_cost，然后快速连续发送大量请求让系统过载
+        // 权重高的流会被拒绝更少，权重低的流会被拒绝更多
+        const totalRequests = config.flows.reduce((sum, f) => sum + f.requests, 0);
+        console.log(`[场景] 带权重调度：预热后快速发送 ${totalRequests} 个请求，让系统过载并展示权重差异`);
+
+        // 步骤1: 预热阶段 - 让系统建立average_cost
+        console.log(`[场景] 步骤1: 预热阶段（每个流发送10个请求）...`);
+        for (let i = 0; i < 10; i++) {
+            const warmupPromises = config.flows.map(spec =>
+                requestSfqFlow(spec.flow, spec.weight, spec.cost).catch(() => null)
+            );
+            await Promise.all(warmupPromises);
+            // 短暂延迟，让请求有时间处理
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
+        console.log(`[场景] 预热完成，等待系统建立average_cost...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // 步骤2: 快速连续发送大量请求，让系统过载
+        console.log(`[场景] 步骤2: 快速连续发送请求让系统过载...`);
+        const requestCounters = config.flows.map(() => 0);
+        const maxRequests = Math.max(...config.flows.map(f => f.requests));
+
+        // 快速连续发送：每轮每个流都发送一个请求
+        for (let round = 0; round < maxRequests; round++) {
+            const promises: Promise<any>[] = [];
+
+            for (let i = 0; i < config.flows.length; i++) {
+                const spec = config.flows[i];
+                if (requestCounters[i] < spec.requests) {
+                    requestCounters[i]++;
+                    promises.push(
+                        requestSfqFlow(spec.flow, spec.weight, spec.cost)
+                            .catch(() => null)
+                    );
+                }
+            }
+
+            // 快速发送，不等待完成（让系统过载）
+            Promise.all(promises);
+
+            // 每10轮稍微延迟一下，避免请求堆积过多
+            if (round % 10 === 0 && round > 0) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+        }
+
+        // 等待所有请求发送完成
+        console.log(`[场景] 所有请求已发送，等待系统处理...`);
+        await new Promise(resolve => setTimeout(resolve, 3000));
     } else {
         // 其他场景保持并发发送
         await Promise.all(
@@ -105,8 +143,6 @@ async function runScenario(config: ScenarioConfig) {
             vClock: number;
             vClockDelta?: number;
             expectedAccepted?: number;
-            allocationRatio?: number;
-            normalizedAccepted?: number;
         }
     > = {};
 
@@ -150,18 +186,11 @@ async function runScenario(config: ScenarioConfig) {
                 // 期望接受数（按权重比例）
                 const expectedAccepted =
                     (spec.weight / totalWeight) * totalAccepted;
-                // 实际资源分配比例（实际接受数/期望接受数）
-                const allocationRatio =
-                    stats.accepted > 0 ? stats.accepted / expectedAccepted : 0;
-                // 归一化后的接受数（每权重单位的接受数）
-                const normalizedAccepted = stats.accepted / spec.weight;
 
-                // 添加到统计中
+                // 添加到统计中（只保留期望接受数，移除分配比例和标准化接受数）
                 flowStats[spec.id] = {
                     ...stats,
                     expectedAccepted: Math.round(expectedAccepted * 100) / 100,
-                    allocationRatio: Math.round(allocationRatio * 1000) / 1000,
-                    normalizedAccepted: Math.round(normalizedAccepted * 100) / 100,
                 };
             }
         }

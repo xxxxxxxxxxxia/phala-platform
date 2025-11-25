@@ -1,8 +1,9 @@
 import { spawn, ChildProcessWithoutNullStreams, exec } from "child_process";
-import { constants as fsConstants } from "fs";
+import { constants as fsConstants, readFileSync } from "fs";
 import { access } from "fs/promises";
 import { existsSync } from "fs";
 import { promisify } from "util";
+import { resolve, isAbsolute } from "path";
 
 const execAsync = promisify(exec);
 
@@ -69,12 +70,15 @@ function getBinaryPath() {
     const possiblePaths = [
         "/root/tmp/phala-platform/bin/sfq-test",
         "/app/phala-platform/bin/sfq-test",
+        "/app/bin/sfq-test",
+        process.cwd() + "/bin/sfq-test",
+        process.cwd() + "/../bin/sfq-test",
+        __dirname + "/../../bin/sfq-test",
+        __dirname + "/../../../bin/sfq-test",
+        __dirname + "/../../../../bin/sfq-test",
         "./bin/sfq-test",
         "../bin/sfq-test",
         "bin/sfq-test",
-        process.cwd() + "/bin/sfq-test",
-        __dirname + "/../../bin/sfq-test",
-        __dirname + "/../../../bin/sfq-test",
     ];
 
     // 遍历查找存在的文件
@@ -117,8 +121,10 @@ async function checkPortAvailable(host: string, port: string): Promise<{ availab
     console.log(`[SFQ PortCheck] 检查端口 ${host}:${port}...`);
     try {
         // 首先使用lsof检查端口是否真的被占用
+        // 如果lsof不可用，尝试使用netstat或ss（Alpine Linux兼容）
         let portInUse = false;
-        let pid = "";
+        let pid: string | null = null;
+
         try {
             const { stdout } = await execAsync(`lsof -ti :${port} 2>/dev/null || echo ""`);
             pid = stdout.trim();
@@ -126,16 +132,30 @@ async function checkPortAvailable(host: string, port: string): Promise<{ availab
             if (portInUse) {
                 console.log(`[SFQ PortCheck] 端口被占用，PID: ${pid}`);
             } else {
-                console.log(`[SFQ PortCheck] 端口未被占用`);
+                console.log(`[SFQ PortCheck] ✅ 端口 ${port} 可用（lsof未检测到占用）`);
+                return { available: true };
             }
-        } catch (err) {
-            console.warn(`[SFQ PortCheck] lsof检查失败:`, err);
-            // 忽略lsof失败，继续检查
+        } catch (err: any) {
+            console.warn(`[SFQ PortCheck] lsof检查失败: ${err?.message || err}，尝试使用netstat`);
+            // 如果lsof失败，尝试使用netstat（Alpine Linux可能没有lsof）
+            try {
+                const { stdout } = await execAsync(`netstat -tuln 2>/dev/null | grep :${port} || echo ""`);
+                if (stdout.trim()) {
+                    console.log(`[SFQ PortCheck] netstat检测到端口被占用`);
+                    portInUse = true;
+                } else {
+                    console.log(`[SFQ PortCheck] ✅ 端口 ${port} 可用（netstat未检测到占用）`);
+                    return { available: true };
+                }
+            } catch (netstatErr: any) {
+                console.warn(`[SFQ PortCheck] netstat也失败: ${netstatErr?.message || netstatErr}，继续尝试fetch检查`);
+                // 如果都失败，继续尝试fetch检查
+            }
         }
 
-        // 如果lsof没有检测到端口被占用，直接返回可用
+        // 如果检测到端口被占用，继续检查是否是SFQ服务器
         if (!portInUse) {
-            console.log(`[SFQ PortCheck] ✅ 端口可用`);
+            console.log(`[SFQ PortCheck] ✅ 端口 ${port} 可用`);
             return { available: true };
         }
 
@@ -423,65 +443,150 @@ class SfqProcessManager {
         });
 
         console.log(`[SFQ Start] 执行命令: ${binPath}`);
-        const child = spawn(binPath, [], {
-            env: spawnEnv,
-            stdio: "ignore",
-        });
+        console.log(`[SFQ Start] 工作目录: ${process.cwd()}`);
+        console.log(`[SFQ Start] __dirname: ${__dirname}`);
 
-        if (!child.pid) {
-            throw new Error("无法启动SFQ进程，spawn返回的进程没有PID");
+        // 参考隐私合约的实现方式，使用绝对路径并设置工作目录和环境变量
+        const absoluteBinPath = isAbsolute(binPath)
+            ? binPath
+            : resolve(process.cwd(), binPath);
+
+        console.log(`[SFQ Start] 使用绝对路径: ${absoluteBinPath}`);
+
+        // 再次检查绝对路径是否存在
+        if (!existsSync(absoluteBinPath)) {
+            throw new Error(`SFQ二进制文件不存在: ${absoluteBinPath}`);
         }
 
-        console.log(`[SFQ Start] ✅ 进程已启动 (PID: ${child.pid})`);
-        this.child = child;
-        this.startedAt = Date.now();
+        // SFQ服务器参数：--backlog 15 --depth 3 (适中的容量，既能触发拒绝又能清晰展示权重差异)
+        // backlog控制队列容量，越小越容易过载
+        // depth控制调度深度，影响权重调度的敏感度
+        const sfqArgs = ['--backlog', '15', '--depth', '3'];
+        console.log(`[SFQ Start] SFQ服务器参数: ${sfqArgs.join(' ')}`);
 
-        const cleanup = () => {
-            if (this.child === child) {
-                console.log(`[SFQ Start] 清理进程引用 (PID: ${child.pid})`);
-                this.child = null;
-                this.startedAt = null;
+        // 在Docker容器中，使用nohup和shell可能更可靠
+        // 参考合约查询的实现方式，使用shell执行
+        let isDocker = process.env.NODE_ENV === 'production' || existsSync('/.dockerenv');
+        if (!isDocker && existsSync('/proc/self/cgroup')) {
+            try {
+                const cgroupContent = readFileSync('/proc/self/cgroup', 'utf-8');
+                isDocker = cgroupContent.includes('docker');
+            } catch {
+                // 忽略读取失败
             }
-        };
-        child.once("exit", (code, signal) => {
-            console.log(`[SFQ Start] 进程退出 (PID: ${child.pid}, code: ${code}, signal: ${signal})`);
-            cleanup();
-        });
-
-        child.on("error", (error) => {
-            console.error(`[SFQ Start] ❌ 进程错误 (PID: ${child.pid}):`, error);
-        });
-
-        const baseUrl = getBaseUrl();
-        console.log(`[SFQ Start] 等待服务器就绪: ${baseUrl}`);
-        try {
-            await waitUntilReady(baseUrl);
-            console.log(`[SFQ Start] ✅ SFQ服务器启动成功 (PID: ${child.pid}, URL: ${baseUrl})`);
-        } catch (error) {
-            console.error(`[SFQ Start] ❌ 等待服务器就绪失败:`, error);
-            console.log(`[SFQ Start] 尝试终止进程...`);
-            child.kill("SIGTERM");
-            await sleep(1000);
-            if (!child.killed) {
-                console.log(`[SFQ Start] 进程未响应SIGTERM，发送SIGKILL...`);
-                child.kill("SIGKILL");
-            }
-            cleanup();
-            throw error;
         }
 
-        return {
-            pid: child.pid ?? 0,
-            startedAt: this.startedAt,
-            baseUrl,
-        };
+        if (isDocker) {
+            // Docker环境：使用nohup在后台执行
+            const command = `nohup "${absoluteBinPath}" ${sfqArgs.join(' ')} > /dev/null 2>&1 &`;
+            console.log(`[SFQ Start] Docker环境，使用nohup执行: ${command}`);
+
+            try {
+                await execAsync(command, {
+                    env: spawnEnv,
+                    cwd: process.cwd(),
+                    shell: '/bin/sh',
+                });
+
+                // 等待服务器启动
+                await sleep(2000);
+
+                // 检查服务器是否启动成功
+                const baseUrl = getBaseUrl();
+                await waitUntilReady(baseUrl);
+
+                // 尝试获取PID
+                try {
+                    const { stdout } = await execAsync(`lsof -ti :${resolvePort()} 2>/dev/null || echo ""`);
+                    const pid = parseInt(stdout.trim());
+                    if (pid > 0) {
+                        console.log(`[SFQ Start] ✅ SFQ服务器启动成功 (PID: ${pid}, URL: ${baseUrl})`);
+                        this.startedAt = Date.now();
+                        return {
+                            pid,
+                            startedAt: this.startedAt,
+                            baseUrl,
+                        };
+                    }
+                } catch {
+                    // 忽略PID获取失败
+                }
+                console.log(`[SFQ Start] ✅ SFQ服务器启动成功 (URL: ${baseUrl})`);
+                this.startedAt = Date.now();
+                return {
+                    pid: 0,
+                    startedAt: this.startedAt,
+                    baseUrl,
+                };
+            } catch (error) {
+                console.error(`[SFQ Start] ❌ nohup执行失败:`, error);
+                throw new Error(`无法在Docker环境中启动SFQ服务器: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        } else {
+            // 开发环境：使用spawn方式
+            const child = spawn(absoluteBinPath, sfqArgs, {
+                env: spawnEnv,
+                stdio: "ignore",
+                cwd: process.cwd(),
+                shell: false,
+                detached: false, // 保持进程关联，便于管理
+            });
+
+            if (!child.pid) {
+                throw new Error("无法启动SFQ进程，spawn返回的进程没有PID");
+            }
+
+            console.log(`[SFQ Start] ✅ 进程已启动 (PID: ${child.pid})`);
+            this.child = child;
+            this.startedAt = Date.now();
+
+            const cleanup = () => {
+                if (this.child === child) {
+                    console.log(`[SFQ Start] 清理进程引用 (PID: ${child.pid})`);
+                    this.child = null;
+                    this.startedAt = null;
+                }
+            };
+            child.once("exit", (code, signal) => {
+                console.log(`[SFQ Start] 进程退出 (PID: ${child.pid}, code: ${code}, signal: ${signal})`);
+                cleanup();
+            });
+
+            child.on("error", (error) => {
+                console.error(`[SFQ Start] ❌ 进程错误 (PID: ${child.pid}):`, error);
+            });
+
+            const baseUrl = getBaseUrl();
+            console.log(`[SFQ Start] 等待服务器就绪: ${baseUrl}`);
+            try {
+                await waitUntilReady(baseUrl);
+                console.log(`[SFQ Start] ✅ SFQ服务器启动成功 (PID: ${child.pid}, URL: ${baseUrl})`);
+            } catch (error) {
+                console.error(`[SFQ Start] ❌ 等待服务器就绪失败:`, error);
+                console.log(`[SFQ Start] 尝试终止进程...`);
+                child.kill("SIGTERM");
+                await sleep(1000);
+                if (!child.killed) {
+                    console.log(`[SFQ Start] 进程未响应SIGTERM，发送SIGKILL...`);
+                    child.kill("SIGKILL");
+                }
+                cleanup();
+                throw error;
+            }
+
+            return {
+                pid: child.pid ?? 0,
+                startedAt: this.startedAt,
+                baseUrl,
+            };
+        }
     }
 
     async stop(): Promise<StopResult> {
         console.log(`[SFQ Stop] 开始停止SFQ服务器...`);
 
         // 如果管理器有自己的进程，先停止它
-        if (this.child) {
+        if (this.child && this.child.pid) {
             const child = this.child;
             const pid = child.pid;
             console.log(`[SFQ Stop] 停止管理的进程 (PID: ${pid})`);

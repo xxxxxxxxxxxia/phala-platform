@@ -76,7 +76,17 @@ export async function GET(request: NextRequest) {
         }
     } catch (error: any) {
         console.error(`[SFQ API] ❌ 操作失败:`, error);
+        console.error(`[SFQ API] 错误类型:`, error?.constructor?.name);
+        console.error(`[SFQ API] 错误消息:`, error?.message);
         console.error(`[SFQ API] 错误堆栈:`, error?.stack);
+        console.error(`[SFQ API] 完整错误对象:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
+
+        // 确保错误信息被记录到标准输出（Docker日志）
+        process.stdout.write(`[SFQ API ERROR] ${error?.message || "SFQ 操作失败"}\n`);
+        if (error?.stack) {
+            process.stdout.write(`[SFQ API STACK] ${error.stack}\n`);
+        }
+
         return NextResponse.json(
             {
                 success: false,

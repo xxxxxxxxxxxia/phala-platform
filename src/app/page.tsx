@@ -67,13 +67,6 @@ const entryCards = [
 // 平台核心功能模块
 const coreFeatures = [
     {
-        title: '可信验证',
-        description: '基于TEE技术的可信执行环境验证，保障计算过程的安全性与隐私性',
-        icon: <SafetyCertificateOutlined />,
-        color: '#52c41a',
-        href: '/management/tee-verification',
-    },
-    {
         title: '安全调度',
         description: '智能计算资源调度系统，实现任务的高效分配与负载均衡',
         icon: <ThunderboltOutlined />,
@@ -95,13 +88,6 @@ const coreFeatures = [
         href: '/management/contracts',
     },
     {
-        title: '密钥管理',
-        description: '安全的密钥轮换与管理机制，保障系统长期安全运行',
-        icon: <KeyOutlined />,
-        color: '#eb2f96',
-        href: '/management/key-rotation',
-    },
-    {
         title: '响应监控',
         description: '实时监控Worker节点响应状态，及时发现并处理异常情况',
         icon: <MonitorOutlined />,
@@ -112,16 +98,28 @@ const coreFeatures = [
 
 const capabilityHighlights = [
     {
-        title: '可信执行',
-        description: 'TEE技术栈保障数据密态处理与跨域可信协同。',
+        title: '稳定可靠',
+        description: '高可用架构设计，保障系统长期稳定运行。',
     },
     {
-        title: '一体化调度与监控',
-        description: '链上任务、链下算力、激励与健康度统一编排，可视直观。',
+        title: '安全可信',
+        description: '基于硬件可信根，保证计算可信。',
+    },
+    {
+        title: '软硬兼容',
+        description: '支持多种TEE硬件，兼容主流计算平台。',
+    },
+    {
+        title: '隐私增强',
+        description: '端到端隐私保护，数据与算法保密执行。',
+    },
+    {
+        title: '一体化调度',
+        description: '链上、链下统一编排，可视直观。',
     },
     {
         title: '全角色门户',
-        description: '管理员、资源方、开发者等各自拥有专属体验。',
+        description: '管理、资源方等各自拥有专属功能入口。',
     },
 ];
 
@@ -405,74 +403,108 @@ export default function PortalPage() {
                 </section>
 
                 <section className={styles.section}>
-                    <Title level={3} className={styles.sectionTitle}>
-                        平台核心功能
-                    </Title>
-                    <Paragraph className={styles.sectionDescription}>
-                        覆盖可信计算、资源调度、激励机制、隐私保护等核心能力，构建完整的隐私计算生态体系。
-                    </Paragraph>
-                    <Row gutter={[24, 24]}>
-                        {coreFeatures.map((feature) => (
-                            <Col xs={24} sm={12} md={8} key={feature.title}>
-                                <Link href={feature.href}>
-                                    <Card
-                                        className={styles.portalCard}
-                                        hoverable
-                                        style={{
-                                            height: '100%',
-                                            textAlign: 'center',
-                                            transition: 'all 0.3s ease',
-                                        }}
-                                    >
-                                        <div style={{
-                                            width: 64,
-                                            height: 64,
-                                            borderRadius: 16,
-                                            background: '#eff6ff',
-                                            border: '1px solid #dbeafe',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            margin: '0 auto 20px',
-                                            fontSize: '32px',
-                                            color: '#2563eb',
-                                        }}>
-                                            {feature.icon}
-                                        </div>
-                                        <Title level={4} className={styles.cardTitle} style={{ marginBottom: 12 }}>
-                                            {feature.title}
-                                        </Title>
-                                        <Paragraph className={styles.cardDescription} style={{ marginBottom: 0 }}>
-                                            {feature.description}
-                                        </Paragraph>
-                                    </Card>
-                                </Link>
-                            </Col>
-                        ))}
-                    </Row>
-                </section>
-
-                <section className={styles.section}>
-                    <Title level={3} className={styles.sectionTitle}>
-                        平台核心特性
-                    </Title>
-                    <Paragraph className={styles.sectionDescription}>
-                        覆盖可信计算、算力调度、生态协同三大维度，支撑从资源供给到业务落地的完整闭环。
-                    </Paragraph>
-                    <Row gutter={[24, 24]}>
-                        {capabilityHighlights.map((item) => (
-                            <Col xs={24} md={8} key={item.title}>
-                                <Card className={styles.portalCard} bordered={false}>
-                                    <Title level={4} className={styles.cardTitle}>
-                                        {item.title}
+                    <Card className={styles.coreFeaturesCard}>
+                        <Row gutter={[48, 32]}>
+                            <Col xs={24} lg={12}>
+                                <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                                    <Title level={3} className={styles.coreFeaturesTitle} style={{ textAlign: 'center' }}>
+                                        平台核心功能
                                     </Title>
-                                    <Paragraph className={styles.cardDescription}>
-                                        {item.description}
+                                    <Paragraph className={styles.coreFeaturesDescription} style={{ textAlign: 'center' }}>
+                                        覆盖可信计算、资源调度、资源监控等核心能力，构建完整的可信计算生态体系。
                                     </Paragraph>
-                                </Card>
+                                </div>
+                                <Row gutter={[16, 16]}>
+                                    {coreFeatures.map((feature) => (
+                                        <Col xs={24} sm={12} key={feature.title}>
+                                            <Link href={feature.href}>
+                                                <Card
+                                                    className={styles.coreFeatureItemCard}
+                                                    hoverable
+                                                    style={{
+                                                        height: '100%',
+                                                        textAlign: 'center',
+                                                        background: '#ffffff',
+                                                        border: '1px solid #e5e7eb',
+                                                    }}
+                                                    bodyStyle={{
+                                                        background: '#ffffff',
+                                                        padding: '20px',
+                                                    }}
+                                                >
+                                                    <div style={{
+                                                        width: 56,
+                                                        height: 56,
+                                                        borderRadius: 12,
+                                                        background: '#eff6ff',
+                                                        border: '1px solid #dbeafe',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        margin: '0 auto 16px',
+                                                        fontSize: '28px',
+                                                        color: '#2563eb',
+                                                    }}>
+                                                        {feature.icon}
+                                                    </div>
+                                                    <Title level={4} className={styles.cardTitle} style={{ marginBottom: 8, fontSize: 16, textAlign: 'center' }}>
+                                                        {feature.title}
+                                                    </Title>
+                                                    <Paragraph className={styles.cardDescription} style={{ marginBottom: 0, fontSize: 13, textAlign: 'center' }}>
+                                                        {feature.description}
+                                                    </Paragraph>
+                                                </Card>
+                                            </Link>
+                                        </Col>
+                                    ))}
+                                </Row>
                             </Col>
-                        ))}
-                    </Row>
+                            <Col xs={24} lg={12}>
+                                <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                                    <Title level={3} className={styles.coreFeaturesTitle} style={{ textAlign: 'center' }}>
+                                        平台核心特性
+                                    </Title>
+                                    <Paragraph className={styles.coreFeaturesDescription} style={{ textAlign: 'center' }}>
+                                        覆盖可信监控、算力调度、生态协同等核心维度，支撑从资源供给到业务落地的完整闭环。
+                                    </Paragraph>
+                                </div>
+                                <Row gutter={[16, 16]}>
+                                    {capabilityHighlights.map((item) => (
+                                        <Col xs={24} sm={12} key={item.title}>
+                                            <Card
+                                                className={styles.coreCapabilityItemCard}
+                                                bordered={false}
+                                                style={{
+                                                    textAlign: 'center',
+                                                    background: '#ffffff',
+                                                    border: '1px solid #e5e7eb',
+                                                    height: '100%',
+                                                    minHeight: '110px',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                }}
+                                                bodyStyle={{
+                                                    background: '#ffffff',
+                                                    padding: '24px',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    justifyContent: 'center',
+                                                    flex: 1,
+                                                }}
+                                            >
+                                                <Title level={4} className={styles.cardTitle} style={{ fontSize: 16, marginBottom: 12, textAlign: 'center' }}>
+                                                    {item.title}
+                                                </Title>
+                                                <Paragraph className={styles.cardDescription} style={{ marginBottom: 0, fontSize: 13, textAlign: 'center', lineHeight: 1.6 }}>
+                                                    {item.description}
+                                                </Paragraph>
+                                            </Card>
+                                        </Col>
+                                    ))}
+                                </Row>
+                            </Col>
+                        </Row>
+                    </Card>
                 </section>
 
                 <section id="scenarios" className={styles.section}>

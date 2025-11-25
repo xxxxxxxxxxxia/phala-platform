@@ -56,6 +56,7 @@ interface DashboardData {
         total: number;
         active: number;
         byType: { [key: string]: number };
+        byOwner?: { [owner: string]: number };
     };
     incentives: {
         totalAmount: number;
@@ -176,6 +177,8 @@ export default function PolkadotWallPage() {
     const [blocks, setBlocks] = useState<any[]>([]);
     const [transactions, setTransactions] = useState<any[]>([]);
     const [keyRotationData, setKeyRotationData] = useState<any>(null);
+    const [sfqStatus, setSfqStatus] = useState<any | null>(null);
+    const [workerInsights, setWorkerInsights] = useState<any | null>(null);
     const [error, setError] = useState<string | null>(null);
     const isInitialLoad = useRef(true);
     const [explorerView, setExplorerView] = useState<'overview' | 'blocks' | 'transactions'>('overview');
@@ -206,7 +209,7 @@ export default function PolkadotWallPage() {
     const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
     const KEY_SAMPLE_PAGE_SIZE = 2;
     const WORKER_PAGE_SIZE = 2;
-    const INCENTIVE_ACCOUNT_PAGE_SIZE = 3;
+    const INCENTIVE_ACCOUNT_PAGE_SIZE = 1;
     const [keySamplePage, setKeySamplePage] = useState(1);
     const [workerPage, setWorkerPage] = useState(1);
     const [incentiveAccountPage, setIncentiveAccountPage] = useState(1);
@@ -223,6 +226,33 @@ export default function PolkadotWallPage() {
     // 标记客户端已完成 Hydration，避免 SSR/CSR 时间不一致
     useEffect(() => {
         setIsHydrated(true);
+    }, []);
+
+    // 加载调度相关数据（与管理端调度页复用相同接口）
+    useEffect(() => {
+        const loadSchedulingData = async () => {
+            try {
+                // SFQ 状态
+                const sfqRes = await fetch('/api/scheduling/flip?action=sfq-status');
+                if (sfqRes.ok) {
+                    const sfqData = await sfqRes.json();
+                    setSfqStatus(sfqData);
+                }
+
+                // Worker 洞察（包含推荐 Worker）
+                const workerRes = await fetch('/api/scheduling/workers');
+                if (workerRes.ok) {
+                    const wData = await workerRes.json();
+                    if (wData.success) {
+                        setWorkerInsights(wData.data);
+                    }
+                }
+            } catch (e) {
+                console.warn('⚠️ [Dashboard] 加载调度数据失败:', e);
+            }
+        };
+
+        loadSchedulingData();
     }, []);
 
 
@@ -826,32 +856,28 @@ export default function PolkadotWallPage() {
 
     const incentiveAccountCount = incentiveAccounts.length;
     const incentiveAccountTotalPages = Math.max(1, Math.ceil(((incentiveAccountCount || 1)) / INCENTIVE_ACCOUNT_PAGE_SIZE));
-    const shouldPaginateAccounts = incentiveAccountCount > INCENTIVE_ACCOUNT_PAGE_SIZE;
+    const shouldPaginateAccounts = incentiveAccountCount > 1;
     const displayedIncentiveAccounts = useMemo(() => {
         if (!incentiveAccountCount) return [];
         const start = (incentiveAccountPage - 1) * INCENTIVE_ACCOUNT_PAGE_SIZE;
         return incentiveAccounts.slice(start, start + INCENTIVE_ACCOUNT_PAGE_SIZE);
     }, [incentiveAccountCount, incentiveAccountPage, incentiveAccounts]);
 
-    const recentRotations = useMemo(() => (
-        (keyRotationData?.rotationHistory || []).slice(-3).reverse()
-    ), [keyRotationData]);
-
     const totalIncentiveAccounts = incentiveData?.accountSummary?.totalAccounts || incentiveAccounts.length;
     const totalRewardFormatted = incentiveData?.accountSummary?.totalRewardFormatted;
-    const keySamples = keyRotationData?.overview?.keySamples || [];
+    const contractSamples = keyRotationData?.overview?.contractSamples || [];
     const pendingMessages = keyRotationData?.overview?.pendingMessages ?? 0;
     const gatekeeperKeys = keyRotationData?.overview?.gatekeeperKeys ?? 0;
 
     const pagedKeySamples = useMemo(() => {
-        if (!keySamples.length) return [];
+        if (!contractSamples.length) return [];
         const start = (keySamplePage - 1) * KEY_SAMPLE_PAGE_SIZE;
-        return keySamples.slice(start, start + KEY_SAMPLE_PAGE_SIZE);
-    }, [keySamples, keySamplePage, KEY_SAMPLE_PAGE_SIZE]);
+        return contractSamples.slice(start, start + KEY_SAMPLE_PAGE_SIZE);
+    }, [contractSamples, keySamplePage, KEY_SAMPLE_PAGE_SIZE]);
 
     const keySampleTotalPages = useMemo(() => (
-        Math.max(1, Math.ceil(keySamples.length / KEY_SAMPLE_PAGE_SIZE))
-    ), [keySamples, KEY_SAMPLE_PAGE_SIZE]);
+        Math.max(1, Math.ceil(contractSamples.length / KEY_SAMPLE_PAGE_SIZE))
+    ), [contractSamples, KEY_SAMPLE_PAGE_SIZE]);
 
     useEffect(() => {
         if (keySamplePage > keySampleTotalPages) {
@@ -899,43 +925,117 @@ export default function PolkadotWallPage() {
 
     const contractHighlights = useMemo(() => {
         const byType = dashboardData?.contracts?.byType || {};
+        const byOwner = dashboardData?.contracts?.byOwner || {};
         const total = dashboardData?.contracts?.total || 0;
-        return Object.entries(byType)
-            .map(([type, count]) => ({
-                type,
-                count: count as number,
-                ratio: total ? Math.round(((count as number) / total) * 100) : 0,
-            }))
-            .slice(0, 4);
+
+        const highlights: { type: string; count: number; ratio: number }[] = [];
+
+        // 1) SGX 进度条：继续使用按类型统计的数量
+        if (byType.SGX && total > 0) {
+            const count = byType.SGX as number;
+            highlights.push({
+                type: 'SGX',
+                count,
+                ratio: Math.round((count / total) * 100),
+            });
+        }
+
+        // 2) System 进度条：优先按“合约所有者为 System”的数量统计
+        const systemOwnerCount = (dashboardData?.contracts?.byOwner?.System as number | undefined) ?? (byType.System as number | undefined) ?? 0;
+        if (systemOwnerCount > 0 && total > 0) {
+            const count = systemOwnerCount;
+            highlights.push({
+                type: 'System',
+                count,
+                ratio: Math.round((count / total) * 100),
+            });
+        }
+
+        // 3) 其余位置按合约所有者补充（排除 System/SGX），保持总数最多 4 条
+        const remainingSlots = 4 - highlights.length;
+        if (remainingSlots > 0) {
+            Object.entries(byOwner)
+                .filter(([owner]) => owner !== 'System' && owner !== 'SGX')
+                .slice(0, remainingSlots)
+                .forEach(([owner, count]) => {
+                    const c = count as number;
+                    highlights.push({
+                        type: owner || 'Unknown',
+                        count: c,
+                        ratio: total ? Math.round((c / total) * 100) : 0,
+                    });
+                });
+        }
+
+        return highlights;
     }, [dashboardData]);
 
-    const serviceInsights = useMemo(() => {
-        const onlineWorkers = dashboardData?.workers?.online || 0;
-        const totalWorkers = dashboardData?.workers?.total || 0;
-        const avgResponse = workerMonitorData?.summary?.averageResponseTime ?? 280;
+    // 合约类型标签展示：System 的数量与进度条保持一致
+    const contractsByTypeDisplay = useMemo(() => {
+        const byType = dashboardData?.contracts?.byType || {};
+        const byOwner = dashboardData?.contracts?.byOwner || {};
+
+        const display: Record<string, number> = { ...byType };
+
+        // 使用与 contractHighlights 相同的 System 统计口径
+        const systemOwnerCount = (byOwner.System as number | undefined) ?? (byType.System as number | undefined) ?? 0;
+        if (systemOwnerCount > 0) {
+            display.System = systemOwnerCount;
+        }
+
+        return display;
+    }, [dashboardData]);
+
+    const schedulingHighlights = useMemo(() => {
+        // 处理成功率 / 当前处理任务流 / 活跃任务流 来源于 sfqStatus
+        const flows = sfqStatus?.data?.flows || [];
+        const totalAccepted = flows.reduce((sum: number, f: any) => sum + (f.accepted || 0), 0) || 0;
+        const totalRejected = flows.reduce((sum: number, f: any) => sum + (f.rejected || 0), 0) || 0;
+        const totalRequests = totalAccepted + totalRejected;
+        const successRate = totalRequests > 0 ? ((totalAccepted / totalRequests) * 100).toFixed(1) : '0.0';
+
+        const servingFlow = sfqStatus?.data?.serving ?? '无';
+        const activeFlows = Array.isArray(flows) ? flows.length : 0;
+
+        // 推荐 Worker：与管理端一致的优先级
+        const recommendedWorker =
+            workerInsights?.recommended ||
+            workerInsights?.workers?.find((worker: any) => worker.isRecommended) ||
+            workerInsights?.workers?.[0] ||
+            null;
+
+        const workerId: string =
+            recommendedWorker?.pubkey ||
+            recommendedWorker?.endpoint ||
+            recommendedWorker?.id ||
+            '--';
+
+        // 推荐 Worker 公钥在大屏上进一步缩短显示，避免挤占过多空间
+        const recommendedWorkerLabel = workerId === '--' ? '--' : truncateMiddle(workerId, 6, 4);
+
         return [
             {
-                label: '调度任务',
-                value: workerMonitorData?.summary?.tasksLastDay || onlineWorkers * 12 || '--',
-                desc: '近24小时调度完成任务量',
+                label: '处理成功率',
+                value: `${successRate}%`,
+                desc: `${totalAccepted}/${totalRequests} 成功/总请求`,
             },
-            // {
-            //     label: '平均响应',
-            //     value: `${avgResponse} ms`,
-            //     desc: 'Worker 平均响应耗时',
-            // },
             {
-                label: '任务成功率',
-                value: `${workerMonitorData?.summary?.successRate || 98}%`,
-                desc: '最近1小时任务成功率',
+                label: '当前处理任务流',
+                value: servingFlow,
+                desc: '当前正在处理的 SFQ 流',
             },
-            // {
-            //     label: '资源覆盖率',
-            //     value: totalWorkers ? `${Math.round((onlineWorkers / totalWorkers) * 100)}%` : '--',
-            //     desc: '当前在线 Worker 占比',
-            // },
+            {
+                label: '活跃任务流',
+                value: activeFlows,
+                desc: '当前活跃的任务流数量',
+            },
+            {
+                label: '推荐 Worker',
+                value: recommendedWorkerLabel,
+                desc: '基于调度洞察推荐的 Worker',
+            },
         ];
-    }, [dashboardData, workerMonitorData]);
+    }, [sfqStatus, workerInsights]);
 
     const incentiveAverageScore = useMemo(() => {
         const summaryScore = dashboardData?.incentives?.averageScore;
@@ -1009,40 +1109,6 @@ export default function PolkadotWallPage() {
             },
         ],
     }), [workerDistributionData]);
-
-    const schedulingHighlights = useMemo(() => {
-        const summary = workerMonitorData?.summary || {};
-        const totalWorkers = dashboardData?.workers?.total || workerCount || 0;
-        const onlineWorkers = summary.online ?? dashboardData?.workers?.online ?? workerStatusDistribution.online ?? 0;
-        const tasksLastDay = typeof summary.tasksLastDay === 'number'
-            ? summary.tasksLastDay
-            : (onlineWorkers ? onlineWorkers * 12 : '--');
-        const successRate = typeof summary.successRate === 'number' ? summary.successRate : 98;
-        const avgResponse = summary.averageResponseTime ?? 0;
-
-        return [
-            {
-                label: '任务成功率',
-                value: `${successRate}%`,
-                desc: 'SFQ 近1小时成功率',
-            },
-            {
-                label: '平均响应时间',
-                value: `${avgResponse} ms`,
-                desc: 'Worker 平均响应',
-            },
-            {
-                label: '在线 Worker',
-                value: `${onlineWorkers}/${totalWorkers}`,
-                desc: '实时在线 / 总数',
-            },
-            {
-                label: '调度任务',
-                value: tasksLastDay,
-                desc: '近24小时调度量',
-            },
-        ];
-    }, [dashboardData, workerCount, workerMonitorData, workerStatusDistribution]);
 
     const schedulingChartData = useMemo(() => {
         const summary = workerMonitorData?.summary || {};
@@ -1588,7 +1654,6 @@ export default function PolkadotWallPage() {
                         <div className={styles.sectionHeader}>
                             <div>
                                 <div className={styles.sectionTitle}>账户列表</div>
-                                <div className={styles.sectionSubtitle}>已连接 {totalIncentiveAccounts} 个账户</div>
                             </div>
                             {totalRewardFormatted && (
                                 <Tag
@@ -1697,35 +1762,62 @@ export default function PolkadotWallPage() {
                             />
                         </div>
 
-                        {keySamples.length > 0 && (
+                        {contractSamples.length > 0 && (
                             <>
                                 <div className={styles.rotationKeyList}>
-                                    {pagedKeySamples.map((key: any) => (
-                                        <div key={key.id || key.keyId} className={styles.rotationKeyItem}>
+                                    {pagedKeySamples.map((item: any) => (
+                                        <div key={item.id || item.contractId} className={styles.rotationKeyItem}>
                                             <div className={styles.rotationKeyHeader}>
-                                                <Tooltip title={key.keyId}>
-                                                    <span>{key.keyId || '--'}</span>
+                                                <Tooltip title={item.contractId}>
+                                                    <span
+                                                        style={{
+                                                            display: 'inline-block',
+                                                            maxWidth: 180,
+                                                            fontSize: 11,
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {item.contractId || '--'}
+                                                    </span>
                                                 </Tooltip>
                                                 <Tag
                                                     className={styles.softPurpleTag}
                                                     style={{
                                                         margin: 0,
-                                                        minWidth: '70px',
+                                                        minWidth: '80px',
                                                         textAlign: 'center',
-                                                        color: (key.keyType || 'SR25519') === 'ECDSA' ? '#fff1f0' : '#e6fffb',
+                                                        fontSize: 11,
+                                                        color: item.hasKey ? '#b7eb8f' : '#ffa39e',
                                                     }}
                                                 >
-                                                    {key.keyType || 'SR25519'}
+                                                    {item.hasKey ? '密钥已就绪' : '密钥未就绪'}
                                                 </Tag>
                                             </div>
                                             <div className={styles.rotationKeyMeta}>
-                                                <span>{truncateMiddle(key.owner, 8, 6)}</span>
-                                                <span>消息 {key.pendingMessages ?? 0}</span>
+                                                <Tooltip title={item.clusterId}>
+                                                    <span
+                                                        style={{
+                                                            display: 'inline-block',
+                                                            maxWidth: 140,
+                                                            fontSize: 11,
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        集群: {truncateMiddle(item.clusterId, 8, 6)}
+                                                    </span>
+                                                </Tooltip>
+                                                <span style={{ fontSize: 11 }}>
+                                                    {item.clusterKey ? 'ClusterKey 已配置' : '无 ClusterKey'}
+                                                </span>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                {keySamples.length > KEY_SAMPLE_PAGE_SIZE && (
+                                {contractSamples.length > KEY_SAMPLE_PAGE_SIZE && (
                                     <div className={styles.rotationPagination}>
                                         <Button
                                             size="small"
@@ -1749,21 +1841,6 @@ export default function PolkadotWallPage() {
                                     </div>
                                 )}
                             </>
-                        )}
-                        {recentRotations.length > 0 && (
-                            <div className={styles.timelineList}>
-                                {recentRotations.map((item) => (
-                                    <div key={`${item.epoch}-${item.blockNumber}`} className={styles.timelineItem}>
-                                        <div>
-                                            <div className={styles.timelineTitle}>Epoch {item.epoch}</div>
-                                            <div className={styles.timelineMeta}>区块 #{item.blockNumber}</div>
-                                        </div>
-                                        <Tag color={item.success ? 'success' : 'error'}>
-                                            {item.success ? '完成' : '失败'}
-                                        </Tag>
-                                    </div>
-                                ))}
-                            </div>
                         )}
                     </DataCard>
                 </div>
@@ -1813,7 +1890,8 @@ export default function PolkadotWallPage() {
                                 <div className={styles.statisticBox}>
                                     <Statistic
                                         title="共识节点"
-                                        value={dashboardData?.blockchain.consensusNodes || 0}
+                                        value={3}
+                                        // value={dashboardData?.blockchain.consensusNodes || 0}
                                         valueStyle={{ color: '#1890ff', fontSize: '20px' }}
                                     />
                                 </div>
@@ -2012,7 +2090,7 @@ export default function PolkadotWallPage() {
                             />
                         </div>
                         <div className={styles.tagContainer}>
-                            {Object.entries(dashboardData?.contracts.byType || {}).map(([type, count]) => (
+                            {Object.entries(contractsByTypeDisplay || {}).map(([type, count]) => (
                                 <Tag key={type} color="purple" style={{ marginBottom: 8 }}>
                                     {type}: {count as number}
                                 </Tag>
@@ -2027,7 +2105,16 @@ export default function PolkadotWallPage() {
                                             <span className={styles.contractCount}>{item.count} 个</span>
                                         </div>
                                         <div className={styles.progressTrack}>
-                                            <div className={styles.progressFill} style={{ width: `${item.ratio}%` }} />
+                                            <div
+                                                className={`${styles.progressFill} ${
+                                                    item.type === 'SGX'
+                                                        ? styles.progressFillSgx
+                                                        : item.type === 'System'
+                                                        ? styles.progressFillSystem
+                                                        : ''
+                                                }`}
+                                                style={{ width: `${item.ratio}%` }}
+                                            />
                                         </div>
                                     </div>
                                 ))}

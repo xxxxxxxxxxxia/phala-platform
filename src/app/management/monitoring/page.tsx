@@ -342,11 +342,10 @@ export default function MonitoringPage() {
 
       // 【简化】不再需要特殊处理 'offline' 筛选
       const matchesStatus = statusFilter === 'all' || worker.status === statusFilter;
-      const matchesTeeType = teeTypeFilter === 'all' || worker.teeType === teeTypeFilter;
 
-      return matchesSearch && matchesStatus && matchesTeeType;
+      return matchesSearch && matchesStatus;
     });
-  }, [monitoringState.workers, searchText, statusFilter, teeTypeFilter]);
+  }, [monitoringState.workers, searchText, statusFilter]);
 
   // 设备列表相关定义
   const hostDataSource = hosts.filter((host) =>
@@ -564,43 +563,24 @@ export default function MonitoringPage() {
           </Col>
         </Row>
 
-        {/* 操作控制面板 */}
-        <Card style={{ marginBottom: '24px' }}>
-          <Row gutter={[16, 16]} align="middle">
-            <Col xs={24} sm={12} md={6}>
-              <Space>
-                <Button type="primary" icon={<ReloadOutlined />} onClick={loadMonitoringState} loading={loading}>
-                  刷新状态
-                </Button>
-                <Switch
-                  checked={autoRefresh}
-                  onChange={setAutoRefresh}
-                  checkedChildren="自动刷新"
-                  unCheckedChildren="手动刷新"
-                  size="small"
-                />
-              </Space>
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Text strong style={{ fontSize: '12px' }}>搜索Worker</Text>
+        {/* Worker监控列表 */}
+        <Card 
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
+              <span>Worker（SGX）监控</span>
+              <Space size="large" style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
                 <Input
                   placeholder="搜索Worker ID或公钥"
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   allowClear
-                  style={{ width: '100%' }}
+                  style={{ width: '200px' }}
                   size="small"
                 />
-              </Space>
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Text strong style={{ fontSize: '12px' }}>状态筛选</Text>
                 <Select
                   value={statusFilter}
                   onChange={setStatusFilter}
-                  style={{ width: '100%' }}
+                  style={{ width: '150px' }}
                   size="small"
                   options={[
                     { value: 'all', label: '全部状态' },
@@ -609,51 +589,15 @@ export default function MonitoringPage() {
                   ]}
                 />
               </Space>
-            </Col>
-            <Col xs={24} sm={12} md={6}>
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Text strong style={{ fontSize: '12px' }}>TEE类型</Text>
-                <Select
-                  value={teeTypeFilter}
-                  onChange={setTeeTypeFilter}
-                  style={{ width: '100%' }}
-                  size="small"
-                  options={[
-                    { value: 'all', label: '全部类型' },
-                    { value: 'Intel', label: 'Intel SGX' },
-                    { value: 'AMD', label: 'AMD SEV' },
-                    { value: 'Unknown', label: '未知类型' }
-                  ]}
-                />
-              </Space>
-            </Col>
-          </Row>
-          <Divider style={{ margin: '16px 0 12px 0' }} />
-          <Row justify="space-between" align="middle">
-            <Col>
-              <Space>
-                <Text type="secondary">
-                  最后更新: {new Date(monitoringState?.lastUpdate || Date.now()).toLocaleString()}
-                </Text>
-                <Divider type="vertical" />
-                <Text type="secondary">
-                  显示 <Text strong style={{ color: '#1890ff' }}>{filteredWorkers.length}</Text> /
-                  <Text strong style={{ color: '#52c41a' }}>{monitoringState?.totalWorkers || 0}</Text> 个Worker
-                </Text>
-              </Space>
-            </Col>
-            <Col>
-              <Space>
-                <Tag color="blue">在线: {monitoringState?.onlineWorkers || 0}</Tag>
-                <Tag color="orange">已注册: {(monitoringState?.totalWorkers || 0) - (monitoringState?.onlineWorkers || 0)}</Tag>
-              </Space>
-            </Col>
-          </Row>
-        </Card>
-
-        {/* Worker监控列表 */}
-        <Card title="Worker（SGX）监控" style={{ marginBottom: 16 }}
-          extra={<Button loading={workersLoading} icon={<ReloadOutlined />} size="small" onClick={loadWorkers}>刷新</Button>}>
+            </div>
+          }
+          extra={
+            <div style={{ marginLeft: '16px' }}>
+              <Button loading={workersLoading} icon={<ReloadOutlined />} size="small" onClick={loadWorkers}>刷新</Button>
+            </div>
+          }
+          style={{ marginBottom: 16 }}
+        >
           <Spin spinning={loading}><Table
             columns={workerColumns}
             dataSource={filteredWorkers}

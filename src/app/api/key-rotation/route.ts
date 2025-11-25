@@ -5,9 +5,117 @@ import { encodeAddress, decodeAddress } from '@polkadot/util-crypto';
 import { hexToU8a } from '@polkadot/util';
 import { getWorkersInfo, WorkerInfo } from '../../../lib/phalaApi';
 import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
+import * as fs from 'fs';
+import * as path from 'path';
+import https from 'https';
+import http from 'http';
 const WS_ENDPOINT = getNodeUrl();
 const PRUNTIME_ENDPOINT = getPruntimeUrl();
 let api: ApiPromise | null = null;
+
+// 历史记录文件路径
+// 在 standalone 模式下，需要从项目根目录查找 data 目录
+// 如果当前目录没有 data，尝试从上级目录查找（standalone 模式在 .next/standalone 目录运行）
+function getDataDir() {
+  const cwd = process.cwd();
+  // 检查当前目录是否有 data 文件夹
+  const dataDirInCwd = path.join(cwd, 'data');
+  if (fs.existsSync(dataDirInCwd)) {
+    return dataDirInCwd;
+  }
+  // 如果在 standalone 模式下（.next/standalone），向上查找
+  if (cwd.includes('.next/standalone')) {
+    const projectRoot = cwd.split('.next/standalone')[0];
+    const dataDirInRoot = path.join(projectRoot, 'data');
+    if (fs.existsSync(dataDirInRoot)) {
+      return dataDirInRoot;
+    }
+  }
+  // 默认使用当前目录
+  return dataDirInCwd;
+}
+
+const DATA_DIR = getDataDir();
+const HISTORY_FILE_PATH = path.join(DATA_DIR, 'sgx-key-rotation-history.json');
+const CONTRACT_ROTATION_HISTORY_FILE_PATH = path.join(DATA_DIR, 'contract-rotation-history.json');
+
+// 确保数据目录存在
+function ensureDataDir() {
+  const dataDir = path.dirname(HISTORY_FILE_PATH);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+}
+
+// 从文件加载合约轮换历史记录
+function loadContractRotationHistoryFromFile(): any[] {
+  try {
+    ensureDataDir();
+    if (fs.existsSync(CONTRACT_ROTATION_HISTORY_FILE_PATH)) {
+      const fileContent = fs.readFileSync(CONTRACT_ROTATION_HISTORY_FILE_PATH, 'utf-8').trim();
+      // 检查文件内容是否为空
+      if (!fileContent || fileContent === '') {
+        return [];
+      }
+      const history = JSON.parse(fileContent);
+      return Array.isArray(history) ? history : [];
+    }
+  } catch (error) {
+    console.error('Failed to load contract rotation history from file:', error);
+    // 如果文件损坏，返回空数组而不是抛出错误
+    return [];
+  }
+  return [];
+}
+
+// 保存合约轮换历史记录到文件
+function saveContractRotationHistoryToFile(history: any[]) {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(CONTRACT_ROTATION_HISTORY_FILE_PATH, JSON.stringify(history, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to save contract rotation history to file:', error);
+  }
+}
+
+// 从文件加载历史记录
+function loadRotationHistoryFromFile(): any[] {
+  try {
+    ensureDataDir();
+    if (fs.existsSync(HISTORY_FILE_PATH)) {
+      const fileContent = fs.readFileSync(HISTORY_FILE_PATH, 'utf-8');
+      const data = JSON.parse(fileContent);
+      // 验证数据格式
+      if (Array.isArray(data)) {
+        return data;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load rotation history from file:', error);
+  }
+  return [];
+}
+
+// 保存历史记录到文件
+function saveRotationHistoryToFile(history: any[]) {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(HISTORY_FILE_PATH, JSON.stringify(history, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Failed to save rotation history to file:', error);
+  }
+}
+
+// 清除历史记录文件（当node关闭时调用）
+function clearRotationHistoryFile() {
+  try {
+    if (fs.existsSync(HISTORY_FILE_PATH)) {
+      fs.unlinkSync(HISTORY_FILE_PATH);
+    }
+  } catch (error) {
+    console.error('Failed to clear rotation history file:', error);
+  }
+}
 
 async function getApi(): Promise<ApiPromise> {
   if (api && api.isConnected) {
@@ -134,8 +242,8 @@ let rotationState: RotationState = {
   lastUpdate: 0,
 };
 
-// 真实的轮换历史记录存储（仅驻留内存）
-let rotationHistory: any[] = [];
+// 真实的轮换历史记录存储（从文件加载，持久化保存）
+let rotationHistory: any[] = loadRotationHistoryFromFile();
 
 // 轮换配置存储
 let rotationConfig = {
@@ -162,6 +270,12 @@ function startAutoRotation() {
     console.log(`启动自动轮换，间隔: ${rotationConfig.interval}ms`);
     rotationTimer = setInterval(async () => {
       try {
+        // 首先检查自动轮换是否仍然启用
+        if (!rotationConfig.autoRotation) {
+          console.log('自动轮换已关闭，停止定时器');
+          stopAutoRotation();
+          return;
+        }
         // 检查是否正在执行，如果是则跳过
         if (isAutoRotationRunning) {
           console.log('自动轮换正在执行中，跳过本次触发');
@@ -190,6 +304,13 @@ function stopAutoRotation() {
 
 // 执行自动轮换
 async function performAutoRotation() {
+  // 首先检查自动轮换是否仍然启用
+  if (!rotationConfig.autoRotation) {
+    console.log('自动轮换已关闭，停止执行');
+    stopAutoRotation();
+    return;
+  }
+  
   // 检查是否正在执行，防止并发
   if (isAutoRotationRunning) {
     console.log('自动轮换正在执行中，跳过本次调用');
@@ -200,6 +321,12 @@ async function performAutoRotation() {
   const currentTime = Date.now();
   if (rotationConfig.lastRotation && (currentTime - rotationConfig.lastRotation) < rotationConfig.interval) {
     console.log('轮换间隔未到，跳过本次自动轮换');
+    return;
+  }
+  
+  // 再次检查自动轮换状态（双重检查）
+  if (!rotationConfig.autoRotation) {
+    console.log('自动轮换已关闭，停止执行');
     return;
   }
   
@@ -235,6 +362,8 @@ async function performAutoRotation() {
     
     // 将记录添加到历史中
     rotationHistory.push(rotationRecord);
+    // 保存到文件
+    saveRotationHistoryToFile(rotationHistory);
     
      // 执行真实的轮换过程 - 和立即轮换完全一样
      console.log('🔄 自动轮换触发，执行真实密钥轮换...');
@@ -346,6 +475,8 @@ async function performAutoRotation() {
      rotationRecord.status = 'completed';
      rotationRecord.endTime = Date.now();
      rotationRecord.newKey = newKey;
+     // 保存到文件
+     saveRotationHistoryToFile(rotationHistory);
      
      // 更新配置（lastRotation 已经在开始时更新了）
      rotationConfig.nextRotation = Date.now() + rotationConfig.interval;
@@ -373,6 +504,8 @@ async function performAutoRotation() {
     };
     
     rotationHistory.push(errorRecord);
+    // 保存到文件
+    saveRotationHistoryToFile(rotationHistory);
   } finally {
     // 无论成功还是失败，都要释放执行锁
     isAutoRotationRunning = false;
@@ -618,6 +751,8 @@ async function handleMasterKeyRotation() {
     
     // 将记录添加到历史中
     rotationHistory.push(rotationRecord);
+    // 保存到文件
+    saveRotationHistoryToFile(rotationHistory);
     
     // 执行真实的区块链轮换
     try {
@@ -730,6 +865,8 @@ async function handleMasterKeyRotation() {
       rotationRecord.status = 'completed';
       rotationRecord.endTime = Date.now();
       rotationRecord.newKey = newKey;
+      // 保存到文件
+      saveRotationHistoryToFile(rotationHistory);
       
       // 更新配置
       rotationConfig.lastRotation = Date.now();
@@ -744,6 +881,8 @@ async function handleMasterKeyRotation() {
       rotationRecord.status = 'failed';
       rotationRecord.endTime = Date.now();
       rotationRecord.error = error instanceof Error ? error.message : 'Unknown error';
+      // 保存到文件
+      saveRotationHistoryToFile(rotationHistory);
       
       throw error;
     }
@@ -908,9 +1047,38 @@ async function queryChainRotationHistory(): Promise<any[]> {
   }
 }
 
-// 获取轮换配置（仅内存历史，刷新后清空）
+// 检查node是否在线
+async function checkNodeOnline(): Promise<boolean> {
+  try {
+    const api = await getApi();
+    if (api && api.isConnected) {
+      // 尝试查询一个简单的链上数据来验证连接
+      await api.rpc.chain.getHeader();
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Node connection check failed:', error);
+    return false;
+  }
+}
+
+// 获取轮换配置（从文件加载的持久化历史）
 async function getRotationConfig() {
   try {
+    // 检查node是否在线，如果不在线则清除历史记录
+    const nodeOnline = await checkNodeOnline();
+    if (!nodeOnline) {
+      console.log('Node is offline, clearing rotation history');
+      rotationHistory = [];
+      clearRotationHistoryFile();
+    } else {
+      // 如果node在线，确保历史记录已从文件加载
+      if (rotationHistory.length === 0) {
+        rotationHistory = loadRotationHistoryFromFile();
+      }
+    }
+    
     // 按时间倒序排列
     const sortedHistory = [...rotationHistory].sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
     
@@ -1197,11 +1365,228 @@ export async function POST(request: NextRequest) {
           config: rotationConfig,
           message: `Auto rotation ${enabled ? 'enabled' : 'disabled'}`
         });
+      case 'clear-history':
+        // 清除历史记录（当node关闭时调用）
+        rotationHistory = [];
+        clearRotationHistoryFile();
+        return NextResponse.json({
+          success: true,
+          message: 'Rotation history cleared'
+        });
+      case 'query-contract-key':
+        // 查询合约密钥 - 使用DeriveK256Key接口获取每个合约的派生密钥
+        const contractId = body.contractId;
+        if (!contractId) {
+          return NextResponse.json({ success: false, error: 'Contract ID is required' }, { status: 400 });
+        }
+        return await handleQueryContractDerivedKey(contractId);
+      case 'rotate-kms-root-key':
+        // 轮换合约的派生密钥
+        const rotateContractId = body.contractId;
+        if (!rotateContractId) {
+          return NextResponse.json({ success: false, error: 'Contract ID is required' }, { status: 400 });
+        }
+        return await handleRotateContractDerivedKey(rotateContractId);
+      case 'save-contract-rotation-history':
+        // 保存合约轮换历史
+        const record = body.record;
+        if (record) {
+          const history = loadContractRotationHistoryFromFile();
+          history.push(record);
+          saveContractRotationHistoryToFile(history);
+          return NextResponse.json({ success: true, message: 'History saved' });
+        }
+        return NextResponse.json({ success: false, error: 'Invalid record' }, { status: 400 });
+      case 'save-batch-contract-rotation-history':
+        // 批量保存合约轮换历史
+        const records = body.records;
+        if (Array.isArray(records) && records.length > 0) {
+          const history = loadContractRotationHistoryFromFile();
+          history.push(...records);
+          saveContractRotationHistoryToFile(history);
+          return NextResponse.json({ success: true, message: `Saved ${records.length} history records` });
+        }
+        return NextResponse.json({ success: false, error: 'Invalid records' }, { status: 400 });
+      case 'get-contract-rotation-history':
+        // 获取合约轮换历史
+        const contractHistory = loadContractRotationHistoryFromFile();
+        return NextResponse.json({ success: true, history: contractHistory });
       default:
         return NextResponse.json({ message: 'Invalid action' }, { status: 400 });
     }
   } catch (error) {
     console.error('Key rotation API error:', error);
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
+  }
+}
+
+// 查询合约的派生密钥 - 使用DeriveK256Key接口
+async function handleQueryContractDerivedKey(contractId: string) {
+  try {
+    const url = new URL('http://43.132.154.142:13001/prpc/KMS.DeriveK256Key?json');
+    
+    // 使用合约地址作为path，确保每个合约有唯一的密钥
+    const requestBody = {
+      path: `contract/${contractId}`,
+      purpose: 'encryption',
+      key_version: 0
+    };
+    
+    const response = await new Promise<any>((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: url.hostname,
+          port: url.port || 80,
+          path: url.pathname + url.search,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve(jsonData);
+            } catch (error) {
+              reject(new Error(`Failed to parse response: ${error}`));
+            }
+          });
+        }
+      );
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.write(JSON.stringify(requestBody));
+      req.end();
+    });
+
+    // DeriveK256Key返回k256_key和签名链
+    const contractKey = response.k256_key || null;
+    
+    return NextResponse.json({
+      success: true,
+      data: response,
+      contractKey: contractKey,
+      k256Pubkey: response.k256_key,
+      hasKey: !!response.k256_key,
+      signatureChain: response.k256_signature_chain
+    });
+  } catch (error) {
+    console.error('Failed to query contract derived key:', error);
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
+  }
+}
+
+// 轮换合约的派生密钥 - 先轮换根密钥，然后重新派生
+async function handleRotateContractDerivedKey(contractId: string) {
+  try {
+    // 第一步：轮换根密钥
+    const rotateUrl = new URL('http://43.132.154.142:13001/prpc/KMS.RotateRootKey?json');
+    
+    const rotateResponse = await new Promise<any>((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: rotateUrl.hostname,
+          port: rotateUrl.port || 80,
+          path: rotateUrl.pathname + rotateUrl.search,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve(jsonData);
+            } catch (error) {
+              reject(new Error(`Failed to parse response: ${error}`));
+            }
+          });
+        }
+      );
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.write(JSON.stringify({}));
+      req.end();
+    });
+
+    // 第二步：轮换根密钥后，重新派生该合约的密钥
+    const deriveUrl = new URL('http://43.132.154.142:13001/prpc/KMS.DeriveK256Key?json');
+    const requestBody = {
+      path: `contract/${contractId}`,
+      purpose: 'encryption',
+      key_version: 0
+    };
+    
+    const deriveResponse = await new Promise<any>((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: deriveUrl.hostname,
+          port: deriveUrl.port || 80,
+          path: deriveUrl.pathname + deriveUrl.search,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            try {
+              const jsonData = JSON.parse(data);
+              resolve(jsonData);
+            } catch (error) {
+              reject(new Error(`Failed to parse response: ${error}`));
+            }
+          });
+        }
+      );
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.write(JSON.stringify(requestBody));
+      req.end();
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        rootKeyRotation: rotateResponse,
+        derivedKey: deriveResponse
+      },
+      newVersion: rotateResponse.new_version,
+      caPubkey: rotateResponse.ca_pubkey,
+      k256Pubkey: deriveResponse.k256_key, // 返回派生后的新密钥
+      signatureChain: deriveResponse.k256_signature_chain
+    });
+  } catch (error) {
+    console.error('Failed to rotate contract derived key:', error);
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'

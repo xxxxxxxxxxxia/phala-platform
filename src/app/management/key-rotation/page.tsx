@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Row, Col, Statistic, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Badge, Switch, Button, Modal, Input, Form, TimePicker, Flex, Collapse, Tooltip } from 'antd';
-import { KeyOutlined, LockOutlined, SecurityScanOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, SettingOutlined, HistoryOutlined, RotateLeftOutlined, DatabaseOutlined, FileTextOutlined } from '@ant-design/icons';
+import { KeyOutlined, LockOutlined, SecurityScanOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, SettingOutlined, HistoryOutlined, RotateLeftOutlined, DatabaseOutlined, FileTextOutlined, InfoCircleOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import MainLayout from '../../../components/layout/MainLayout';
 import AuthGuard from '../../../components/AuthGuard';
 
@@ -142,6 +142,21 @@ export default function KeyRotationPage() {
   const [kmsConfigModalVisible, setKmsConfigModalVisible] = useState(false);
   const [kmsHistoryModalVisible, setKmsHistoryModalVisible] = useState(false);
   const [kmsForm] = Form.useForm();
+  const [queryModalVisible, setQueryModalVisible] = useState(false);
+  const [queryContractId, setQueryContractId] = useState('');
+  const [queryResult, setQueryResult] = useState<{ contractKey: string | null; hasKey: boolean; error?: string; data?: any; k256Pubkey?: string; caCert?: string } | null>(null);
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [rotatingContractId, setRotatingContractId] = useState<string | null>(null);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [selectedContractDetail, setSelectedContractDetail] = useState<{ contractId: string; clusterId: string; clusterKey: string | null } | null>(null);
+  const [showWorkerKeys, setShowWorkerKeys] = useState(false);
+  // 合约密钥轮换相关状态
+  const [contractAutoRotation, setContractAutoRotation] = useState(false);
+  const [contractRotationInterval, setContractRotationInterval] = useState(1440); // 默认1440分钟（24小时）
+  const [contractRotationIntervalModalVisible, setContractRotationIntervalModalVisible] = useState(false);
+  const [contractRotationHistoryModalVisible, setContractRotationHistoryModalVisible] = useState(false);
+  const [contractRotationHistory, setContractRotationHistory] = useState<any[]>([]);
+  const [contractRotationTimer, setContractRotationTimer] = useState<NodeJS.Timeout | null>(null);
 
   const kmsAddress = kmsMeta ? `${kmsMeta.ip}:${kmsMeta.port}` : '';
   const kmsKeyRows = kmsMeta
@@ -394,6 +409,25 @@ export default function KeyRotationPage() {
     }
   }, [formatRootKeyHistory, rootKeyHistoryRaw]);
 
+  // 加载合约密钥轮换历史
+  const loadContractRotationHistory = useCallback(async () => {
+    try {
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get-contract-rotation-history'
+        })
+      });
+      const data = await response.json();
+      if (data.success && Array.isArray(data.history)) {
+        setContractRotationHistory(data.history);
+      }
+    } catch (error) {
+      console.error('Failed to load contract rotation history:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadRotationState();
     loadRotationConfig();
@@ -401,6 +435,7 @@ export default function KeyRotationPage() {
     loadKmsMeta();
     loadKmsLocalData();
     loadRootKeyHistory();
+    loadContractRotationHistory();
 
     // 启动定时轮询，检测自动轮换
     const pollInterval = setInterval(() => {
@@ -409,11 +444,51 @@ export default function KeyRotationPage() {
       loadClusterKeys(false); // 刷新集群密钥，不显示加载状态
       loadKmsMeta(false); // 刷新KMS元信息
       loadRootKeyHistory(); // 刷新根密钥历史
+      loadContractRotationHistory(); // 刷新合约轮换历史
     }, 60000); // 每60秒检查一次
 
     // 清理定时器
     return () => clearInterval(pollInterval);
-  }, [loadRootKeyHistory]);
+  }, [loadRootKeyHistory, loadContractRotationHistory]);
+
+  // 自动轮换逻辑
+  useEffect(() => {
+    // 清除旧的定时器
+    if (contractRotationTimer) {
+      clearInterval(contractRotationTimer);
+      setContractRotationTimer(null);
+    }
+
+    // 如果开启了自动轮换
+    if (contractAutoRotation && clusterInfo.length > 0) {
+      // 获取所有合约
+      const allContracts = clusterInfo.flatMap(cluster => cluster.contracts);
+      
+      if (allContracts.length > 0) {
+        // 创建定时器，按间隔轮换根密钥（所有合约）
+        const intervalMs = contractRotationInterval * 60 * 1000; // 转换为毫秒
+        const timer = setInterval(async () => {
+          // 使用批量轮换函数，自动轮换时不显示提示
+          try {
+            await handleRotateAllContracts(false); // 自动轮换时不显示提示
+          } catch (error) {
+            console.error('Failed to auto-rotate all contracts:', error);
+          }
+        }, intervalMs);
+        
+        setContractRotationTimer(timer);
+      }
+    }
+
+    // 清理函数
+    return () => {
+      if (contractRotationTimer) {
+        clearInterval(contractRotationTimer);
+      }
+    };
+    // 使用 clusterInfo.length 而不是 clusterInfo 本身，避免数组引用变化导致的无限循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractAutoRotation, contractRotationInterval, clusterInfo.length]);
 
   const handleMasterKeyRotation = async () => {
     if (isRotating) return; // 防止重复点击
@@ -585,6 +660,299 @@ export default function KeyRotationPage() {
     persistKmsConfig(updatedConfig);
     setKmsConfigModalVisible(false);
     showCustomNotification('海光CSV轮换间隔已更新', 'success', 3000);
+  };
+
+  // 查询合约密钥 - 调用KMS.GetKeyVersion接口
+  const handleQueryContractKey = async (contractId: string) => {
+    if (!contractId || !contractId.trim()) {
+      showCustomNotification('合约地址不能为空', 'warning', 3000);
+      return;
+    }
+
+    setQueryLoading(true);
+    setQueryResult(null);
+    try {
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'query-contract-key',
+          contractId: contractId
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // GetMeta返回k256_pubkey和证书信息
+        setQueryResult({
+          contractKey: data.contractKey || data.k256Pubkey || null,
+          hasKey: data.hasKey || !!data.k256Pubkey,
+          k256Pubkey: data.k256Pubkey,
+          caCert: data.caCert,
+          data: data.data
+        });
+        if (data.hasKey || data.k256Pubkey) {
+          showCustomNotification('查询成功', 'success', 3000);
+        } else {
+          showCustomNotification(data.message || '未找到密钥信息', 'warning', 3000);
+        }
+      } else {
+        setQueryResult({
+          contractKey: null,
+          hasKey: false,
+          error: data.error || '查询失败'
+        });
+        showCustomNotification(`查询失败: ${data.error || '未知错误'}`, 'error', 4000);
+      }
+    } catch (error: any) {
+      setQueryResult({
+        contractKey: null,
+        hasKey: false,
+        error: error.message || '查询请求失败'
+      });
+      showCustomNotification(`查询异常: ${error.message}`, 'error', 4000);
+    } finally {
+      setQueryLoading(false);
+    }
+  };
+
+  // 轮换所有合约的密钥（轮换根密钥）
+  const handleRotateAllContracts = async (showNotification: boolean = true) => {
+    if (rotatingContractId) {
+      return; // 防止重复点击
+    }
+
+    // 获取所有合约
+    const allContracts = clusterInfo.flatMap(cluster => cluster.contracts);
+    if (allContracts.length === 0) {
+      if (showNotification) {
+        showCustomNotification('没有可轮换的合约', 'warning', 3000);
+      }
+      return;
+    }
+
+    setRotatingContractId('all'); // 使用特殊标识表示正在轮换所有合约
+    const startTime = new Date().toISOString();
+    
+    try {
+      if (showNotification) {
+        showCustomNotification('正在轮换根密钥，所有合约密钥将更新...', 'loading', 2000);
+      }
+      
+      // 先获取所有合约的旧密钥
+      const oldKeysMap = new Map<string, string>();
+      for (const contract of allContracts) {
+        if (contract.contractId) {
+          try {
+            const queryResponse = await fetch('/api/key-rotation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'query-contract-key',
+                contractId: contract.contractId
+              })
+            });
+            const queryData = await queryResponse.json();
+            if (queryData.success && queryData.k256Pubkey) {
+              oldKeysMap.set(contract.contractId, queryData.k256Pubkey);
+            }
+          } catch (e) {
+            console.warn(`Failed to get old key for contract ${contract.contractId}:`, e);
+          }
+        }
+      }
+
+      // 轮换根密钥（使用第一个合约的ID，实际上会轮换根密钥）
+      const firstContractId = allContracts[0]?.contractId;
+      if (!firstContractId) {
+        throw new Error('No contract found');
+      }
+
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rotate-kms-root-key',
+          contractId: firstContractId
+        })
+      });
+
+      const data = await response.json();
+      const endTime = new Date().toISOString();
+      
+      if (data.success) {
+        // 为每个合约获取新密钥并保存历史
+        const historyRecords: any[] = [];
+        
+        for (const contract of allContracts) {
+          if (contract.contractId) {
+            try {
+              // 获取新密钥
+              const queryResponse = await fetch('/api/key-rotation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'query-contract-key',
+                  contractId: contract.contractId
+                })
+              });
+              const queryData = await queryResponse.json();
+              
+              if (queryData.success && queryData.k256Pubkey) {
+                const oldKey = oldKeysMap.get(contract.contractId) || '';
+                const newKey = queryData.k256Pubkey;
+                
+                historyRecords.push({
+                  contractId: contract.contractId,
+                  oldKey: oldKey,
+                  newKey: newKey,
+                  startTime: startTime,
+                  endTime: endTime
+                });
+              }
+            } catch (e) {
+              console.error(`Failed to get new key for contract ${contract.contractId}:`, e);
+            }
+          }
+        }
+
+        // 批量保存历史记录
+        if (historyRecords.length > 0) {
+          try {
+            await fetch('/api/key-rotation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'save-batch-contract-rotation-history',
+                records: historyRecords
+              })
+            });
+            // 刷新历史记录
+            await loadContractRotationHistory();
+          } catch (e) {
+            console.error('Failed to save rotation history:', e);
+          }
+        }
+
+        if (showNotification) {
+          showCustomNotification(`✅ 根密钥轮换成功，${historyRecords.length}个合约密钥已更新`, 'success', 4000);
+        }
+        
+        // 刷新集群密钥信息
+        await loadClusterKeys(false);
+      } else {
+        if (showNotification) {
+          showCustomNotification(`❌ 轮换失败: ${data.error || '未知错误'}`, 'error', 5000);
+        }
+      }
+    } catch (error: any) {
+      if (showNotification) {
+        showCustomNotification(`❌ 轮换异常: ${error.message}`, 'error', 5000);
+      }
+    } finally {
+      setRotatingContractId(null);
+    }
+  };
+
+  // 轮换合约的密钥（保留用于自动轮换，但不再在UI中显示）
+  const handleRotateContractKmsKey = async (contractId: string, showNotification: boolean = true) => {
+    if (rotatingContractId) {
+      return; // 防止重复点击
+    }
+
+    setRotatingContractId(contractId);
+    const startTime = new Date().toISOString();
+    let oldKey = '';
+    
+    try {
+      // 先查询当前密钥作为旧密钥
+      try {
+        const queryResponse = await fetch('/api/key-rotation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'query-contract-key',
+            contractId: contractId
+          })
+        });
+        const queryData = await queryResponse.json();
+        if (queryData.success && queryData.k256Pubkey) {
+          oldKey = queryData.k256Pubkey;
+        }
+      } catch (e) {
+        console.warn('Failed to get old key before rotation:', e);
+      }
+
+      if (showNotification) {
+        showCustomNotification('正在轮换密钥...', 'loading', 2000);
+      }
+      
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rotate-kms-root-key',
+          contractId: contractId
+        })
+      });
+
+      const data = await response.json();
+      const endTime = new Date().toISOString();
+      
+      if (data.success) {
+        const newKey = data.k256Pubkey || '';
+        
+        // 保存轮换历史
+        try {
+          await fetch('/api/key-rotation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'save-contract-rotation-history',
+              record: {
+                contractId: contractId,
+                oldKey: oldKey,
+                newKey: newKey,
+                startTime: startTime,
+                endTime: endTime
+              }
+            })
+          });
+          // 刷新历史记录
+          await loadContractRotationHistory();
+        } catch (e) {
+          console.error('Failed to save rotation history:', e);
+        }
+
+        if (showNotification) {
+          showCustomNotification('✅ 密钥轮换成功', 'success', 4000);
+        }
+        // 轮换成功后，自动刷新查询结果（如果查询窗口已打开）
+        if (queryModalVisible && queryContractId === contractId) {
+          await handleQueryContractKey(contractId);
+        }
+      } else {
+        if (showNotification) {
+          showCustomNotification(`❌ 轮换失败: ${data.error || '未知错误'}`, 'error', 5000);
+        }
+      }
+    } catch (error: any) {
+      if (showNotification) {
+        showCustomNotification(`❌ 轮换异常: ${error.message}`, 'error', 5000);
+      }
+    } finally {
+      setRotatingContractId(null);
+    }
+  };
+
+  // 打开查询Modal并自动查询
+  const openQueryModal = (contractId: string) => {
+    setQueryContractId(contractId);
+    setQueryResult(null);
+    setQueryModalVisible(true);
+    // 自动执行查询
+    handleQueryContractKey(contractId);
   };
 
   // 更新单个密钥的详细信息
@@ -813,229 +1181,201 @@ export default function KeyRotationPage() {
           </Row>
         </Card>
 
-        {/* 主密钥轮换控制面板 */}
-        <Flex
-          justify="space-between"
-          align="middle"
-          style={{
-            marginTop: '24px',
-            marginBottom: '16px',
-            padding: '16px 24px',
-            background: '#001529',
-            borderRadius: '8px',
-            border: '1px solid #434343',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-          }}
-        >
-          <Space>
-            <RotateLeftOutlined style={{ color: 'white' }} />
-            <Text style={{ color: 'white' }}>主密钥轮换控制</Text>
-            <Divider type="vertical" style={{ borderColor: '#666' }} />
-            <Text type="secondary" style={{ color: '#ccc' }}>
-              轮换间隔:
-              <Text style={{ color: '#1890ff', fontWeight: 'bold' }}>
-                {rotationConfig ? Math.round(rotationConfig.interval / (60 * 1000)) : 1440}分钟
-              </Text>
-            </Text>
-          </Space>
-          <Space>
-            <Switch
-              checked={rotationConfig?.autoRotation === true}
-              onChange={(checked) => {
-                console.log('Switch被点击，新状态:', checked);
-                handleToggleAutoRotation(checked);
-              }}
-              checkedChildren="自动"
-              unCheckedChildren="手动"
-              style={{ backgroundColor: rotationConfig?.autoRotation ? '#52c41a' : '#d9d9d9' }}
-              disabled={!rotationConfig}
-            />
-            <Button
-              icon={<SettingOutlined />}
-              onClick={() => setConfigModalVisible(true)}
-            >
-              设置
-            </Button>
-            <Button
-              icon={<HistoryOutlined />}
-              onClick={() => setHistoryModalVisible(true)}
-            >
-              历史
-            </Button>
-            <Button
-              type="primary"
-              icon={<RotateLeftOutlined />}
-              onClick={handleMasterKeyRotation}
-              loading={isRotating}
-              disabled={isRotating || rotationConfig?.autoRotation === true}
-            >
-              {isRotating ? '轮换中...' : rotationConfig?.autoRotation ? '自动模式' : '立即轮换'}
-            </Button>
-          </Space>
-        </Flex>
 
-        {/* 密钥列表 */}
+        {/* 密钥列表 - Worker密钥（可隐藏） */}
+        {showWorkerKeys && (
+          <Card
+            title={
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>SGX-密钥管理列表</span>
+                <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>
+                  密钥总数: {rotationState.totalKeys}
+                </Text>
+              </div>
+            }
+            style={{ marginBottom: '24px' }}
+          >
+            <Spin spinning={loading}>
+              <Table
+                columns={columns}
+                dataSource={rotationState.keys}
+                rowKey="id"
+                pagination={{ pageSize: 10, showSizeChanger: true }}
+                scroll={{ x: 1400 }}
+                size="small"
+              />
+            </Spin>
+          </Card>
+        )}
+
+        {/* 密钥管理列表 */}
         <Card
           title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>SGX-密钥管理列表</span>
-              <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>
-                密钥总数: {rotationState.totalKeys}
-              </Text>
-            </div>
-          }
-          style={{ marginBottom: '24px' }}
-        >
-          <Spin spinning={loading}>
-            <Table
-              columns={columns}
-              dataSource={rotationState.keys}
-              rowKey="id"
-              pagination={{ pageSize: 10, showSizeChanger: true, showQuickJumper: true }}
-              scroll={{ x: 1400 }}
-              size="small"
-            />
-          </Spin>
-        </Card>
-
-        {/* 集群和合约密钥展示 */}
-        <Card
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span><DatabaseOutlined /> 集群和合约密钥</span>
-              <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>
-                集群总数: {clusterInfo.length}
-              </Text>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span>密钥管理列表</span>
+              <Space size="middle">
+                <Text type="secondary" style={{ fontSize: '14px' }}>
+                  轮换间隔: <Text strong style={{ color: '#1890ff' }}>{contractRotationInterval}分钟</Text>
+                </Text>
+                <Switch
+                  checked={contractAutoRotation}
+                  onChange={(checked) => setContractAutoRotation(checked)}
+                  checkedChildren="自动"
+                  unCheckedChildren="手动"
+                />
+                <Button
+                  type="default"
+                  icon={<SettingOutlined />}
+                  onClick={() => setContractRotationIntervalModalVisible(true)}
+                  size="small"
+                >
+                  设置
+                </Button>
+                <Button
+                  type="default"
+                  icon={<HistoryOutlined />}
+                  onClick={async () => {
+                    await loadContractRotationHistory();
+                    setContractRotationHistoryModalVisible(true);
+                  }}
+                  size="small"
+                >
+                  历史
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<RotateLeftOutlined />}
+                  onClick={() => handleRotateAllContracts(true)}
+                  loading={rotatingContractId !== null}
+                  disabled={rotatingContractId !== null || contractAutoRotation}
+                  size="small"
+                >
+                  立即轮换
+                </Button>
+                <Tooltip title={showWorkerKeys ? '隐藏Worker密钥' : '显示Worker密钥'}>
+                  <Button
+                    type="text"
+                    icon={showWorkerKeys ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                    onClick={() => setShowWorkerKeys(!showWorkerKeys)}
+                    style={{ 
+                      color: 'rgba(255, 255, 255, 0.65)',
+                      fontSize: '14px'
+                    }}
+                  >
+                    {showWorkerKeys ? '隐藏Worker密钥' : '显示Worker密钥'}
+                  </Button>
+                </Tooltip>
+              </Space>
             </div>
           }
         >
           <Spin spinning={clusterLoading}>
-            {clusterInfo.length === 0 ? (
-              <Alert
-                message="暂无集群信息"
-                description="当前没有找到任何集群，请确保集群已部署。"
-                type="info"
-                showIcon
-              />
-            ) : (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
-                {clusterInfo.map((cluster, index) => (
-                  <Card
-                    key={index}
-                    size="small"
-                    title={
-                      <Space>
-                        <DatabaseOutlined />
-                        <Text strong>集群 {index + 1}</Text>
-                        <Tag color={cluster.hasClusterKey ? 'green' : 'orange'}>
-                          {cluster.hasClusterKey ? '集群密钥已就绪' : '集群密钥未就绪'}
-                        </Tag>
-                      </Space>
-                    }
-                    extra={
-                      <Text type="secondary" style={{ fontSize: '12px' }}>
-                        合约数: {cluster.contractCount}
-                      </Text>
-                    }
-                  >
-                    <Row gutter={[16, 16]}>
-                      {/* 集群ID */}
-                      <Col xs={24} sm={12} md={8}>
-                        <div>
-                          <Text type="secondary" style={{ fontSize: '11px', display: 'block', marginBottom: '4px' }}>
-                            集群ID
-                          </Text>
-                          <Text copyable={{ text: cluster.clusterId }} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-                            {cluster.clusterId.substring(0, 12)}...
-                          </Text>
-                        </div>
-                      </Col>
-                      {/* 集群密钥 */}
-                      <Col xs={24} sm={12} md={8}>
-                        <div>
-                          <Text type="secondary" style={{ fontSize: '11px', display: 'block', marginBottom: '4px' }}>
-                            集群密钥
-                          </Text>
-                          {cluster.hasClusterKey ? (
-                            <Text copyable={{ text: cluster.clusterKey || '' }} style={{ fontSize: '11px', fontFamily: 'monospace', color: '#52c41a' }}>
-                              {cluster.clusterKey?.substring(0, 12)}...
-                            </Text>
-                          ) : (
-                            <Text type="secondary" style={{ fontSize: '11px' }}>
-                              等待生成中...
-                            </Text>
-                          )}
-                        </div>
-                      </Col>
-                    </Row>
+            {(() => {
+              // 合并所有集群的合约到一个数组中，并添加集群信息
+              const allContracts = clusterInfo.flatMap((cluster, clusterIndex) => 
+                cluster.contracts.map((contract, contractIndex) => ({
+                  ...contract,
+                  clusterId: cluster.clusterId,
+                  clusterKey: cluster.clusterKey,
+                  hasClusterKey: cluster.hasClusterKey,
+                  globalIndex: clusterInfo.slice(0, clusterIndex).reduce((sum, c) => sum + c.contracts.length, 0) + contractIndex + 1
+                }))
+              );
 
-                    {/* 合约列表 - 使用表格形式，和上边的管理列表风格一致 */}
-                    {cluster.contracts.length > 0 && (
-                      <>
-                        <Divider style={{ margin: '16px 0' }} />
-                        <div>
-                          <Text strong style={{ fontSize: '12px', display: 'block', marginBottom: '12px' }}>
-                            <FileTextOutlined style={{ marginRight: '4px' }} />
-                            合约密钥列表 ({cluster.contracts.length})
-                          </Text>
-                          <Table
-                            dataSource={cluster.contracts}
-                            rowKey={(record, idx) => `contract-${idx}`}
-                            pagination={false}
+              if (allContracts.length === 0) {
+                return (
+                  <Alert
+                    message="暂无合约信息"
+                    description="当前没有找到任何合约，请确保合约已部署。"
+                    type="info"
+                    showIcon
+                  />
+                );
+              }
+
+              return (
+                <Table
+                  dataSource={allContracts}
+                  rowKey={(record, idx) => `contract-${record.clusterId}-${record.contractId}-${idx}`}
+                  pagination={{ pageSize: 10, showSizeChanger: true }}
+                  size="small"
+                  columns={[
+                    {
+                      title: '序号',
+                      key: 'index',
+                      width: 80,
+                      render: (_: any, record: any) => (
+                        <Text style={{ fontSize: '11px' }}>#{record.globalIndex}</Text>
+                      ),
+                    },
+                    {
+                      title: '状态',
+                      key: 'status',
+                      width: 120,
+                      render: (_: any, record: any) => (
+                        <Tag color={record.hasKey ? 'green' : 'orange'} style={{ fontSize: '11px' }}>
+                          {record.hasKey ? '密钥已就绪' : '密钥未就绪'}
+                        </Tag>
+                      ),
+                    },
+                    {
+                      title: '合约地址',
+                      dataIndex: 'contractId',
+                      key: 'contractId',
+                      width: 200,
+                      render: (text: string) => (
+                        <Text copyable={{ text }} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
+                          {text.substring(0, 12)}...
+                        </Text>
+                      ),
+                    },
+                    {
+                      title: '合约密钥',
+                      key: 'contractKey',
+                      width: 150,
+                      render: (_: any, record: any) => {
+                        return (
+                          <Button
+                            type="link"
                             size="small"
-                            columns={[
-                              {
-                                title: '序号',
-                                key: 'index',
-                                width: 60,
-                                render: (_: any, __: any, index: number) => (
-                                  <Text style={{ fontSize: '11px' }}>#{index + 1}</Text>
-                                ),
-                              },
-                              {
-                                title: '状态',
-                                key: 'status',
-                                width: 80,
-                                render: (_: any, record: any) => (
-                                  <Tag color={record.hasKey ? 'green' : 'orange'} style={{ fontSize: '11px' }}>
-                                    {record.hasKey ? '密钥已就绪' : '密钥未就绪'}
-                                  </Tag>
-                                ),
-                              },
-                              {
-                                title: '合约地址',
-                                dataIndex: 'contractId',
-                                key: 'contractId',
-                                render: (text: string) => (
-                                  <Text copyable={{ text }} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-                                    {text.substring(0, 12)}...
-                                  </Text>
-                                ),
-                              },
-                              {
-                                title: '合约密钥',
-                                dataIndex: 'contractKey',
-                                key: 'contractKey',
-                                render: (text: string | null, record: any) => {
-                                  if (!record.hasKey || !text) {
-                                    return <Text type="secondary" style={{ fontSize: '11px' }}>未生成</Text>;
-                                  }
-                                  return (
-                                    <Text copyable={{ text }} style={{ fontSize: '11px', fontFamily: 'monospace', color: '#52c41a' }}>
-                                      {text.substring(0, 12)}...
-                                    </Text>
-                                  );
-                                },
-                              },
-                            ]}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </Card>
-                ))}
-              </Space>
-            )}
+                            icon={<KeyOutlined />}
+                            onClick={() => openQueryModal(record.contractId)}
+                            style={{ padding: 0, fontSize: '13px' }}
+                          >
+                            查询密钥
+                          </Button>
+                        );
+                      },
+                    },
+                    {
+                      title: '更多信息',
+                      key: 'moreInfo',
+                      width: 120,
+                      render: (_: any, record: any) => {
+                        return (
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<InfoCircleOutlined />}
+                            onClick={() => {
+                              setSelectedContractDetail({
+                                contractId: record.contractId,
+                                clusterId: record.clusterId,
+                                clusterKey: record.clusterKey
+                              });
+                              setDetailModalVisible(true);
+                            }}
+                            style={{ padding: 0, fontSize: '13px' }}
+                          >
+                            更多信息
+                          </Button>
+                        );
+                      },
+                    },
+                  ]}
+                />
+              );
+            })()}
           </Spin>
         </Card>
 
@@ -1243,7 +1583,11 @@ export default function KeyRotationPage() {
                 width: 150,
                 render: (key: string | null) => {
                   if (!key || key === 'unknown') return '-';
-                  return <Text style={{ fontSize: '11px' }}>{key.substring(0, 12)}...</Text>;
+                  return (
+                    <Tooltip title={key} placement="top">
+                      <Text style={{ fontSize: '11px', cursor: 'pointer' }}>{key.substring(0, 12)}...</Text>
+                    </Tooltip>
+                  );
                 }
               },
               {
@@ -1253,7 +1597,11 @@ export default function KeyRotationPage() {
                 width: 150,
                 render: (key: string | null) => {
                   if (!key || key === 'unknown') return '-';
-                  return <Text style={{ fontSize: '11px' }}>{key.substring(0, 12)}...</Text>;
+                  return (
+                    <Tooltip title={key} placement="top">
+                      <Text style={{ fontSize: '11px', cursor: 'pointer' }}>{key.substring(0, 12)}...</Text>
+                    </Tooltip>
+                  );
                 }
               },
               {
@@ -1380,6 +1728,268 @@ export default function KeyRotationPage() {
           />
         </Modal>
 
+        {/* 查询合约密钥模态框 */}
+        <Modal
+          title="合约密钥查询结果"
+          open={queryModalVisible}
+          onCancel={() => {
+            setQueryModalVisible(false);
+            setQueryContractId('');
+            setQueryResult(null);
+          }}
+          footer={null}
+          width={600}
+        >
+          {queryLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Spin size="large" />
+              <div style={{ marginTop: '16px', color: 'rgba(255, 255, 255, 0.65)' }}>正在查询...</div>
+            </div>
+          ) : queryResult ? (
+            <div style={{ 
+              padding: '20px', 
+              background: '#001529',
+              borderRadius: '8px',
+              border: '1px solid #434343',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+            }}>
+              <Title level={5} style={{ marginBottom: '16px', color: 'rgba(255, 255, 255, 0.85)' }}>查询结果</Title>
+              {queryResult.error ? (
+                <Alert
+                  message="查询失败"
+                  description={queryResult.error}
+                  type="error"
+                  showIcon
+                />
+              ) : queryResult.hasKey && queryResult.contractKey ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="small">
+                  <div>
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                      合约地址
+                    </Text>
+                    <Text copyable={{ text: queryContractId }} style={{ fontSize: '12px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.85)' }}>
+                      {queryContractId}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                      合约公钥
+                    </Text>
+                    <Text 
+                      copyable={{ text: queryResult.contractKey || queryResult.k256Pubkey || '' }} 
+                      style={{ 
+                        fontSize: '12px', 
+                        fontFamily: 'monospace', 
+                        color: '#52c41a',
+                        wordBreak: 'break-all'
+                      }}
+                    >
+                      {queryResult.contractKey || queryResult.k256Pubkey || ''}
+                    </Text>
+                  </div>
+                </Space>
+              ) : (
+                <Alert
+                  message="未找到密钥"
+                  description="该合约地址对应的密钥尚未生成或不存在"
+                  type="warning"
+                  showIcon
+                />
+              )}
+            </div>
+          ) : null}
+        </Modal>
+
+        {/* 轮换间隔设置Modal */}
+        <Modal
+          title="设置轮换间隔"
+          open={contractRotationIntervalModalVisible}
+          onCancel={() => setContractRotationIntervalModalVisible(false)}
+          footer={null}
+          width={500}
+        >
+          <Form
+            layout="vertical"
+            initialValues={{ interval: contractRotationInterval }}
+            onFinish={(values) => {
+              const interval = Number(values.interval);
+              if (interval > 0) {
+                setContractRotationInterval(interval);
+                setContractRotationIntervalModalVisible(false);
+                showCustomNotification('✅ 轮换间隔设置成功', 'success', 3000);
+              }
+            }}
+          >
+            <Form.Item
+              label="轮换间隔（分钟）"
+              name="interval"
+              rules={[
+                { required: true, message: '请输入轮换间隔' },
+                { 
+                  validator: (_, value) => {
+                    const num = Number(value);
+                    if (!value || isNaN(num) || num <= 0) {
+                      return Promise.reject(new Error('间隔必须大于0'));
+                    }
+                    return Promise.resolve();
+                  }
+                }
+              ]}
+            >
+              <Input
+                type="number"
+                placeholder="请输入轮换间隔（分钟）"
+                min={1}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Space>
+                <Button type="primary" htmlType="submit">
+                  保存
+                </Button>
+                <Button onClick={() => setContractRotationIntervalModalVisible(false)}>
+                  取消
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Modal>
+
+        {/* 合约轮换历史Modal */}
+        <Modal
+          title="合约密钥轮换历史"
+          open={contractRotationHistoryModalVisible}
+          onCancel={() => setContractRotationHistoryModalVisible(false)}
+          footer={null}
+          width={1000}
+        >
+          <Table
+            dataSource={contractRotationHistory}
+            rowKey={(record) => `history-${record.contractId}-${record.startTime || Date.now()}`}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            size="small"
+            columns={[
+              {
+                title: '合约地址',
+                dataIndex: 'contractId',
+                key: 'contractId',
+                width: 200,
+                render: (text: string) => {
+                  if (!text) return <Text type="secondary">-</Text>;
+                  return (
+                    <Text copyable={{ text }} style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                      {text.substring(0, 12)}...
+                    </Text>
+                  );
+                },
+              },
+              {
+                title: '旧密钥',
+                dataIndex: 'oldKey',
+                key: 'oldKey',
+                width: 200,
+                render: (text: string) => (
+                  <Tooltip title={text || '无'}>
+                    <Text copyable={{ text: text || '' }} style={{ fontFamily: 'monospace', fontSize: '12px' }}>
+                      {text ? `${text.substring(0, 12)}...` : '-'}
+                    </Text>
+                  </Tooltip>
+                ),
+              },
+              {
+                title: '新密钥',
+                dataIndex: 'newKey',
+                key: 'newKey',
+                width: 200,
+                render: (text: string) => (
+                  <Tooltip title={text || '无'}>
+                    <Text copyable={{ text: text || '' }} style={{ fontFamily: 'monospace', fontSize: '12px', color: '#52c41a' }}>
+                      {text ? `${text.substring(0, 12)}...` : '-'}
+                    </Text>
+                  </Tooltip>
+                ),
+              },
+              {
+                title: '开始时间',
+                dataIndex: 'startTime',
+                key: 'startTime',
+                width: 180,
+                render: (time: string) => (
+                  <Text style={{ fontSize: '12px' }}>
+                    {time ? new Date(time).toLocaleString('zh-CN') : '-'}
+                  </Text>
+                ),
+              },
+              {
+                title: '结束时间',
+                dataIndex: 'endTime',
+                key: 'endTime',
+                width: 180,
+                render: (time: string) => (
+                  <Text style={{ fontSize: '12px' }}>
+                    {time ? new Date(time).toLocaleString('zh-CN') : '-'}
+                  </Text>
+                ),
+              },
+            ]}
+          />
+        </Modal>
+
+        {/* 合约更多信息模态框 */}
+        <Modal
+          title="合约详细信息"
+          open={detailModalVisible}
+          onCancel={() => {
+            setDetailModalVisible(false);
+            setSelectedContractDetail(null);
+          }}
+          footer={null}
+          width={600}
+        >
+          {selectedContractDetail && (
+            <div style={{ 
+              padding: '20px', 
+              background: '#001529',
+              borderRadius: '8px',
+              border: '1px solid #434343',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+            }}>
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <div>
+                  <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                    合约地址
+                  </Text>
+                  <Text copyable={{ text: selectedContractDetail.contractId }} style={{ fontSize: '12px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.85)' }}>
+                    {selectedContractDetail.contractId}
+                  </Text>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                    所属集群ID
+                  </Text>
+                  <Text copyable={{ text: selectedContractDetail.clusterId }} style={{ fontSize: '12px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.85)' }}>
+                    {selectedContractDetail.clusterId}
+                  </Text>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                    集群密钥
+                  </Text>
+                  {selectedContractDetail.clusterKey ? (
+                    <Text copyable={{ text: selectedContractDetail.clusterKey }} style={{ fontSize: '12px', fontFamily: 'monospace', color: '#52c41a', wordBreak: 'break-all' }}>
+                      {selectedContractDetail.clusterKey}
+                    </Text>
+                  ) : (
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      集群密钥未生成
+                    </Text>
+                  )}
+                </div>
+              </Space>
+            </div>
+          )}
+        </Modal>
 
       </MainLayout>
     </AuthGuard>

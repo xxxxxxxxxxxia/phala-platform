@@ -176,14 +176,67 @@ export async function GET(request: NextRequest) {
         // 获取合约数据
         let contractsTotal = 0;
         let contractsActive = 0;
-        if (api) {
+        let contractsByOwner: Record<string, number> = {};
+
+        // 1) 优先使用管理端的合约状态接口（包含 owner 等丰富信息）
+        try {
+            const contractsController = new AbortController();
+            const timeoutId = setTimeout(() => contractsController.abort(), 30000);
+
+            try {
+                const realRes = await fetch(`${request.nextUrl.origin}/api/contracts/real`, {
+                    signal: contractsController.signal,
+                });
+                clearTimeout(timeoutId);
+                const realData = await realRes.json().catch(() => null);
+
+                if (realRes.ok && realData?.success && Array.isArray(realData.data?.contracts)) {
+                    const list = realData.data.contracts as any[];
+                    contractsTotal = realData.data.totalContracts ?? list.length;
+                    contractsActive = realData.data.activeContracts ?? contractsTotal;
+                    list.forEach((c) => {
+                        const owner = c.owner || 'Unknown';
+                        contractsByOwner[owner] = (contractsByOwner[owner] || 0) + 1;
+                    });
+                    console.log('✅ [API] Dashboard 使用 /api/contracts/real 的合约数据, 数量:', contractsTotal);
+                } else {
+                    throw new Error('Real contracts API returned error');
+                }
+            } catch (contractsError: any) {
+                clearTimeout(timeoutId);
+                console.warn('⚠️ [API] /api/contracts/real 不可用，尝试快速合约接口:', contractsError?.message ?? String(contractsError));
+
+                // 回退到快速合约接口
+                try {
+                    const fastRes = await fetch(`${request.nextUrl.origin}/api/contracts/fast?action=status`);
+                    const fastData = await fastRes.json().catch(() => null);
+                    if (fastRes.ok && fastData?.success && Array.isArray(fastData.data?.contracts)) {
+                        const list = fastData.data.contracts as any[];
+                        contractsTotal = fastData.data.totalContracts ?? list.length;
+                        contractsActive = fastData.data.activeContracts ?? contractsTotal;
+                        list.forEach((c) => {
+                            const owner = c.owner || 'Unknown';
+                            contractsByOwner[owner] = (contractsByOwner[owner] || 0) + 1;
+                        });
+                        console.log('✅ [API] Dashboard 使用 /api/contracts/fast 的合约数据, 数量:', contractsTotal);
+                    }
+                } catch (fastError) {
+                    console.error('❌ [API] /api/contracts/fast 也不可用:', fastError);
+                }
+            }
+        } catch (e) {
+            console.error('❌ [API] 在获取管理端合约数据时发生错误:', e);
+        }
+
+        // 2) 如果仍然没有拿到总数，则回退到链上查询（原有逻辑）
+        if (contractsTotal === 0 && api) {
             try {
                 const contracts = await api.query.phalaRegistry.contractKeys.entries();
                 contractsTotal = contracts.length;
                 contractsActive = contracts.length; // 简化处理，实际应该查询状态
-                console.log('✅ [API] 获取合约数据成功, 数量:', contractsTotal);
+                console.log('✅ [API] 回退到链上获取合约数据, 数量:', contractsTotal);
             } catch (e) {
-                console.error('❌ [API] 无法获取合约数据:', e);
+                console.error('❌ [API] 无法从链上获取合约数据:', e);
             }
         }
 
@@ -243,7 +296,8 @@ export async function GET(request: NextRequest) {
                 byType: {
                     SGX: contractsTotal,
                     System: 0
-                }
+                },
+                byOwner: contractsByOwner,
             },
             incentives: {
                 totalAmount: totalIncentiveAmount,

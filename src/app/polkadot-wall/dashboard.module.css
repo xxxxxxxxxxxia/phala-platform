@@ -1209,6 +1209,15 @@
     background: linear-gradient(135deg, #00e5ff, #0aa2ff);
 }
 
+/* 不同合约类型的进度条颜色 */
+.progressFillSgx {
+    background: linear-gradient(135deg, #52c41a, #95de64);
+}
+
+.progressFillSystem {
+    background: linear-gradient(135deg, #fa8c16, #ffd666);
+}
+
 .snapshotProgress .progressItem:nth-child(1) .progressFill {
     background: linear-gradient(135deg, #ff7875, #ff9a8b);
 }

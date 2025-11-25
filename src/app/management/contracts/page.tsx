@@ -122,6 +122,10 @@ export default function ContractsPage() {
   const [addInputs, setAddInputs] = useState({ a: 1, b: 2 });
   const [addResult, setAddResult] = useState<any>(null);
   const [addLoading, setAddLoading] = useState(false);
+  // Get Sealed Config 功能状态
+  const [sealConfigContractAddress, setSealConfigContractAddress] = useState<string>('');
+  const [sealConfigResult, setSealConfigResult] = useState<any>(null);
+  const [sealConfigLoading, setSealConfigLoading] = useState(false);
 
   useEffect(() => {
     loadContractState();
@@ -468,13 +472,13 @@ export default function ContractsPage() {
   const downloadSampleContract = () => {
     // 创建下载链接 - 下载真正的.contract文件
     const link = document.createElement('a');
-    link.href = '/sample_contracts/phat_hello_add.contract';
-    link.download = 'phat_hello_add.contract';
+    link.href = '/sample_contracts/phat_hello.contract';
+    link.download = 'phat_hello.contract';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    message.success('示例合约下载成功！请使用 phat_hello_add.contract 文件上传部署。注意：只支持.contract和.wasm文件格式。');
+    message.success('示例合约下载成功！请使用 phat_hello.contract 文件上传部署。注意：只支持.contract和.wasm文件格式。');
   };
 
   // ADD调用功能
@@ -503,6 +507,39 @@ export default function ContractsPage() {
       message.error(error?.message || '查询失败');
     } finally {
       setAddLoading(false);
+    }
+  };
+
+  // Get Sealed Config 调用功能
+  const runGetSealedConfig = async () => {
+    if (!sealConfigContractAddress) {
+      message.error('请先选择或输入合约地址');
+      return;
+    }
+
+    setSealConfigLoading(true);
+    setSealConfigResult(null);
+    try {
+      const params = new URLSearchParams({
+        contractAddress: sealConfigContractAddress,
+      });
+      const response = await fetch(`/api/contracts/get-sealed-config?${params.toString()}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || '查询失败');
+      }
+      const data = await response.json();
+      setSealConfigResult(data);
+      if (data.success !== false) {
+        message.success('查询成功');
+      } else {
+        message.warning('查询完成，但可能存在错误');
+      }
+    } catch (error: any) {
+      message.error(error?.message || '查询失败');
+      setSealConfigResult({ error: error?.message || '查询失败' });
+    } finally {
+      setSealConfigLoading(false);
     }
   };
 
@@ -659,7 +696,7 @@ export default function ContractsPage() {
                 </Button>
                 <Button
                   icon={<MonitorOutlined />}
-                  onClick={() => window.open('http://43.132.154.142:9876/privacy_demo.html', '_blank')}
+                  onClick={() => window.open('https://6543e5c07a91f18cbf5e60a1e93f8c48113a7f20-3001.020919.xyz:9204/privacy_demo.html', '_blank')}
                   style={{ background: '#722ed1', borderColor: '#722ed1', color: 'white' }}
                 >
                   国产TEE隐私合约
@@ -743,12 +780,12 @@ export default function ContractsPage() {
           </Spin>
         </Card>
 
-        {/* phat_hello_add 合约调用功能 */}
+        {/* phat_hello 合约调用功能 */}
         <Card
           title={
             <Space>
               <ApiOutlined />
-              <span>phat_hello_add 合约查询</span>
+              <span>phat_hello 合约查询</span>
             </Space>
           }
           style={{ marginTop: 24 }}
@@ -765,7 +802,7 @@ export default function ContractsPage() {
                   style={{ width: '100%' }}
                 />
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  提示：可以从上面的合约列表中选择已部署的 phat_hello_add 合约地址
+                  提示：可以从上面的合约列表中选择已部署的 phat_hello 合约地址
                 </Text>
               </Space>
             </Col>
@@ -809,6 +846,96 @@ export default function ContractsPage() {
                 <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
                   {JSON.stringify(addResult, null, 2)}
                 </pre>
+              }
+            />
+          )}
+        </Card>
+
+        {/* Get Sealed Config 调用卡片 */}
+        <Card
+          title={
+            <Space>
+              <LockOutlined />
+              <span>get_sealed_config 函数调用</span>
+            </Space>
+          }
+          style={{ marginTop: 16 }}
+        >
+          <Row gutter={[16, 16]}>
+            <Col span={24}>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Text strong>合约地址</Text>
+                <Input
+                  placeholder="输入或从列表中选择合约地址（0x开头的64位十六进制）"
+                  value={sealConfigContractAddress}
+                  onChange={(e) => setSealConfigContractAddress(e.target.value)}
+                  allowClear
+                  style={{ width: '100%' }}
+                  suffix={
+                    addContractAddress ? (
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => setSealConfigContractAddress(addContractAddress)}
+                        style={{ padding: 0, height: 'auto' }}
+                      >
+                        使用 add 调用的地址
+                      </Button>
+                    ) : null
+                  }
+                />
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  提示：可以从上面的合约列表中选择已部署的 phat_hello 合约地址，或使用 add 调用中的地址
+                </Text>
+              </Space>
+            </Col>
+            <Col span={24}>
+              <Button
+                type="primary"
+                block
+                onClick={runGetSealedConfig}
+                loading={sealConfigLoading}
+                icon={<LockOutlined />}
+              >
+                查询 get_sealed_config()
+              </Button>
+            </Col>
+          </Row>
+          {sealConfigResult && (
+            <Alert
+              style={{ marginTop: 16 }}
+              type={sealConfigResult.success !== false && !sealConfigResult.error ? 'success' : 'error'}
+              showIcon
+              message={sealConfigResult.error ? '查询失败' : '查询结果'}
+              description={
+                sealConfigResult.error ? (
+                  <div>
+                    <Text type="danger">{sealConfigResult.error}</Text>
+                    {sealConfigResult.details && (
+                      <pre style={{ marginTop: 8, margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                        {sealConfigResult.details}
+                      </pre>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    {sealConfigResult.store_key && (
+                      <div style={{ marginBottom: 8 }}>
+                        <Text strong>store_key: </Text>
+                        <Text code copyable>{sealConfigResult.store_key}</Text>
+                      </div>
+                    )}
+                    {sealConfigResult.next_store_key && (
+                      <div style={{ marginBottom: 8 }}>
+                        <Text strong>next_store_key: </Text>
+                        <Text code copyable>{sealConfigResult.next_store_key}</Text>
+                      </div>
+                    )}
+                    <pre style={{ marginTop: 8, margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                      {JSON.stringify(sealConfigResult, null, 2)}
+                    </pre>
+                  </div>
+                )
               }
             />
           )}

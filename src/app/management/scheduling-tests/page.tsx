@@ -506,7 +506,7 @@ export default function SchedulingPage() {
                   安全调度控制台
                 </Title>
                 <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
-                  一站式查看 worker 健康度、运行安全调度场景，并直接调用 phat_hello_add 查询。
+                  一站式查看 worker 健康度、运行安全调度场景，并直接调用 phat_hello 查询。
                 </Text>
               </Space>
             </Col>
@@ -612,7 +612,7 @@ export default function SchedulingPage() {
           title={
             <Space>
               <ApiOutlined />
-              <span>phat_hello_add 合约查询</span>
+              <span>phat_hello 合约查询</span>
             </Space>
           }
         >

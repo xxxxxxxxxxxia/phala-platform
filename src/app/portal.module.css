@@ -11,7 +11,7 @@
 }
 
 .hero {
-    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #dbeafe 100%);
+    background: linear-gradient(to right, #f0f9ff 0%, #e0f2fe 50%, #dbeafe 100%);
     border: none;
     border-radius: 16px;
     padding: 64px 48px 48px;
@@ -448,15 +448,20 @@
 }
 
 @keyframes dotPulse {
-    0%, 20% {
+
+    0%,
+    20% {
         opacity: 0;
         transform: translateY(0);
     }
+
     50% {
         opacity: 1;
         transform: translateY(-4px);
     }
-    80%, 100% {
+
+    80%,
+    100% {
         opacity: 0;
         transform: translateY(0);
     }
@@ -522,13 +527,88 @@
         width: 0%;
         transform: translateX(0);
     }
+
     50% {
         width: 70%;
     }
+
     100% {
         width: 100%;
         transform: translateX(200px);
     }
+}
+
+/* 核心功能与核心特性合并卡片样式 */
+.coreFeaturesCard {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #dbeafe 100%) !important;
+    border: 1px solid rgba(37, 99, 235, 0.2) !important;
+    border-radius: 16px !important;
+    box-shadow: 0 4px 20px rgba(37, 99, 235, 0.1) !important;
+    padding: 40px 32px !important;
+    margin-top: 0 !important;
+}
+
+.coreFeaturesCard :global(.ant-card-body) {
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+.coreFeaturesCard :global(.ant-card) {
+    background: transparent !important;
+}
+
+.coreFeaturesTitle {
+    color: #2563eb !important;
+    font-size: 24px !important;
+    font-weight: 600 !important;
+    margin-bottom: 16px !important;
+    padding-bottom: 12px;
+    border-bottom: 2px solid rgba(37, 99, 235, 0.2);
+}
+
+.coreFeaturesDescription {
+    color: #6b7280 !important;
+    font-size: 14px !important;
+    margin-bottom: 24px !important;
+    line-height: 1.6;
+}
+
+/* 核心功能项卡片样式 - 白色主题，无悬停效果 */
+.coreFeatureItemCard {
+    background: #ffffff !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.coreFeatureItemCard :global(.ant-card) {
+    background: #ffffff !important;
+}
+
+.coreFeatureItemCard :global(.ant-card-body) {
+    padding: 20px !important;
+    background: #ffffff !important;
+}
+
+/* 核心特性项卡片样式 - 白色主题，无悬停效果 */
+.coreCapabilityItemCard {
+    background: #ffffff !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 12px !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.coreCapabilityItemCard :global(.ant-card) {
+    background: #ffffff !important;
+}
+
+.coreCapabilityItemCard :global(.ant-card-body) {
+    padding: 24px !important;
+    background: #ffffff !important;
+    min-height: 120px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
 }
 
 @media (max-width: 1024px) {

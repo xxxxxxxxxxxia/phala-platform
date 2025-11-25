@@ -436,18 +436,62 @@ export default function TEEVerificationPage() {
     }));
 
     try {
+      // 添加3-4秒延迟
+      const delay = 3000 + Math.random() * 1000; // 3-4秒随机延迟
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
       const response = await axios.get(`${DCAP_ATTESTATION_API}?action=generate-quote`);
       if (response.data.success) {
-        setSgxReportStatus(prev => ({
-          ...prev,
-          [worker.id]: { 
-            ...prev[worker.id],
-            quote: 'generated',
+        console.log('生成Quote - API返回数据:', {
+          hasQuote: !!response.data.quote,
+          quoteKeys: response.data.quote ? Object.keys(response.data.quote) : [],
+          hasBase64: !!response.data.quote?.base64,
+          hasData: !!response.data.quote?.data,
+          fullResponse: response.data
+        });
+        
+        // 确保quoteBase64有值，优先使用base64，其次使用data
+        const quoteBase64 = response.data.quote?.base64 || response.data.quote?.data;
+        if (!quoteBase64) {
+          console.error('生成Quote - 数据缺失，完整响应:', response.data);
+          throw new Error('Quote数据缺失：API返回的数据中没有base64或data字段');
+        }
+        
+        console.log('生成Quote - 准备保存状态, quoteBase64长度:', quoteBase64.length);
+        
+        setSgxReportStatus(prev => {
+          const existingStatus = prev[worker.id] || {
+            quote: 'idle',
+            collateral: 'idle',
+            verification: 'idle'
+          };
+          const newStatus = {
+            ...existingStatus, // 保留所有现有数据
+            quote: 'generated' as const,
             quoteFilename: response.data.quote?.filename || `quote_${Date.now()}`,
-            quoteBase64: response.data.quote?.base64,
-            quoteData: response.data.quote?.data || response.data.quote?.base64 // 保存数据用于下载
-          }
-        }));
+            quoteBase64: quoteBase64,
+            quoteData: quoteBase64
+          };
+          console.log('生成Quote - 新状态:', {
+            workerId: worker.id,
+            hasQuoteBase64: !!newStatus.quoteBase64,
+            hasQuoteData: !!newStatus.quoteData,
+            quoteBase64Length: newStatus.quoteBase64?.length,
+            allKeys: Object.keys(newStatus)
+          });
+          const updated = {
+            ...prev,
+            [worker.id]: newStatus
+          };
+          // 验证状态确实被保存
+          console.log('生成Quote - 验证保存后的状态:', {
+            workerId: worker.id,
+            savedHasQuoteBase64: !!updated[worker.id]?.quoteBase64,
+            savedHasQuoteData: !!updated[worker.id]?.quoteData
+          });
+          return updated;
+        });
+        
         // 显示成功提示Modal
         setSgxSuccessWorker(worker);
         setSgxQuoteSuccessModalVisible(true);
@@ -472,28 +516,58 @@ export default function TEEVerificationPage() {
       return;
     }
 
-    setSgxReportStatus(prev => ({
-      ...prev,
-      [worker.id]: { 
-        quote: prev[worker.id]?.quote || 'idle',
-        collateral: 'fetching',
-        verification: prev[worker.id]?.verification || 'idle'
-      }
-    }));
+    setSgxReportStatus(prev => {
+      const existingStatus = prev[worker.id] || {
+        quote: 'idle',
+        collateral: 'idle',
+        verification: 'idle'
+      };
+      console.log('获取Collateral - 更新前状态:', {
+        workerId: worker.id,
+        hasQuoteBase64: !!existingStatus.quoteBase64,
+        hasQuoteData: !!existingStatus.quoteData,
+        existingKeys: Object.keys(existingStatus)
+      });
+      return {
+        ...prev,
+        [worker.id]: { 
+          ...existingStatus, // 保留所有现有数据，包括 quoteBase64 和 quoteData
+          collateral: 'fetching' as const
+        }
+      };
+    });
 
     try {
+      // 添加3-4秒延迟
+      const delay = 3000 + Math.random() * 1000; // 3-4秒随机延迟
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
       const response = await axios.get(`${DCAP_ATTESTATION_API}?action=get-collateral`);
       if (response.data.success) {
-        setSgxReportStatus(prev => ({
-          ...prev,
-          [worker.id]: { 
-            ...prev[worker.id],
-            collateral: 'fetched',
+        setSgxReportStatus(prev => {
+          const existingStatus = prev[worker.id] || {
+            quote: 'idle',
+            collateral: 'idle',
+            verification: 'idle'
+          };
+          const newStatus = {
+            ...existingStatus, // 保留所有现有数据，包括 quoteBase64 和 quoteData
+            collateral: 'fetched' as const,
             collateralFilename: response.data.filename || `collateral_${Date.now()}.json`,
             collateralData: response.data.collateral,
             collateralFileData: response.data.data || JSON.stringify(response.data.collateral, null, 2) // 保存数据用于下载
-          }
-        }));
+          };
+          console.log('获取Collateral - 更新后状态:', {
+            workerId: worker.id,
+            hasQuoteBase64: !!newStatus.quoteBase64,
+            hasQuoteData: !!newStatus.quoteData,
+            allKeys: Object.keys(newStatus)
+          });
+          return {
+            ...prev,
+            [worker.id]: newStatus
+          };
+        });
         // 显示成功提示Modal
         setSgxSuccessWorker(worker);
         setSgxCollateralSuccessModalVisible(true);
@@ -512,39 +586,83 @@ export default function TEEVerificationPage() {
 
   // SGX Worker: 生成验证报告
   const handleGenerateSGXVerification = async (worker: SGXWorker) => {
-    const currentStatus = sgxReportStatus[worker.id];
-    if (currentStatus?.quote !== 'generated') {
+    console.log('生成验证报告 - 函数被调用, worker:', worker.id);
+    
+    // 直接获取当前状态
+    const currentStatus = sgxReportStatus[worker.id] || {
+      quote: 'idle',
+      collateral: 'idle',
+      verification: 'idle'
+    };
+
+    console.log('生成验证报告 - 当前状态:', currentStatus);
+
+    // 验证前置条件
+    if (currentStatus.quote !== 'generated') {
       message.warning('请先生成认证报告（Quote）');
       return;
     }
-    if (currentStatus?.collateral !== 'fetched') {
+    if (currentStatus.collateral !== 'fetched') {
       message.warning('请先获取Collateral');
       return;
     }
 
+    // 验证数据完整性
+    if (!currentStatus.quoteBase64 && !currentStatus.quoteData) {
+      console.error('生成验证报告 - Quote数据缺失:', {
+        hasQuoteBase64: !!currentStatus.quoteBase64,
+        hasQuoteData: !!currentStatus.quoteData,
+        statusKeys: Object.keys(currentStatus)
+      });
+      message.error('Quote数据不存在，请重新生成认证报告');
+      return;
+    }
+    if (!currentStatus.collateralData) {
+      console.error('生成验证报告 - Collateral数据缺失');
+      message.error('Collateral数据不存在，请重新获取Collateral');
+      return;
+    }
+
+    console.log('生成验证报告 - 验证通过，开始生成...');
+
+    // 更新状态为生成中
     setSgxReportStatus(prev => ({
       ...prev,
       [worker.id]: { 
-        quote: prev[worker.id]?.quote || 'idle',
-        collateral: prev[worker.id]?.collateral || 'idle',
+        ...prev[worker.id],
         verification: 'generating'
       }
     }));
 
     try {
-      // 如果有collateral数据，传递它；否则让API自己获取
-      const quoteBase64 = currentStatus?.quoteBase64;
-      const collateralData = currentStatus?.collateralData;
+      // 添加3-4秒延迟
+      const delay = 3000 + Math.random() * 1000; // 3-4秒随机延迟
+      await new Promise(resolve => setTimeout(resolve, delay));
       
-      let url = `${DCAP_ATTESTATION_API}?action=generate-verification`;
-      if (quoteBase64) {
-        url += `&quote=${encodeURIComponent(quoteBase64)}`;
-      }
-      if (collateralData) {
-        url += `&collateral=${encodeURIComponent(JSON.stringify(collateralData))}`;
-      }
-
-      const response = await axios.get(url);
+      // 从状态中获取数据，优先使用quoteBase64，如果没有则使用quoteData
+      const quoteBase64 = currentStatus.quoteBase64 || currentStatus.quoteData;
+      const collateralData = currentStatus.collateralData;
+      
+      console.log('生成验证报告 - 准备调用API, quote长度:', quoteBase64?.length, 'collateral类型:', typeof collateralData);
+      
+      // 使用POST请求，避免URL过长的问题（quote和collateral数据很大）
+      const response = await axios.post(
+        DCAP_ATTESTATION_API,
+        {
+          action: 'generate-verification',
+          quote: quoteBase64,
+          collateral: collateralData
+        },
+        {
+          timeout: 60000, // 60秒超时，验证可能需要更长时间
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      console.log('生成验证报告 - API响应:', response.data.success, response.data);
+      
       if (response.data.success) {
         setSgxReportStatus(prev => ({
           ...prev,
@@ -567,7 +685,9 @@ export default function TEEVerificationPage() {
         ...prev,
         [worker.id]: { ...prev[worker.id], verification: 'failed' }
       }));
-      message.error(error.response?.data?.error || '生成验证报告失败');
+      const errorMessage = error.response?.data?.error || error.message || '生成验证报告失败';
+      message.error(errorMessage);
+      console.error('生成验证报告失败:', error);
     }
   };
 
@@ -839,7 +959,10 @@ export default function TEEVerificationPage() {
               size="small"
               icon={<FileProtectOutlined />}
               loading={reportStatus.verification === 'generating'}
-              onClick={() => handleGenerateSGXVerification(record)}
+              onClick={() => {
+                console.log('点击生成验证报告按钮, worker:', record.id, 'status:', reportStatus);
+                handleGenerateSGXVerification(record);
+              }}
               disabled={reportStatus.quote !== 'generated' || reportStatus.collateral !== 'fetched'}
               style={buttonStyle}
             >
@@ -1179,34 +1302,6 @@ export default function TEEVerificationPage() {
               关闭
             </Button>,
             <Button 
-              key="download-quote" 
-              icon={<DownloadOutlined />}
-              onClick={() => {
-                if (sgxSuccessWorker) {
-                  const status = sgxReportStatus[sgxSuccessWorker.id];
-                  if (status?.quote === 'generated') {
-                    handleDownloadSGXFile(sgxSuccessWorker, 'quote');
-                  }
-                }
-              }}
-            >
-              下载 Quote
-            </Button>,
-            <Button 
-              key="download-collateral" 
-              icon={<DownloadOutlined />}
-              onClick={() => {
-                if (sgxSuccessWorker) {
-                  const status = sgxReportStatus[sgxSuccessWorker.id];
-                  if (status?.collateral === 'fetched') {
-                    handleDownloadSGXFile(sgxSuccessWorker, 'collateral');
-                  }
-                }
-              }}
-            >
-              下载 Collateral
-            </Button>,
-            <Button 
               key="download-verification" 
               type="primary"
               icon={<DownloadOutlined />}
@@ -1227,7 +1322,7 @@ export default function TEEVerificationPage() {
               {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的验证报告已成功生成
             </Typography.Title>
             <Text type="secondary">
-              您现在可以下载 Quote、Collateral 和验证报告文件。
+              您现在可以下载验证报告文件。
             </Text>
           </div>
         </Modal>

@@ -3674,7 +3674,7 @@ fi`,
               <Text
                 code
                 style={{
-                  background: "#ffffff",
+                  // background: "#ffffff",
                   border: "1px solid #dbeafe",
                   color: "#3b82f6",
                   padding: "6px 10px",

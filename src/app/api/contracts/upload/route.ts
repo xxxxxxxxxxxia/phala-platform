@@ -87,17 +87,17 @@ export async function POST(request: NextRequest) {
       console.warn(`未找到.env文件: ${envFilePath}，将使用脚本默认值`);
     }
 
-    // 检查deploy-phat-hello-add.js脚本是否存在（专门用于部署phat_hello_add合约）
-    const scriptPath = `${setupPath}/src/deploy-phat-hello-add.js`;
+    // 检查deploy-phat-hello-new.js脚本是否存在（专门用于部署phat_hello合约）
+    const scriptPath = `${setupPath}/src/deploy-phat-hello-new.js`;
     if (!existsSync(scriptPath)) {
-      throw new Error(`找不到deploy-phat-hello-add.js脚本。路径: ${scriptPath}`);
+      throw new Error(`找不到deploy-phat-hello-new.js脚本。路径: ${scriptPath}`);
     }
-    console.log('使用deploy-phat-hello-add.js脚本部署phat_hello_add合约');
+    console.log('使用deploy-phat-hello-new.js脚本部署phat_hello合约');
 
-    // 使用deploy-phat-hello-add.js脚本部署合约
-    // 脚本会优先使用CONTRACT_PATH环境变量，如果没有则使用默认的phat_hello_add.contract
+    // 使用deploy-phat-hello-new.js脚本部署合约
+    // 脚本会优先使用CONTRACT_PATH环境变量，如果没有则使用默认的phat_hello.contract
     // CONTRACT_PATH指定上传的合约文件路径
-    const deployCommand = `cd "${setupPath}" && node src/deploy-phat-hello-add.js`;
+    const deployCommand = `cd "${setupPath}" && node src/deploy-phat-hello-new.js`;
     console.log('执行命令:', deployCommand);
     console.log('合约文件路径:', tempPath);
 
@@ -143,8 +143,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 解析输出获取合约地址
-    // deploy-phat-hello-add.js输出格式: 
-    // "📍 合约地址: 0x..." 或 "🆔 合约ID: 0x..." 或 "✅ 合约 phat_hello_add 已部署到地址: 0x..."
+    // deploy-phat-hello-new.js输出格式: 
+    // "📍 合约地址: 0x..." 或 "🆔 合约ID: 0x..." 或 "✅ 合约 phat_hello 已部署到地址: 0x..."
     const fullOutput = stdout + (stderr || '');
 
     // 排除的地址（集群ID和系统合约地址）

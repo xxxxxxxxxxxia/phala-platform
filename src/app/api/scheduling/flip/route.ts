@@ -41,6 +41,17 @@ export async function GET(request: NextRequest) {
             },
         });
     } catch (error: any) {
+        console.error(`[SFQ Flip API] ❌ 操作失败:`, error);
+        console.error(`[SFQ Flip API] 错误类型:`, error?.constructor?.name);
+        console.error(`[SFQ Flip API] 错误消息:`, error?.message);
+        console.error(`[SFQ Flip API] 错误堆栈:`, error?.stack);
+
+        // 确保错误信息被记录到标准输出（Docker日志）
+        process.stdout.write(`[SFQ Flip API ERROR] ${error?.message || "unknown error"}\n`);
+        if (error?.stack) {
+            process.stdout.write(`[SFQ Flip API STACK] ${error.stack}\n`);
+        }
+
         const running = status.running && !/未运行/.test(error?.message || "");
         console.log(`[SFQ Flip API] 错误处理: running=${running}, error=${error?.message}`);
         const payload = {

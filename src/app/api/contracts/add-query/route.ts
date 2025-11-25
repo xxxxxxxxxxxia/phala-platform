@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
             }, { status: 400 });
         }
 
-        console.log(`查询 phat_hello_add 合约: ${contractAddress}, 参数: a=${a}, b=${b}`);
+        console.log(`查询 phat_hello 合约: ${contractAddress}, 参数: a=${a}, b=${b}`);
         if (workerEndpoint) {
             console.log(`使用指定的 Worker 端点: ${workerEndpoint}`);
         }
@@ -55,9 +55,9 @@ export async function GET(request: NextRequest) {
 
         console.log(`使用路径: ${setupPath}`);
 
-        // 检查调用脚本是否存在（优先使用test-phat-hello-add-query.js）
+        // 检查调用脚本是否存在（优先使用test-phat-hello-add-query.js，这是之前能工作的脚本）
         const scriptPath = `${setupPath}/src/test-phat-hello-add-query.js`;
-        const fallbackScriptPath = `${setupPath}/src/call-phat-hello-add.js`;
+        const fallbackScriptPath = `${setupPath}/src/test-phat-hello-add.js`;
 
         let useTestScript = false;
         if (existsSync(scriptPath)) {
@@ -69,8 +69,11 @@ export async function GET(request: NextRequest) {
             throw new Error(`找不到查询脚本。检查的路径: ${scriptPath}, ${fallbackScriptPath}`);
         }
 
-        // 检查合约文件是否存在
+        // 检查合约文件是否存在（先尝试新的phat_hello.contract，如果不存在则尝试phat_hello_add.contract）
         const possibleContractPaths = [
+            `${setupPath}/src/phat_hello.contract`,
+            `${setupPath}/res/phat_hello.contract`,
+            `${setupPath}/phat_hello.contract`,
             `${setupPath}/res/phat_hello_add.contract`,
             `${setupPath}/src/phat_hello_add.contract`,
             `${setupPath}/phat_hello_add.contract`,
@@ -85,7 +88,7 @@ export async function GET(request: NextRequest) {
         }
 
         if (!contractPath) {
-            throw new Error(`找不到phat_hello_add.contract文件。检查的路径: ${possibleContractPaths.join(', ')}`);
+            throw new Error(`找不到合约文件。检查的路径: ${possibleContractPaths.join(', ')}`);
         }
 
         // 计算相对路径（从setup目录）
@@ -117,7 +120,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 执行调用脚本
-        const scriptName = useTestScript ? 'src/test-phat-hello-add-query.js' : 'src/call-phat-hello-add.js';
+        const scriptName = useTestScript ? 'src/test-phat-hello-add-query.js' : 'src/test-phat-hello-add.js';
         const command = `cd "${setupPath}" && node ${scriptName}`;
         console.log('执行命令:', command);
 
@@ -131,8 +134,7 @@ export async function GET(request: NextRequest) {
             ...(endpoint && { ENDPOINT: endpoint }),
             ...(workerEndpoint && { WORKER: workerEndpoint }),
             ...(worker && !workerEndpoint && { WORKER: worker }),
-            // test-phat-hello-add-query.js 会测试多个用例，我们需要修改它只测试一个用例
-            // 或者创建一个包装脚本
+            // test-phat-hello-add.js 会测试多个用例，但也会支持单个用例查询
             ...(useTestScript ? { A: a.toString(), B: b.toString() } : { A: a.toString(), B: b.toString() })
         };
 
@@ -164,10 +166,15 @@ export async function GET(request: NextRequest) {
             try {
                 const result = JSON.parse(resultMatch[1]);
                 if (result.success) {
-                    // 提取result中的值（可能是{"ok":30}格式）
+                    // 提取result中的值（可能直接是数字，或者在某些情况下是对象）
                     let finalResult = result.result;
+                    // 如果result是对象且有ok字段，取ok的值
                     if (result.result && typeof result.result === 'object' && 'ok' in result.result) {
                         finalResult = result.result.ok;
+                    }
+                    // 确保finalResult是数字类型
+                    if (typeof finalResult !== 'number') {
+                        finalResult = Number(finalResult) || finalResult;
                     }
 
                     return NextResponse.json({
@@ -179,7 +186,7 @@ export async function GET(request: NextRequest) {
                             contractAddress: result.contractAddress,
                             executedAt: Date.now()
                         },
-                        message: "phat_hello_add 查询完成",
+                        message: "phat_hello 查询完成",
                     });
                 } else {
                     return NextResponse.json({

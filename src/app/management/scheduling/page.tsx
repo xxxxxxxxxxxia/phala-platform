@@ -53,7 +53,7 @@ import DataCard from "@/components/DataCard";
 import AuthGuard from '@/components/AuthGuard';
 
 // 后端服务器的地址，请确保与你的后端服务地址一致
-const API_BASE_URL = "http://8.147.106.136:3001/api";
+const API_BASE_URL = "http://8.147.106.136:3002/api";
 const { Dragger } = Upload;
 
 type SERVICE = {
@@ -201,24 +201,6 @@ const scenarioFlowColumns = [
     key: "expectedAccepted",
     render: (value: number | undefined) => value !== undefined ? value.toFixed(1) : "--",
   },
-  {
-    title: "分配比例",
-    dataIndex: "allocationRatio",
-    key: "allocationRatio",
-    render: (value: number | undefined, record: any) => {
-      if (value === undefined || record.flowId?.includes("fair")) return "--";
-      const percentage = (value * 100).toFixed(1);
-      const color = value >= 0.95 && value <= 1.05 ? "success" : value >= 0.8 ? "warning" : "error";
-      return <Tag color={color}>{percentage}%</Tag>;
-    },
-  },
-  {
-    title: "标准化接受数",
-    dataIndex: "normalizedAccepted",
-    key: "normalizedAccepted",
-    render: (value: number | undefined) => value !== undefined ? value.toFixed(2) : "--",
-    tooltip: "每权重单位接受的请求数（用于对比权重公平性）",
-  },
   { title: "已拒绝", dataIndex: "rejected", key: "rejected" },
 ];
 
@@ -259,17 +241,6 @@ const sfqFlowColumns = [
     render: (value: number) => (
       <Text style={{ color: value > 0 ? "#f5222d" : undefined }}>{value || 0}</Text>
     ),
-  },
-  {
-    title: "等待队列",
-    dataIndex: "backlog",
-    key: "backlog",
-    render: (value: number) => (
-      <Tag color={value === 0 ? "success" : value <= 3 ? "warning" : "error"}>
-        {value || 0} 个
-      </Tag>
-    ),
-    tooltip: "当前等待处理的请求数",
   },
   {
     title: "处理进度",
@@ -365,7 +336,6 @@ export default function HomePage() {
   const [addLoading, setAddLoading] = useState(false);
   const [sfqStatus, setSfqStatus] = useState<any>(null);
   const [sfqLoading, setSfqLoading] = useState(false);
-  const [sfqControlLoading, setSfqControlLoading] = useState(false);
 
   const {
     token: { colorBgContainer, colorText },
@@ -588,68 +558,11 @@ export default function HomePage() {
     }
   }, [workerInsights]);
 
-  const startSFQServer = async () => {
-    setSfqControlLoading(true);
-    try {
-      const response = await fetch("/api/scheduling/sfq?action=start");
-      const data = await response.json();
-      if (data.success) {
-        message.success("SFQ 服务器启动成功");
-        await loadSFQStatus();
-      } else {
-        message.error(data.error || "SFQ 服务器启动失败");
-      }
-    } catch (error: any) {
-      message.error(error?.message || "SFQ 服务器启动失败");
-    } finally {
-      setSfqControlLoading(false);
-    }
-  };
-
-  const stopSFQServer = async () => {
-    setSfqControlLoading(true);
-    try {
-      console.log("[前端] 开始停止SFQ服务器...");
-      const response = await fetch("/api/scheduling/sfq?action=stop");
-      const data = await response.json();
-      console.log("[前端] 停止服务器响应:", data);
-
-      if (data.success) {
-        const stopped = data.data?.stopped;
-        console.log("[前端] 停止结果:", stopped);
-
-        if (stopped) {
-          message.success("SFQ 服务器已停止");
-          // 等待一段时间确保进程完全停止
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          // 强制刷新状态
-          await loadSFQStatus();
-          // 再等待一下，再次刷新确保状态正确
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await loadSFQStatus();
-        } else {
-          message.warning("SFQ 服务器未在运行或已停止");
-          await loadSFQStatus();
-        }
-      } else {
-        console.error("[前端] 停止失败:", data.error);
-        message.error(data.error || "SFQ 服务器停止失败");
-        // 即使失败也刷新状态
-        await loadSFQStatus();
-      }
-    } catch (error: any) {
-      console.error("[前端] 停止服务器异常:", error);
-      message.error(error?.message || "SFQ 服务器停止失败");
-      // 异常时也刷新状态
-      await loadSFQStatus();
-    } finally {
-      setSfqControlLoading(false);
-    }
-  };
+  // 启动和停止功能已移除，请使用 scripts/sfq-server.sh 脚本管理服务器
 
   const runScenario = async (scenarioId: string) => {
     if (!sfqStatus?.available) {
-      message.warning("请先启动 SFQ 服务器");
+      message.warning("请先使用脚本启动 SFQ 服务器: ./scripts/sfq-server.sh start");
       return;
     }
 
@@ -850,11 +763,6 @@ export default function HomePage() {
     const totalRequests = totalAccepted + totalRejected;
     const successRate = totalRequests > 0 ? ((totalAccepted / totalRequests) * 100).toFixed(1) : "0";
 
-    // 计算平均等待数（积压）
-    const avgBacklog = sfqStatus.data.flows?.length > 0
-      ? (sfqStatus.data.flows.reduce((sum: number, f: any) => sum + (f.backlog || 0), 0) / sfqStatus.data.flows.length).toFixed(1)
-      : "0";
-
     return [
       {
         title: "处理成功率",
@@ -865,11 +773,6 @@ export default function HomePage() {
         title: "当前正在处理",
         value: sfqStatus.data.serving ?? "无",
         suffix: "流",
-      },
-      {
-        title: "平均等待队列",
-        value: avgBacklog,
-        suffix: "个请求/流",
       },
       {
         title: "活跃任务流",
@@ -918,11 +821,6 @@ export default function HomePage() {
       ];
     });
   }, [sfqStatus]);
-
-  const hasBacklogValue = useMemo(
-    () => flowChartData.some((item: { backlog?: number }) => (item.backlog ?? 0) > 0),
-    [flowChartData]
-  );
 
   const recommendedWorker = useMemo(() => {
     return (
@@ -1634,7 +1532,7 @@ export default function HomePage() {
                             安全调度控制台（SGX）
                           </Title>
                           <Text style={{ color: "rgba(255,255,255,0.75)" }}>
-                            查看 worker 健康度、运行 SFQ 调度场景，以及直接调用 phat_hello_add。
+                            查看 worker 健康度、运行 SFQ 调度场景，以及直接调用 phat_hello。
                           </Text>
                         </Space>
                       </Col>
@@ -1753,7 +1651,7 @@ export default function HomePage() {
                     title={
                       <Space>
                         <ApiOutlined />
-                        <span>phat_hello_add 合约查询</span>
+                        <span>phat_hello 合约查询</span>
                       </Space>
                     }
                     style={{
@@ -1776,7 +1674,7 @@ export default function HomePage() {
                             style={{ width: "100%" }}
                           />
                           <Text type="secondary" style={{ fontSize: "12px" }}>
-                            提示：可以从隐私合约页面选择已部署的 phat_hello_add 合约地址
+                            提示：可以从隐私合约页面选择已部署的 phat_hello 合约地址
                           </Text>
                         </Space>
                       </Col>
@@ -1857,15 +1755,6 @@ export default function HomePage() {
                         <Button icon={<ReloadOutlined />} onClick={loadSFQStatus} loading={sfqLoading}>
                           刷新状态
                         </Button>
-                        {sfqStatus?.available ? (
-                          <Button danger onClick={stopSFQServer} loading={sfqControlLoading}>
-                            停止服务器
-                          </Button>
-                        ) : (
-                          <Button type="primary" onClick={startSFQServer} loading={sfqControlLoading}>
-                            启动服务器
-                          </Button>
-                        )}
                       </Space>
                     }
                     style={{
@@ -1881,17 +1770,21 @@ export default function HomePage() {
                       showIcon
                       message="SFQ 调度服务器"
                       description={
-                        <Space direction="vertical" size={4}>
-                          <Text>
-                            SFQ 调度器就像银行的多个服务窗口，根据每个客户（任务流）的优先级（权重）公平分配服务时间。
-                          </Text>
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            💡 <strong>通俗理解：</strong>多个任务同时到达，调度器按权重比例分配处理资源。高权重的任务获得更多处理时间，就像VIP客户有优先服务通道。
-                          </Text>
-                        </Space>
+                        <div>
+                          <div style={{ marginBottom: 8 }}>
+                            请使用脚本管理服务器：<code>./scripts/sfq-server.sh [start|stop|status|restart]</code>
+                          </div>
+                        </div>
                       }
-                      style={{ marginBottom: 16 }}
                     />
+                    <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
+                      <Text>
+                        SFQ 调度器就像银行的多个服务窗口，根据每个客户（任务流）的优先级（权重）公平分配服务时间。
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        💡 <strong>通俗理解：</strong>多个任务同时到达，调度器按权重比例分配处理资源。高权重的任务获得更多处理时间，就像VIP客户有优先服务通道。
+                      </Text>
+                    </Space>
 
                     {sfqSummaryStats.length > 0 && (
                       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -1981,36 +1874,6 @@ export default function HomePage() {
                                   💡 柱状图高度表示各流已处理的请求数。高权重流应该处理更多请求。
                                 </Text>
                               </div>
-                            </Card>
-                          </Col>
-                        </Row>
-                        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                          <Col xs={24}>
-                            <Card size="small" title="等待队列情况" bordered={false}>
-                              {hasBacklogValue ? (
-                                <div style={{ height: 300 }}>
-                                  <ColumnChart
-                                    data={flowChartData.map((flow: any) => ({
-                                      flow: flow.flow,
-                                      label: `${flow.flow?.replace("_", " ").toUpperCase() || "Unknown"} (权重: ${flow.weight || 1}x)`,
-                                      backlog: flow.backlog || 0,
-                                    }))}
-                                    xField="label"
-                                    yField="backlog"
-                                    meta={{
-                                      backlog: { alias: "等待中的请求数", min: 0 },
-                                    }}
-                                    color="#faad14"
-                                    autoFit
-                                    height={280}
-                                  />
-                                  <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 12 }}>
-                                    💡 等待队列长度反映各流的繁忙程度。如果某流的等待队列持续很长，说明它需要更多处理资源。
-                                  </Text>
-                                </div>
-                              ) : (
-                                <Empty description="当前所有流都没有等待的请求，调度器运行正常" />
-                              )}
                             </Card>
                           </Col>
                         </Row>
@@ -2173,32 +2036,6 @@ export default function HomePage() {
                                       </div>
                                       <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: "block" }}>
                                         期望接受数 = (该流权重 / 总权重) × 总接受数。实际接受数与期望值越接近，说明权重调度越公平。
-                                      </Text>
-                                    </Card>
-                                  </Col>
-                                  <Col xs={24} lg={12}>
-                                    <Card size="small" title="标准化接受数对比" bordered={false}>
-                                      <div style={{ height: 300 }}>
-                                        <ColumnChart
-                                          data={scenarioFlowData
-                                            .filter((flow: any) => flow.normalizedAccepted !== undefined)
-                                            .map((flow: any) => ({
-                                              flow: flow.flowId,
-                                              label: `${flow.flowId} (权重: ${flow.weight}x)`,
-                                              normalized: flow.normalizedAccepted || 0,
-                                            }))}
-                                          xField="label"
-                                          yField="normalized"
-                                          meta={{
-                                            normalized: { alias: "每权重单位接受数", min: 0 },
-                                          }}
-                                          color="#9254de"
-                                          autoFit
-                                          height={260}
-                                        />
-                                      </div>
-                                      <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: "block" }}>
-                                        提示：如果权重调度公平，所有流的标准化接受数应该接近。实际值差异反映了权重效果。
                                       </Text>
                                     </Card>
                                   </Col>

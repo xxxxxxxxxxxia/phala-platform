@@ -33,6 +33,12 @@ RUN npm ci --only=production --legacy-peer-deps && npm cache clean --force
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 
+# 复制 API 路由需要的 sample 文件（DCAP 认证相关）
+COPY --from=builder --chown=nextjs:nodejs /app/src/app/api/dcap-attestation/sample ./src/app/api/dcap-attestation/sample
+
+# 复制 data 目录（包含密钥轮换历史等数据文件）
+COPY --from=builder --chown=nextjs:nodejs /app/data ./data
+
 # 不再复制phala-blockchain-setup目录，直接使用服务器上的目录
 
 # 切换到非root用户
