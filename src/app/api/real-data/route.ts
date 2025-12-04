@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { options } from '@phala/sdk';
 import { getNodeUrl } from '@/lib/config';
+import { fetchHygonDevices } from '@/lib/hygonDevices';
 
 // 全局 API 实例，复用连接
 let globalApi: ApiPromise | null = null;
@@ -65,9 +66,14 @@ export async function GET(request: NextRequest) {
 
     const workerData = workers.map(([key, value], index) => {
       const workerInfo = value.toHuman() as any;
+      const registryInfo = (value.toJSON() as any) || {};
+      const rawTeeType = registryInfo?.teeType;
+      const teeTypeLabel =
+        rawTeeType === 1 ? 'AMD' : rawTeeType === 0 ? 'Intel' : 'Unknown';
       return {
         id: index + 1,
         publicKey: key.toHex(),
+        teeType: teeTypeLabel,
         status: workerInfo.status || 'Unknown',
         initialScore: workerInfo.initialScore || 0,
         confidenceLevel: workerInfo.confidenceLevel || 1,
@@ -97,6 +103,16 @@ export async function GET(request: NextRequest) {
         totalReward: sessionInfo.stats?.totalReward || '0'
       };
     });
+
+    const sgxWorkers = workerData.filter((worker) => worker.teeType === 'Intel');
+    const sgxTotal = sgxWorkers.length;
+    const sgxOnline = sgxWorkers.filter((worker) => worker.status === 'Online').length;
+
+    const hygonDevices = await fetchHygonDevices(api);
+    const hygonDeviceCount = hygonDevices.length;
+    const hygonCvmCount = hygonDevices.reduce((acc, device) => acc + (device.cvms?.length || 0), 0);
+    const totalWorkersCount = workerData.length + hygonDeviceCount;
+    const totalOnlineCount = onlineWorkers.toNumber() + hygonDeviceCount;
 
     // 获取真实质押数据
     console.log('💰 查询质押数据...');
@@ -137,9 +153,11 @@ export async function GET(request: NextRequest) {
         blockHash: header.hash.toHex()
       },
       workers: {
-        total: workers.length,
-        online: onlineWorkers.toNumber(),
-        data: workerData
+        total: totalWorkersCount,
+        online: totalOnlineCount,
+        data: workerData,
+        sgxTotal,
+        sgxOnline,
       },
       sessions: {
         total: sessions.length,
@@ -153,7 +171,11 @@ export async function GET(request: NextRequest) {
         parameters: tokenomicData,
         budgetPerBlock: budget.toHuman()
       },
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      hygon: {
+        deviceCount: hygonDeviceCount,
+        cvmCount: hygonCvmCount
+      }
     };
 
     console.log('✅ 真实数据获取完成');

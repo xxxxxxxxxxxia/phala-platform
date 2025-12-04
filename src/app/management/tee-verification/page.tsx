@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Card, Row, Col, Button, Table, Tag, Typography, Space, Divider,
+  Alert, Card, Row, Col, Button, Table, Tag, Typography, Space, Divider,
   Modal, Descriptions, Tooltip, message, Spin, Popconfirm, Badge, Dropdown
 } from 'antd';
 import {
@@ -14,6 +14,7 @@ import MainLayout from '@/components/layout/MainLayout';
 import AuthGuard from '@/components/AuthGuard';
 import { getWorkersInfo } from '@/lib/phalaApi';
 import axios from 'axios';
+import { HygonDeviceInfo } from '@/types/hygon';
 
 const { Title, Text } = Typography;
 
@@ -30,6 +31,8 @@ type CSVWorker = {
   address: string;
   cpu: string;
   memory: string;
+  deviceId?: string;
+  cvmId?: string;
 };
 
 // SGX Worker接口
@@ -87,33 +90,25 @@ interface SGXWorkerParams {
   sessionId?: string;
 }
 
+const truncateId = (value?: string, prefix = 6, suffix = 4) => {
+  if (!value) return "--";
+  if (value.length <= prefix + suffix) return value;
+  return `${value.slice(0, prefix)}...${value.slice(-suffix)}`;
+};
+
+const formatMemorySize = (value: number) => {
+  if (!value && value !== 0) return "--";
+  if (value >= 1024) {
+    const gb = value / 1024;
+    return `${gb % 1 === 0 ? gb : gb.toFixed(1)} GB`;
+  }
+  return `${value} MB`;
+};
+
 export default function TEEVerificationPage() {
-  const [csvWorkers] = useState<CSVWorker[]>([
-    {
-      key: "1",
-      name: "csv-vm",
-      status: "running",
-      address: "192.168.122.76",
-      cpu: "1 cores",
-      memory: "4096 MB",
-    },
-    {
-      key: "2",
-      name: "csv-vm2",
-      status: "running",
-      address: "192.168.122.77",
-      cpu: "2 cores",
-      memory: "2048 MB",
-    },
-    {
-      key: "3",
-      name: "csv-vm3",
-      status: "running",
-      address: "192.168.122.78",
-      cpu: "2 cores",
-      memory: "4096 MB",
-    },
-  ]);
+  const [csvWorkers, setCsvWorkers] = useState<CSVWorker[]>([]);
+  const [csvListLoading, setCsvListLoading] = useState(false);
+  const [csvListError, setCsvListError] = useState<string | null>(null);
 
   const [sgxWorkers, setSgxWorkers] = useState<SGXWorker[]>([]);
   const [loading, setLoading] = useState(false);
@@ -178,27 +173,43 @@ export default function TEEVerificationPage() {
     }
   };
 
-    useEffect(() => {
+  const loadCsvWorkers = async () => {
+    setCsvListLoading(true);
+    try {
+      const response = await fetch('/api/hygon-devices');
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '无法获取 Hygon 设备数据');
+      }
+      const devices: HygonDeviceInfo[] = Array.isArray(payload.data?.devices) ? payload.data.devices : [];
+      const workers: CSVWorker[] = devices.flatMap((device, deviceIndex) =>
+        (device.cvms || []).map((cvm, cvmIndex) => ({
+          key: `${device.deviceId}-${cvm.id}`,
+          name: `CVM-${truncateId(cvm.id, 6, 4)}`,
+          status: "running",
+          address: truncateId(device.deviceId, 6, 6),
+          cpu: `${cvm.cpuCount} cores`,
+          memory: formatMemorySize(cvm.memoryMb),
+          deviceId: device.deviceId,
+          cvmId: cvm.id,
+        }))
+      );
+      setCsvWorkers(workers);
+      setCsvListError(null);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : '获取 Hygon 设备失败';
+      setCsvWorkers([]);
+      setCsvListError(messageText);
+      message.error(messageText);
+    } finally {
+      setCsvListLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadSGXWorkers();
-    // 更新CSV Worker状态
-    const fetchHostStatus = async () => {
-      try {
-        const response = await axios.get(`${API_BASE_URL}/vm/list`);
-        const hostsData = response.data;
-        const apiHosts = hostsData.vms;
-        if (Array.isArray(apiHosts)) {
-          const apiHostMap = new Map();
-          apiHosts.forEach((host: CSVWorker) => {
-            apiHostMap.set(host.name, host);
-          });
-          // 这里可以更新状态，但为了简化，我们保持硬编码
-            }
-        } catch (error) {
-        console.error("获取HOST状态失败:", error);
-        }
-    };
-    fetchHostStatus();
-    }, []);
+    loadCsvWorkers();
+  }, []);
 
   // CSV Worker: 查询参数（三个机器调用同一个接口）
   const handleQueryCSVParams = async (worker: CSVWorker) => {
@@ -392,7 +403,7 @@ export default function TEEVerificationPage() {
           cpuModel: 'Intel(R) Xeon(R) Platinum 8369B CPU @ 2.70GHz',
           cpuCores: '2',
           cpuThreads: '2',
-          cpuFreq: 'N/A',
+          cpuFreq: '3499.285',
           virtualization: 'KVM',
           totalMemory: '7.1 GB',
           osInfo: 'Ubuntu 22.04.5 LTS',
@@ -784,7 +795,7 @@ export default function TEEVerificationPage() {
       ),
     },
     {
-      title: 'IP地址',
+      title: '设备ID',
       dataIndex: 'address',
       key: 'address',
       width: 140,
@@ -996,21 +1007,33 @@ export default function TEEVerificationPage() {
           }
           style={{ marginBottom: '24px' }}
           extra={
-            <Button icon={<ReloadOutlined />} onClick={() => window.location.reload()}>
+            <Button icon={<ReloadOutlined />} onClick={loadCsvWorkers} loading={csvListLoading}>
               刷新
             </Button>
           }
         >
-          <Table
-            rowKey="key"
-            columns={csvColumns}
-            dataSource={csvWorkers}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-            }}
-            size="small"
-          />
+          {csvListError && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="获取 CSV Worker 数据失败"
+              description={csvListError}
+            />
+          )}
+          <Spin spinning={csvListLoading}>
+            <Table
+              rowKey="key"
+              columns={csvColumns}
+              dataSource={csvWorkers}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+              }}
+              locale={{ emptyText: csvListLoading ? '加载中...' : '暂无 CSV Worker 数据' }}
+              size="small"
+            />
+          </Spin>
         </Card>
 
         {/* SGX Worker表格 */}

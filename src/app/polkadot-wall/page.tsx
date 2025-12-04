@@ -43,6 +43,8 @@ interface DashboardData {
     };
     workers: {
         total: number;
+        sgxTotal: number;
+        hygonDeviceCount: number;
         online: number;
         offline: number;
         unresponsive: number;
@@ -66,6 +68,10 @@ interface DashboardData {
     system: {
         health: number;
         uptime: number;
+    };
+    hygon: {
+        deviceCount: number;
+        cvmCount: number;
     };
 }
 

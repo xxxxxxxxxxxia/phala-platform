@@ -404,9 +404,9 @@ export default function PortalPage() {
 
                 <section className={styles.section}>
                     <Card className={styles.coreFeaturesCard}>
-                        <Row gutter={[48, 32]}>
-                            <Col xs={24} lg={12}>
-                                <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                        <Row gutter={[48, 32]} align="top">
+                            <Col xs={24} lg={12} style={{ display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ textAlign: 'center', marginBottom: 32, minHeight: '120px' }}>
                                     <Title level={3} className={styles.coreFeaturesTitle} style={{ textAlign: 'center' }}>
                                         平台核心功能
                                     </Title>
@@ -459,8 +459,8 @@ export default function PortalPage() {
                                     ))}
                                 </Row>
                             </Col>
-                            <Col xs={24} lg={12}>
-                                <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                            <Col xs={24} lg={12} style={{ display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ textAlign: 'center', marginBottom: 32, minHeight: '120px' }}>
                                     <Title level={3} className={styles.coreFeaturesTitle} style={{ textAlign: 'center' }}>
                                         平台核心特性
                                     </Title>

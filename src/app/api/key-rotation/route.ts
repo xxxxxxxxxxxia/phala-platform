@@ -1423,63 +1423,150 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 查询合约的派生密钥 - 使用DeriveK256Key接口
-async function handleQueryContractDerivedKey(contractId: string) {
-  try {
-    const url = new URL('http://43.132.154.142:13001/prpc/KMS.DeriveK256Key?json');
+// 调用KMS接口的辅助函数
+async function callKmsApi(endpoint: string, requestBody: any, useHttps: boolean = false): Promise<any> {
+  return new Promise<any>((resolve, reject) => {
+    const url = new URL(endpoint);
+    const requestModule = useHttps ? https : http;
     
-    // 使用合约地址作为path，确保每个合约有唯一的密钥
-    const requestBody = {
-      path: `contract/${contractId}`,
-      purpose: 'encryption',
-      key_version: 0
+    const options: any = {
+      hostname: url.hostname,
+      port: url.port || (useHttps ? 443 : 80),
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     };
-    
-    const response = await new Promise<any>((resolve, reject) => {
-      const req = http.request(
-        {
-          hostname: url.hostname,
-          port: url.port || 80,
-          path: url.pathname + url.search,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => {
-            data += chunk;
-          });
-          res.on('end', () => {
-            try {
-              const jsonData = JSON.parse(data);
-              resolve(jsonData);
-            } catch (error) {
-              reject(new Error(`Failed to parse response: ${error}`));
-            }
-          });
-        }
-      );
 
-      req.on('error', (error) => {
-        reject(error);
+    if (useHttps) {
+      options.rejectUnauthorized = false;
+      options.secureProtocol = 'TLSv1_2_method';
+      options.checkServerIdentity = () => undefined;
+    }
+
+    const req = requestModule.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
       });
-
-      req.write(JSON.stringify(requestBody));
-      req.end();
+      res.on('end', () => {
+        try {
+          const jsonData = JSON.parse(data);
+          resolve(jsonData);
+        } catch (error) {
+          reject(new Error(`Failed to parse response: ${error}`));
+        }
+      });
     });
 
-    // DeriveK256Key返回k256_key和签名链
-    const contractKey = response.k256_key || null;
+    req.on('error', (error) => {
+      reject(error);
+    });
+
+    req.setTimeout(30000, () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+
+    req.write(JSON.stringify(requestBody));
+    req.end();
+  });
+}
+
+// 获取密钥版本信息
+async function getKeyVersion(): Promise<{ current_version: number; active_version: number; rotation_in_progress: boolean; rotation_deadline: number }> {
+  const httpUrl = 'http://43.132.154.142:13001/prpc/KMS.GetKeyVersion?json';
+  try {
+    const response = await callKmsApi(httpUrl, {}, false);
+    return response;
+  } catch (httpError: any) {
+    console.warn('HTTP request failed, trying HTTPS:', httpError?.message || httpError);
+    try {
+      const httpsUrl = 'https://43.132.154.142:13001/prpc/KMS.GetKeyVersion?json';
+      const response = await callKmsApi(httpsUrl, {}, true);
+      return response;
+    } catch (httpsError: any) {
+      throw new Error(`Failed to get key version: HTTP error: ${httpError?.message || httpError}, HTTPS error: ${httpsError?.message || httpsError}`);
+    }
+  }
+}
+
+// 派生密钥
+async function deriveKey(contractId: string, keyVersion: number): Promise<any> {
+  const url = 'http://43.132.154.142:13001/prpc/KMS.DeriveK256Key?json';
+  const requestBody = {
+    path: `contract/${contractId}`,
+    purpose: 'encryption',
+    key_version: keyVersion
+  };
+  return await callKmsApi(url, requestBody, false);
+}
+
+// 查询合约的派生密钥 - 返回当前密钥和下一次轮换后的密钥
+async function handleQueryContractDerivedKey(contractId: string) {
+  try {
+    // 第一步：获取密钥版本信息
+    let versionInfo: { current_version: number; active_version: number; rotation_in_progress: boolean; rotation_deadline: number } | null = null;
+    let activeVersion = 0;
+    
+    try {
+      versionInfo = await getKeyVersion();
+      activeVersion = versionInfo.active_version; // 当前激活的版本
+    } catch (versionError: any) {
+      // 如果获取版本信息失败，使用默认版本0
+      console.warn('Failed to get key version, using default version 0:', versionError?.message || versionError);
+    }
+    
+    // 第二步：派生当前使用的密钥（使用 active_version - 1）
+    // 例如：如果 active_version = 47，则使用版本 46
+    let currentKeyResponse = null;
+    let currentKey = null;
+    const currentVersion = activeVersion > 0 ? activeVersion - 1 : 0;
+    
+    try {
+      currentKeyResponse = await deriveKey(contractId, currentVersion);
+      currentKey = currentKeyResponse.k256_key || null;
+    } catch (error) {
+      console.warn(`Failed to derive current key (version ${currentVersion}):`, error);
+    }
+    
+    // 第三步：派生下一次轮换后的密钥（使用 active_version）
+    // 例如：如果 active_version = 47，则使用版本 47（下一次轮换后会使用的）
+    let nextKeyResponse = null;
+    let nextKey = null;
+    const nextVersion = activeVersion;
+    
+    try {
+      console.log(`[Key Rotation] 派生下一次密钥: contractId=${contractId}, version=${nextVersion}`);
+      nextKeyResponse = await deriveKey(contractId, nextVersion);
+      nextKey = nextKeyResponse.k256_key || null;
+      console.log(`[Key Rotation] 下一次密钥派生结果: ${nextKey ? '成功' : '失败（密钥为空）'}`);
+    } catch (error: any) {
+      console.warn(`[Key Rotation] 派生下一次密钥失败 (version ${nextVersion}):`, error?.message || error);
+    }
     
     return NextResponse.json({
       success: true,
-      data: response,
-      contractKey: contractKey,
-      k256Pubkey: response.k256_key,
-      hasKey: !!response.k256_key,
-      signatureChain: response.k256_signature_chain
+      // 当前使用的密钥（基于 active_version - 1）
+      current_key: currentKey,
+      currentKey: currentKey, // 兼容旧字段
+      store_key: currentKey, // 兼容旧字段
+      contractKey: currentKey, // 兼容旧字段
+      k256Pubkey: currentKey, // 兼容旧字段
+      // 下一次轮换后的密钥（基于 active_version）
+      next_key: nextKey,
+      nextKey: nextKey, // 兼容旧字段
+      next_store_key: nextKey, // 兼容旧字段
+      // 版本信息
+      currentVersion: currentVersion,
+      nextVersion: nextVersion,
+      activeVersion: activeVersion,
+      // 是否有密钥
+      hasKey: !!currentKey,
+      hasNextKey: !!nextKey,
+      // 签名链
+      signatureChain: currentKeyResponse?.k256_signature_chain || null
     });
   } catch (error) {
     console.error('Failed to query contract derived key:', error);
@@ -1493,8 +1580,7 @@ async function handleQueryContractDerivedKey(contractId: string) {
 // 轮换合约的派生密钥 - 先轮换根密钥，然后重新派生
 async function handleRotateContractDerivedKey(contractId: string) {
   try {
-    // 第一步：轮换根密钥
-    const rotateUrl = new URL('http://43.132.154.142:13001/prpc/KMS.RotateRootKey?json');
+
     
     const rotateResponse = await new Promise<any>((resolve, reject) => {
       const req = http.request(
@@ -1603,3 +1689,5 @@ async function handleRotateContractDerivedKey(contractId: string) {
 
 
 
+    // 第一步：轮换根密钥
+    const rotateUrl = new URL('http://43.132.154.142:13001/prpc/KMS.RotateRootKey?json');

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getApi, getWorkersInfo, getNetworkStats, getAverageBlockTime } from '@/lib/phalaApi';
+import { fetchHygonDevices } from '@/lib/hygonDevices';
 import { getPruntimeUrl, getNodeUrl } from '@/lib/config';
 
 // 获取核心指标汇总
@@ -255,24 +256,32 @@ export async function GET(request: NextRequest) {
             console.error('❌ [API] 无法获取激励数据:', e);
         }
 
-        // 确保 networkStats 有默认值
-        if (!networkStats) {
-            console.warn('⚠️ [API] networkStats 为空，使用默认值');
-            networkStats = {
-                totalWorkers: 0,
-                onlineWorkers: 0,
-                offlineWorkers: 0,
-                unresponsiveWorkers: 0,
-                totalSessions: 0,
-                activeSessions: 0,
-                averageScore: 0,
-                lastBlockNumber: 0
-            };
-        }
+        // 使用和响应监控页面完全相同的计算逻辑
+        // 1. 获取SGX workers（和响应监控页面一样）
+        const sgxWorkers = workers; // 已经通过 getWorkersInfo() 获取
+        const sgxTotal = sgxWorkers.length;
+        const sgxOnline = sgxWorkers.filter(w => w.status === 'Online').length;
+        const sgxOffline = sgxWorkers.filter(w => w.status === 'Offline').length;
 
-        // 计算系统健康度
-        const onlineRatio = networkStats.totalWorkers > 0
-            ? networkStats.onlineWorkers / networkStats.totalWorkers
+        // 2. 获取Hygon设备（和响应监控页面一样）
+        const hygonDevices = await fetchHygonDevices(api);
+        const hygonDeviceCount = hygonDevices.length;
+        const hygonCvmCount = hygonDevices.reduce((sum, device) => sum + (device.cvms?.length || 0), 0);
+
+        // 3. 计算总数（和响应监控页面完全一样）
+        const totalWorkers = sgxTotal + hygonDeviceCount;
+        const totalOnline = sgxOnline; // 只计算SGX workers中在线的，不包括Hygon设备（和响应监控页面一样）
+        const totalOffline = sgxOffline;
+
+        workersByTeeType.SGX.total = sgxTotal;
+        workersByTeeType.SGX.online = sgxOnline;
+        workersByTeeType.SGX.offline = sgxOffline;
+        workersByTeeType.CSV.total = hygonDeviceCount;
+        workersByTeeType.CSV.online = 0; // 响应监控页面不把Hygon设备算在在线数里
+        workersByTeeType.CSV.offline = 0;
+
+        const onlineRatio = totalWorkers > 0
+            ? totalOnline / totalWorkers
             : 0;
         const systemHealth = Math.round(onlineRatio * 100);
 
@@ -281,13 +290,15 @@ export async function GET(request: NextRequest) {
                 blockNumber,
                 blockHash,
                 avgBlockTime: avgBlockTime || 0,
-                consensusNodes: networkStats.totalWorkers
+                consensusNodes: totalWorkers
             },
             workers: {
-                total: networkStats.totalWorkers,
-                online: networkStats.onlineWorkers,
-                offline: networkStats.offlineWorkers,
-                unresponsive: networkStats.unresponsiveWorkers,
+                total: totalWorkers, // SGX workers + Hygon devices（和响应监控页面一样）
+                sgxTotal,
+                hygonDeviceCount,
+                online: totalOnline, // SGX online + Hygon devices（和响应监控页面一样）
+                offline: totalOffline,
+                unresponsive: networkStats?.unresponsiveWorkers || 0,
                 byTeeType: workersByTeeType
             },
             contracts: {
@@ -308,13 +319,20 @@ export async function GET(request: NextRequest) {
                 health: systemHealth,
                 uptime: Date.now() - (Date.now() - 3600000) // 简化处理
             },
+            hygon: {
+                deviceCount: hygonDeviceCount,
+                cvmCount: hygonCvmCount
+            },
             timestamp: Date.now()
         };
 
         console.log('✅ [API] 返回数据摘要:', {
             blockNumber: responseData.blockchain.blockNumber,
+            sgxTotal,
+            hygonDeviceCount,
             totalWorkers: responseData.workers.total,
-            onlineWorkers: responseData.workers.online,
+            sgxOnline,
+            totalOnline: responseData.workers.online,
             systemHealth: responseData.system.health,
             contractsTotal: responseData.contracts.total,
             totalIncentiveAmount: responseData.incentives.totalAmount

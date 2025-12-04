@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card, Row, Col, Statistic, Button, Table, Tag, Typography, Space, Divider,
-  Modal, Descriptions, Badge, Tooltip, Input, Select, Switch, Spin
+  Modal, Descriptions, Badge, Tooltip, Input, Select, Switch, Spin, InputNumber, message
 } from 'antd';
 import {
   MonitorOutlined, CheckCircleOutlined, CloseCircleOutlined,
@@ -12,23 +12,10 @@ import {
 import MainLayout from '@/components/layout/MainLayout';
 import AuthGuard from '@/components/AuthGuard';
 import { getWorkersInfo } from '@/lib/phalaApi';
-import { getTeeApiUrl } from '@/lib/config';
-import axios from 'axios';
+import { HygonDeviceInfo, HygonCvmInfo } from '@/types/hygon';
+import { getOfflineThreshold, setOfflineThreshold, isOnline as checkIsOnline } from '@/lib/offlineThreshold';
 
 const { Title, Text } = Typography;
-
-// 后端API地址
-const API_BASE_URL = "http://8.147.106.136:3001/api";
-
-// 设备类型定义
-type HOST = {
-  key: string;
-  name: string;
-  status: "running" | "stopped";
-  address: string;
-  cpu: string;
-  memory: string;
-};
 
 // 简化的Worker接口，只保留链上真实数据
 interface WorkerMonitor {
@@ -74,8 +61,17 @@ interface MonitoringState {
   onlineWorkers: number;
   offlineWorkers: number;
   lastUpdate: number;
+  hygonDeviceCount: number;
   // csvVMInfo?: CSVVMInfo; // 注释掉CSV虚拟机信息
 }
+
+const HIGHLIGHT_CVM_ID = '45R2pfjQUW2s9PQRHU48HQKLKHVMaDja7N3wpBtmF28UYDs2';
+
+const formatTimestamp = (value?: number) =>
+  value ? new Date(value * 1000).toLocaleString() : '—';
+
+const formatMemoryLabel = (value: number) =>
+  `${value.toLocaleString()} MB`;
 
 export default function MonitoringPage() {
   const [loading, setLoading] = useState(false);
@@ -85,6 +81,7 @@ export default function MonitoringPage() {
     onlineWorkers: 0,
     offlineWorkers: 0,
     lastUpdate: Date.now(),
+    hygonDeviceCount: 0,
   });
   const [selectedWorker, setSelectedWorker] = useState<WorkerMonitor | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -93,33 +90,64 @@ export default function MonitoringPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [teeTypeFilter, setTeeTypeFilter] = useState<string>('all');
 
-  // 设备列表状态
-  const [hosts, setHosts] = useState<HOST[]>([
-    {
-      key: "1",
-      name: "csv-vm",
-      status: "running",
-      address: "192.168.122.76",
-      cpu: "1 cores",
-      memory: "4096 MB",
-    },
-    {
-      key: "2",
-      name: "csv-vm2",
-      status: "running",
-      address: "192.168.122.77",
-      cpu: "2 cores",
-      memory: "2048 MB",
-    },
-    {
-      key: "3",
-      name: "csv-vm3",
-      status: "running",
-      address: "192.168.122.78",
-      cpu: "2 cores",
-      memory: "4096 MB",
-    },
-  ]);
+  const [hygonDevices, setHygonDevices] = useState<HygonDeviceInfo[]>([]);
+  const [hygonLoading, setHygonLoading] = useState(false);
+  const [hygonError, setHygonError] = useState<string | null>(null);
+
+  // 离线判断阈值（单位：分钟），从localStorage读取，默认1分钟
+  const [offlineThresholdMinutes, setOfflineThresholdMinutes] = useState<number>(() => {
+    return getOfflineThreshold();
+  });
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [tempThreshold, setTempThreshold] = useState<number>(1);
+
+  // 判断是否在线：使用共享工具函数
+  const isOnline = (lastHeartbeat?: number): boolean => {
+    return checkIsOnline(lastHeartbeat, offlineThresholdMinutes);
+  };
+
+  // 打开设置弹窗
+  const handleOpenSettings = () => {
+    setTempThreshold(offlineThresholdMinutes);
+    setSettingsModalVisible(true);
+  };
+
+  // 保存设置
+  const handleSaveSettings = () => {
+    if (tempThreshold < 0.1 || tempThreshold > 60) {
+      message.error('阈值必须在0.1到60分钟之间');
+      return;
+    }
+    setOfflineThresholdMinutes(tempThreshold);
+    setOfflineThreshold(tempThreshold); // 保存到共享的localStorage
+    message.success(`离线判断阈值已设置为 ${tempThreshold} 分钟，已应用到所有相关页面`);
+    setSettingsModalVisible(false);
+  };
+
+  const fetchHygonDevices = async (): Promise<HygonDeviceInfo[]> => {
+    setHygonLoading(true);
+    try {
+      const response = await fetch('/api/hygon-devices');
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '无法获取Hygon设备数据');
+      }
+      const devices: HygonDeviceInfo[] = Array.isArray(payload.data?.devices)
+        ? payload.data.devices
+        : [];
+      setHygonDevices(devices);
+      setHygonError(null);
+      return devices;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '获取 Hygon 设备失败';
+      setHygonError(message);
+      setHygonDevices([]);
+      console.error('[HygonDevices] 获取失败:', message);
+      return [];
+    } finally {
+      setHygonLoading(false);
+    }
+  };
 
   // 获取已知worker地址的响应状态
   const fetchWorkerResponses = async (): Promise<Map<string, any>> => {
@@ -194,13 +222,10 @@ export default function MonitoringPage() {
         // fetchCSVVMStatus()
       ]);
       console.log("--- [响应监控] 获取到真实Worker数据:", workers);
-      // console.log("--- [响应监控] 获取到CSV虚拟机状态:", csvVMInfo);
 
-      // 首先获取所有已知worker地址的响应状态
       console.log("--- [响应监控] 开始检查已知worker地址的响应状态 ---");
       const workerResponses = await fetchWorkerResponses();
 
-      // 将真实Worker数据转换为监控格式，只保留链上真实数据，并匹配响应状态
       console.log("--- [响应监控] 开始匹配链上worker与响应状态 ---");
       const workerMonitors: WorkerMonitor[] = workers.map((worker, index) => {
         const publicKeyHex = worker.publicKey.replace('0x', '').toLowerCase();
@@ -226,11 +251,8 @@ export default function MonitoringPage() {
       const onlineWorkers = workerMonitors.filter(w => w.status === 'online').length;
       const offlineWorkers = workerMonitors.filter(w => w.status === 'offline').length;
 
-      // 计算running状态的设备数量
-      const runningDevices = hosts.filter(h => h.status === 'running').length;
-
-      // 总worker数 = worker数量 + running状态的设备数量
-      const totalWorkers = workerMonitors.length + runningDevices;
+      const hygonDeviceList = await fetchHygonDevices();
+      const totalWorkers = workerMonitors.length + hygonDeviceList.length;
 
       const newState: MonitoringState = {
         workers: workerMonitors,
@@ -238,7 +260,7 @@ export default function MonitoringPage() {
         onlineWorkers,
         offlineWorkers,
         lastUpdate: Date.now(),
-        // csvVMInfo: csvVMInfo || undefined, // 注释掉CSV虚拟机信息
+        hygonDeviceCount: hygonDeviceList.length,
       };
 
       setMonitoringState(newState);
@@ -256,11 +278,6 @@ export default function MonitoringPage() {
     try {
       const workers = await getWorkersInfo();
       const workerResponses = await fetchWorkerResponses();
-      // 保持和主loadMonitoringState一致的数据处理 ...（略）
-      // 计算running状态的设备数量
-      const runningDevices = hosts.filter(h => h.status === 'running').length;
-
-      // 这里只更新worker部分的monitoringState
       const updatedWorkers = workers.map((worker, index) => {
         const publicKeyHex = worker.publicKey.replace('0x', '').toLowerCase();
         const responseInfo = workerResponses.get(publicKeyHex);
@@ -276,16 +293,16 @@ export default function MonitoringPage() {
         };
       });
 
-      // 总worker数 = worker数量 + running状态的设备数量
-      const totalWorkers = updatedWorkers.length + runningDevices;
+      const hygonDeviceList = await fetchHygonDevices();
+      const totalWorkers = updatedWorkers.length + hygonDeviceList.length;
 
       setMonitoringState((prev) => ({
         ...prev,
         workers: updatedWorkers,
         totalWorkers,
+        hygonDeviceCount: hygonDeviceList.length,
       }));
     } catch (e) {
-      // 错误提示也可以toast
       console.error('刷新Worker数据失败', e);
     }
     setWorkersLoading(false);
@@ -347,91 +364,9 @@ export default function MonitoringPage() {
     });
   }, [monitoringState.workers, searchText, statusFilter]);
 
-  // 设备列表相关定义
-  const hostDataSource = hosts.filter((host) =>
-    host.name.toLowerCase().includes('')
-  );
-
-  const hostColumns = [
-    {
-      title: "Worker 名称",
-      dataIndex: "name",
-      key: "name",
-    },
-    {
-      title: "状态",
-      dataIndex: "status",
-      key: "status",
-      render: (s: string) => (
-        <Tag color={s === "running" ? "success" : "default"}>{s}</Tag>
-      ),
-    },
-    {
-      title: "IP地址",
-      dataIndex: "address",
-      key: "address",
-    },
-    {
-      title: "CPU信息",
-      dataIndex: "cpu",
-      key: "cpu",
-    },
-    {
-      title: "内存信息",
-      dataIndex: "memory",
-      key: "memory",
-    },
-  ];
-
-  // 定期获取VM状态（可选，用于更新设备状态）
-  useEffect(() => {
-    const fetchHostStatus = async () => {
-      try {
-        const response = await axios.get(`${API_BASE_URL}/vm/list`);
-        const hostsData = response.data;
-        const apiHosts = hostsData.vms;
-        console.log(hostsData);
-
-        // 更新VM状态
-        setHosts((prevHosts) => {
-          // 创建一个映射来快速查找API返回的VM
-          const apiHostMap = new Map();
-          // 检查apiVms是否为数组，防止apiVms.forEach不是函数的错误
-          if (Array.isArray(apiHosts)) {
-            apiHosts.forEach((host: HOST) => {
-              apiHostMap.set(host.name, host);
-            });
-          }
-
-          // 更新每个VM的状态
-          const updatedHosts = prevHosts.map((host) => {
-            const apiHost = apiHostMap.get(host.name);
-            if (apiHost) {
-              // 如果在API响应中找到该VM，保持其状态为running
-              return { ...host, status: "running" as "running" | "stopped" };
-            } else {
-              // 如果在API响应中找不到该VM，将其标记为stopped
-              return { ...host, status: "stopped" as "running" | "stopped" };
-            }
-          });
-
-          // 计算running状态的设备数量，更新totalWorkers
-          const runningDevices = updatedHosts.filter(h => h.status === 'running').length;
-          setMonitoringState((prev) => ({
-            ...prev,
-            totalWorkers: prev.workers.length + runningDevices,
-          }));
-
-          return updatedHosts;
-        });
-      } catch (error) {
-        console.error("获取HOST状态失败:", error);
-      }
-    };
-
-    // 立即执行一次
-    fetchHostStatus();
-  }, []);
+  const totalHygonCvms = useMemo(() => {
+    return hygonDevices.reduce((acc, device) => acc + (device.cvms?.length || 0), 0);
+  }, [hygonDevices]);
 
   // 简化的Worker表格列定义，只显示真实数据
   const workerColumns = useMemo(() => [
@@ -529,6 +464,74 @@ export default function MonitoringPage() {
     }
   ], []);
 
+  const hygonColumns = useMemo(() => [
+    {
+      title: '设备ID',
+      dataIndex: 'deviceId',
+      key: 'deviceId',
+      width: 200,
+      render: (text: string) => (
+        <Tooltip title={text}>
+          <Text code style={{ fontSize: '11px' }}>
+            {`${text.substring(0, 10)}...${text.substring(text.length - 6)}`}
+          </Text>
+        </Tooltip>
+      )
+    },
+    {
+      title: 'CPU核心',
+      dataIndex: 'cpuCount',
+      key: 'cpuCount',
+      width: 90,
+      render: (value: number) => `${value} cores`
+    },
+    {
+      title: '内存',
+      dataIndex: 'memoryMb',
+      key: 'memoryMb',
+      width: 120,
+      render: (value: number) => formatMemoryLabel(value)
+    },
+    {
+      title: '最后心跳',
+      dataIndex: 'lastHeartbeat',
+      key: 'lastHeartbeat',
+      width: 180,
+      render: (value: number) => formatTimestamp(value)
+    },
+    {
+      title: '心跳次数',
+      dataIndex: 'heartbeatCount',
+      key: 'heartbeatCount',
+      width: 120,
+    },
+    {
+      title: '奖励总量',
+      dataIndex: 'totalRewards',
+      key: 'totalRewards',
+      width: 180,
+      render: (value: string) => (
+        <Text code style={{ fontSize: '11px' }} ellipsis>
+          {value}
+        </Text>
+      )
+    },
+    {
+      title: '是否在线',
+      dataIndex: 'lastHeartbeat',
+      key: 'isOnline',
+      width: 100,
+      render: (_: any, record: HygonDeviceInfo) => {
+        const online = isOnline(record.lastHeartbeat);
+        return (
+          <Tag color={online ? 'green' : 'red'}>
+            {online ? '在线' : '离线'}
+          </Tag>
+        );
+      }
+    },
+  ], []);
+
   return (
     <AuthGuard>
       <MainLayout>
@@ -564,7 +567,7 @@ export default function MonitoringPage() {
         </Row>
 
         {/* Worker监控列表 */}
-        <Card 
+        <Card
           title={
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
               <span>Worker（SGX）监控</span>
@@ -613,20 +616,71 @@ export default function MonitoringPage() {
           /></Spin>
         </Card>
 
-        {/* 设备列表 - 从调度页面复制 */}
-        <Card title="Worker（CSV）监控" style={{ marginBottom: 16 }}>
-          <Table
-            rowKey="key"
-            columns={hostColumns}
-            dataSource={hostDataSource}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: false,
-              showTotal: (t) => `设备总数: ${t}台`,
-            }}
-            size="small"
-            style={{ margin: 0 }}
-          />
+        <Card
+          title={
+            <Space>
+              <DatabaseOutlined />
+              <span>Worker（CSV）监控 - Hygon TEE 设备</span>
+            </Space>
+          }
+          extra={
+            <Button
+              icon={<SettingOutlined />}
+              onClick={handleOpenSettings}
+              size="small"
+              type="default"
+            >
+              离线判断设置
+            </Button>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col>
+              <Statistic
+                title="链上 Hygon 设备"
+                value={monitoringState.hygonDeviceCount}
+                valueStyle={{ color: '#722ed1' }}
+              />
+            </Col>
+            <Col>
+              <Statistic
+                title="关联 CVM 数"
+                value={totalHygonCvms}
+                valueStyle={{ color: '#1890ff' }}
+              />
+            </Col>
+          </Row>
+
+          {hygonError && (
+            <div style={{ marginBottom: 12 }}>
+              <Text type="danger">{hygonError}</Text>
+            </div>
+          )}
+
+          <Spin spinning={hygonLoading}>
+            {hygonDevices.length > 0 ? (
+              <Table
+                rowKey="deviceId"
+                columns={hygonColumns}
+                dataSource={hygonDevices}
+                pagination={{
+                  pageSize: 5,
+                  showSizeChanger: true,
+                  showTotal: (total) => `设备总数: ${total}台`,
+                }}
+                size="small"
+                style={{ margin: 0 }}
+                scroll={{ x: 900 }}
+              />
+            ) : (
+              !hygonLoading && (
+                <div style={{ textAlign: 'center', padding: '32px' }}>
+                  <Text type="secondary">链上暂未检测到 Hygon 设备，请稍候刷新。</Text>
+                </div>
+              )
+            )}
+          </Spin>
         </Card>
 
         {/* 注释掉CSV虚拟机监控 */}
@@ -746,6 +800,47 @@ export default function MonitoringPage() {
             </div>
           )}
         </Card> */}
+
+        {/* 离线判断设置 */}
+        <Card
+          title={
+            <Space>
+              <SettingOutlined />
+              <span>离线判断设置</span>
+            </Space>
+          }
+          style={{ marginTop: '24px', marginBottom: '24px' }}
+          extra={
+            <Button
+              icon={<SettingOutlined />}
+              onClick={handleOpenSettings}
+              size="small"
+            >
+              修改设置
+            </Button>
+          }
+        >
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={8}>
+              <Statistic
+                title="当前离线判断阈值"
+                value={offlineThresholdMinutes}
+                suffix="分钟"
+                valueStyle={{ color: '#1890ff' }}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={16}>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Text type="secondary">
+                  说明：如果设备的最后心跳时间与当前时间的差值超过此阈值，将被判定为离线。
+                </Text>
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  当前设置：{offlineThresholdMinutes} 分钟（{offlineThresholdMinutes * 60} 秒）
+                </Text>
+              </Space>
+            </Col>
+          </Row>
+        </Card>
 
         {/* 模块说明 - 深色主题 */}
         <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>
@@ -947,6 +1042,54 @@ export default function MonitoringPage() {
               )}
             </Descriptions>
           )}
+        </Modal>
+
+        {/* 设置弹窗 */}
+        <Modal
+          title="离线判断设置"
+          open={settingsModalVisible}
+          onOk={handleSaveSettings}
+          onCancel={() => {
+            setSettingsModalVisible(false);
+            setTempThreshold(offlineThresholdMinutes);
+          }}
+          okText="保存"
+          cancelText="取消"
+        >
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <div>
+              <Text strong>离线判断阈值（分钟）</Text>
+              <div style={{ marginTop: 8 }}>
+                <InputNumber
+                  min={0.1}
+                  max={60}
+                  step={0.1}
+                  value={tempThreshold}
+                  onChange={(value) => setTempThreshold(value || 1)}
+                  style={{ width: '100%' }}
+                  addonAfter="分钟"
+                />
+              </div>
+              <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 8 }}>
+                范围：0.1 - 60 分钟（6 秒 - 3600 秒）
+              </Text>
+            </div>
+            <div
+              style={{
+                backgroundColor: '#1f1f1f',
+                background: '#1f1f1f',
+                padding: '12px',
+                borderRadius: '4px',
+                border: '1px solid #434343'
+              } as React.CSSProperties}
+            >
+              <Text type="secondary" style={{ fontSize: '12px', color: '#d9d9d9' }}>
+                <strong style={{ color: '#ffffff' }}>说明：</strong>如果设备的最后心跳时间与当前时间的差值超过此阈值，将被判定为离线。
+                <br />
+                当前设置：{tempThreshold} 分钟 = {tempThreshold * 60} 秒
+              </Text>
+            </div>
+          </Space>
         </Modal>
       </MainLayout>
     </AuthGuard>

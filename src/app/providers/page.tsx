@@ -35,14 +35,19 @@ export default function ProvidersPage() {
 
         const fetchStats = async () => {
             try {
-                const response = await fetch('/api/real-data');
+                // 使用和响应监控页面相同的数据源：dashboard/summary API
+                const response = await fetch('/api/dashboard/summary', {
+                    headers: { 'cache-control': 'no-store' }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 const result = await response.json();
-
                 if (result.success && result.data?.workers) {
                     setStats({
-                        resourceTypes: 2, // 固定值
-                        totalWorkers: result.data.workers.total || 0,
-                        onlineWorkers: result.data.workers.online || 0,
+                        resourceTypes: 2,
+                        totalWorkers: result.data.workers.total || 0, // 和响应监控页面的总worker数一样
+                        onlineWorkers: result.data.workers.online || 0, // 和响应监控页面的在线worker数一样
                         loading: false,
                     });
                 } else {

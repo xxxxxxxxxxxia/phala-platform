@@ -7,6 +7,7 @@ import { FileProtectOutlined, LockOutlined, SafetyCertificateOutlined, CodeOutli
 // import ReactECharts from 'echarts-for-react'; // 移除复杂图表组件
 import MainLayout from '../../../components/layout/MainLayout';
 import AuthGuard from '../../../components/AuthGuard';
+import { HygonDeviceInfo, HygonCvmInfo } from '@/types/hygon';
 
 const { Title, Text } = Typography;
 
@@ -102,6 +103,17 @@ const initialContractState: ContractState = {
   lastUpdate: Date.now(),
 };
 
+interface CvmServiceInfo {
+  cvmId: string;
+  teeDeviceId: string;
+  cpuCount: number;
+  memoryMb: number;
+  createdAt: number;
+  lastHeartbeat: number;
+  heartbeatCount: number;
+  status: 'running' | 'offline';
+}
+
 export default function ContractsPage() {
   const [contractState, setContractState] = useState<ContractState>(initialContractState);
   const [loading, setLoading] = useState(true);
@@ -126,10 +138,21 @@ export default function ContractsPage() {
   const [sealConfigContractAddress, setSealConfigContractAddress] = useState<string>('');
   const [sealConfigResult, setSealConfigResult] = useState<any>(null);
   const [sealConfigLoading, setSealConfigLoading] = useState(false);
+  // 当前服务列表状态（CVM信息）
+  const [servicesList, setServicesList] = useState<CvmServiceInfo[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(false);
 
   useEffect(() => {
-    loadContractState();
-    // 移除自动刷新逻辑，避免频繁API调用
+    loadAllData();
+  }, []);
+
+  // 自动刷新逻辑，间隔1分钟
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadAllData();
+    }, 60000); // 1分钟 = 60000毫秒
+
+    return () => clearInterval(timer);
   }, []);
 
   // 注入科技感样式
@@ -147,6 +170,50 @@ export default function ContractsPage() {
       };
     }
   }, []);
+
+  // 加载当前服务列表（CVM信息）
+  const loadServicesList = async () => {
+    setServicesLoading(true);
+    try {
+      const response = await fetch('/api/hygon-devices');
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || '无法获取Hygon设备数据');
+      }
+      const hygonDevices: HygonDeviceInfo[] = Array.isArray(payload.data?.devices)
+        ? payload.data.devices
+        : [];
+
+      // 展平所有设备的CVMs为服务列表
+      const cvmServices: CvmServiceInfo[] = [];
+      hygonDevices.forEach((device) => {
+        device.cvms.forEach((cvm) => {
+          // 判断CVM状态：根据最后心跳时间判断是否在线（假设5分钟内有心跳算在线）
+          const now = Math.floor(Date.now() / 1000);
+          const isOnline = (now - cvm.lastHeartbeat) < 300; // 5分钟
+          
+          cvmServices.push({
+            cvmId: cvm.id,
+            teeDeviceId: device.deviceId,
+            cpuCount: cvm.cpuCount,
+            memoryMb: cvm.memoryMb,
+            createdAt: cvm.createdAt,
+            lastHeartbeat: cvm.lastHeartbeat,
+            heartbeatCount: cvm.heartbeatCount,
+            status: isOnline ? 'running' : 'offline',
+          });
+        });
+      });
+
+      setServicesList(cvmServices);
+      console.log(`✅ 加载了 ${cvmServices.length} 个CVM服务`);
+    } catch (error: any) {
+      console.error('Failed to load CVM services list:', error);
+      setServicesList([]);
+    } finally {
+      setServicesLoading(false);
+    }
+  };
 
   const loadContractState = async () => {
     setLoading(true);
@@ -191,6 +258,11 @@ export default function ContractsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 加载所有数据
+  const loadAllData = async () => {
+    await Promise.all([loadContractState(), loadServicesList()]);
   };
 
   const handleUploadContract = async (values: any) => {
@@ -553,22 +625,38 @@ export default function ContractsPage() {
       title: '合约名称',
       dataIndex: 'name',
       key: 'name',
-      render: (text: string, record: PrivacyContract) => (
-        <Space>
-          <Text strong>{text}</Text>
-          {record.isVerified && <Tag color="green" icon={<CheckCircleOutlined />}>已验证</Tag>}
-          {isTokenomicContract(record) && (
-            <Tag color="blue" icon={<ApiOutlined />} style={{
-              background: 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)',
-              border: 'none',
-              color: 'white',
-              fontWeight: 'bold'
-            }}>
-              🚀 可调用
-            </Tag>
-          )}
-        </Space>
-      ),
+      render: (text: string, record: PrivacyContract, index: number) => {
+        // 根据索引判断：前4个（索引0-3）是系统合约，后面的（索引>=4）是功能合约
+        const isSystemContract = index < 4;
+        const isFunctionContract = index >= 4 && isTokenomicContract(record);
+
+        return (
+          <Space>
+            <Text strong>{text}</Text>
+            {record.isVerified && <Tag color="green" icon={<CheckCircleOutlined />}>已验证</Tag>}
+            {isSystemContract && (
+              <Tag color="purple" icon={<SafetyCertificateOutlined />} style={{
+                background: 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)',
+                border: 'none',
+                color: 'white',
+                fontWeight: 'bold'
+              }}>
+                系统合约
+              </Tag>
+            )}
+            {isFunctionContract && (
+              <Tag color="blue" icon={<ApiOutlined />} style={{
+                background: 'linear-gradient(135deg, #1890ff 0%, #40a9ff 100%)',
+                border: 'none',
+                color: 'white',
+                fontWeight: 'bold'
+              }}>
+                可调用
+              </Tag>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '合约地址',
@@ -639,8 +727,8 @@ export default function ContractsPage() {
           <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
-                title="链上合约总数"
-                value={contractState.totalContracts}
+                title="当前合约总数"
+                value={contractState.totalContracts + servicesList.length}
                 prefix={<FileProtectOutlined />}
                 valueStyle={{ color: '#1890ff' }}
               />
@@ -650,7 +738,7 @@ export default function ContractsPage() {
             <Card>
               <Statistic
                 title="活跃合约数量"
-                value={contractState.activeContracts}
+                value={contractState.activeContracts + servicesList.filter(s => s.status === 'running').length}
                 prefix={<SafetyCertificateOutlined />}
                 valueStyle={{ color: '#52c41a' }}
               />
@@ -680,12 +768,134 @@ export default function ContractsPage() {
           </Col>
         </Row>
 
-        {/* 操作按钮和控制面板 */}
-        <Card style={{ marginBottom: '24px' }}>
+        {/* 部署工具弹窗 */}
+        <Modal
+          title="部署工具"
+          open={deployModalVisible}
+          onCancel={() => setDeployModalVisible(false)}
+          footer={null}
+          width={760}
+        >
+          <DeployApp embedded />
+        </Modal>
+
+        {/* 当前服务列表 */}
+        <Card
+          title="当前服务列表"
+          extra={
+            <Space>
+              <Button
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={loadAllData}
+                loading={loading || servicesLoading}
+                size="small"
+              >
+                刷新状态
+              </Button>
+              <Badge count={servicesList.length} showZero>
+                <Text>服务总数</Text>
+              </Badge>
+            </Space>
+          }
+          style={{ marginBottom: '24px' }}
+        >
+          <Spin spinning={servicesLoading}>
+            <Table
+              columns={[
+                {
+                  title: 'CVM ID',
+                  dataIndex: 'cvmId',
+                  key: 'cvmId',
+                  render: (text: string) => (
+                    <Tooltip title={text}>
+                      <Text code style={{ fontSize: '12px' }}>{text.slice(0, 12)}...</Text>
+                    </Tooltip>
+                  ),
+                },
+                {
+                  title: '设备ID',
+                  dataIndex: 'teeDeviceId',
+                  key: 'teeDeviceId',
+                  render: (text: string) => (
+                    <Tooltip title={text}>
+                      <Text code style={{ fontSize: '12px' }}>{text.slice(0, 12)}...</Text>
+                    </Tooltip>
+                  ),
+                },
+                {
+                  title: 'CPU',
+                  dataIndex: 'cpuCount',
+                  key: 'cpuCount',
+                  render: (value: number) => <Text>{value} 核</Text>,
+                },
+                {
+                  title: '内存',
+                  dataIndex: 'memoryMb',
+                  key: 'memoryMb',
+                  render: (value: number) => <Text>{value.toLocaleString()} MB</Text>,
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  render: (_: any, record: CvmServiceInfo) => (
+                    <Button
+                      type="link"
+                      icon={<ApiOutlined />}
+                      onClick={() => window.open('https://6543e5c07a91f18cbf5e60a1e93f8c48113a7f20-3001.020919.xyz:9204/privacy_demo.html', '_blank')}
+                      size="small"
+                    >
+                      服务调用
+                    </Button>
+                  ),
+                },
+              ]}
+              dataSource={servicesList}
+              rowKey="cvmId"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1200 }}
+              locale={{ emptyText: '暂无CVM数据' }}
+            />
+          </Spin>
+        </Card>
+
+        {/* 合约列表 */}
+        <Card
+          title="当前合约列表"
+          extra={
+            <Space>
+              <Button
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={loadAllData}
+                loading={loading || servicesLoading}
+                size="small"
+              >
+                刷新状态
+              </Button>
+              <Badge count={contractState.totalContracts} showZero>
+                <Text>链上合约总数</Text>
+              </Badge>
+            </Space>
+          }
+        >
+          <Spin spinning={loading}>
+            <Table
+              columns={columns}
+              dataSource={contractState.contracts}
+              rowKey="address"
+              pagination={{ pageSize: 10 }}
+              scroll={{ x: 1000 }}
+            />
+          </Spin>
+        </Card>
+
+        {/* 操作按钮和控制面板 - 已注释 */}
+        {/* <Card style={{ marginTop: '24px', marginBottom: '24px' }}>
           <Row justify="space-between" align="middle">
             <Col>
               <Space>
-                <Button type="primary" icon={<ReloadOutlined />} onClick={loadContractState} loading={loading}>刷新状态</Button>
+                <Button type="primary" icon={<ReloadOutlined />} onClick={loadAllData} loading={loading || servicesLoading}>刷新状态</Button>
                 <Button
                   type="primary"
                   icon={<PlusOutlined />}
@@ -710,8 +920,7 @@ export default function ContractsPage() {
               </Space>
             </Col>
           </Row>
-        </Card>
-
+        </Card> */}
 
         {/* 终端输出区域 */}
         <Card style={{ marginBottom: '24px' }}>
@@ -750,34 +959,6 @@ export default function ContractsPage() {
               添加时间戳
             </Button>
           </div>
-        </Card>
-
-        {/* 部署工具弹窗 */}
-        <Modal
-          title="部署工具"
-          open={deployModalVisible}
-          onCancel={() => setDeployModalVisible(false)}
-          footer={null}
-          width={760}
-        >
-          <DeployApp embedded />
-        </Modal>
-
-        {/* 合约列表 */}
-        <Card title="隐私合约列表" extra={
-          <Badge count={contractState.totalContracts} showZero>
-            <Text>合约总数</Text>
-          </Badge>
-        }>
-          <Spin spinning={loading}>
-            <Table
-              columns={columns}
-              dataSource={contractState.contracts}
-              rowKey="address"
-              pagination={{ pageSize: 10 }}
-              scroll={{ x: 1000 }}
-            />
-          </Spin>
         </Card>
 
         {/* phat_hello 合约调用功能 */}

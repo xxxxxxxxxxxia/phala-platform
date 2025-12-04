@@ -898,10 +898,23 @@ export default function VmDetailPage() {
                                     {vmDetails?.image_version || vmDetails?.configuration?.image || 'DStack 0.3.6'}
                                 </div>
                             </div>
-                            <div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>处理器</Text>
-                                <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>
-                                    {vmDetails?.configuration?.vcpu || '暂无'} vCPUs
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    gap: 16,
+                                    justifyContent: 'space-between',
+                                    flexWrap: 'wrap',
+                                }}
+                            >
+                                <div style={{ minWidth: 120, flex: 1 }}>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>处理器</Text>
+                                    <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>
+                                        {vmDetails?.configuration?.vcpu || '暂无'} vCPUs
+                                    </div>
+                                </div>
+                                <div style={{ minWidth: 120, flex: 1 }}>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>TEE 型号</Text>
+                                    <div style={{ fontSize: 14, fontWeight: 500, marginTop: 4 }}>海光7490</div>
                                 </div>
                             </div>
                             <div>

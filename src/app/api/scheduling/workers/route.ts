@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFastApiUrl } from "@/lib/config";
+import { getWorkersInfo } from "@/lib/phalaApi";
 
 type WorkerInsight = {
     pubkey: string;
@@ -231,50 +232,182 @@ async function fetchWorkerInfo(endpoint: string): Promise<WorkerInsight | null> 
     }
 }
 
+// 检查worker响应状态（使用监控页面的方式，写死两个URL）
+async function fetchWorkerResponses(): Promise<Map<string, { url: string; data: any }>> {
+    const workerResponses = new Map<string, { url: string; data: any }>();
+    const workerUrls = [
+        'http://8.147.107.221:18000',
+        'http://8.147.106.136:8000'
+    ];
+
+    console.log('[scheduling/workers] 开始检查已知worker地址的响应状态...');
+
+    await Promise.all(workerUrls.map(async (url) => {
+        try {
+            // 直接调用worker的info接口获取信息
+            const started = Date.now();
+            const infoUrl = `${url}/info`;
+            const response = await fetch(infoUrl, {
+                cache: "no-store",
+                signal: AbortSignal.timeout(5000),
+            });
+            const latencyMs = Date.now() - started;
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.public_key) {
+                    console.log(`[scheduling/workers] ${url} 的public_key: ${data.public_key}`);
+                    workerResponses.set(data.public_key.toLowerCase(), {
+                        url: url,
+                        data: {
+                            ...data,
+                            latencyMs, // 添加延迟信息
+                        }
+                    });
+                }
+            }
+        } catch (error) {
+            console.error(`[scheduling/workers] 检查${url}失败:`, error);
+        }
+    }));
+
+    console.log(`[scheduling/workers] 找到 ${workerResponses.size} 个有响应的worker`);
+    return workerResponses;
+}
+
 async function fetchLocalInsights(): Promise<WorkerResponse | null> {
-    const endpoints = parseWorkerEndpoints();
-    if (!endpoints.length) {
-        console.warn("[scheduling/workers] 没有配置worker端点");
-        return null;
-    }
-    console.info("[scheduling/workers] 开始检查本地worker:", endpoints);
-    const workerResults = await Promise.all(
-        endpoints.map(async (endpoint) => {
-            try {
-                return await fetchWorkerInfo(endpoint);
-            } catch (error) {
-                console.error(`[scheduling/workers] 获取worker信息失败 ${endpoint}:`, error);
-                return null;
+    try {
+        // 1. 获取所有链上worker（使用监控页面的方式）
+        console.info("[scheduling/workers] 开始获取链上worker...");
+        const chainWorkers = await getWorkersInfo();
+        console.info(`[scheduling/workers] 从链上获取到 ${chainWorkers.length} 个worker`);
+
+        // 2. 检查worker响应状态（写死两个URL）
+        const workerResponses = await fetchWorkerResponses();
+
+        // 3. 合并数据：链上worker + 响应信息 + 延迟和评分
+        const workers: WorkerInsight[] = [];
+
+        for (const chainWorker of chainWorkers) {
+            const publicKeyHex = chainWorker.publicKey.replace('0x', '').toLowerCase();
+            const responseInfo = workerResponses.get(publicKeyHex);
+
+            // 只处理有响应的worker
+            if (!responseInfo) {
+                continue;
             }
-        })
-    );
 
-    const workers = workerResults.filter(Boolean) as WorkerInsight[];
-    console.info(`[scheduling/workers] 成功获取 ${workers.length}/${endpoints.length} 个worker信息`);
+            const responseData = responseInfo.data;
+            const isOnline = Boolean(responseData.initialized);
+            const isRegistered = Boolean(responseData.registered);
+            const latencyMs = responseData.latencyMs || 0;
 
-    if (!workers.length) {
-        console.warn("[scheduling/workers] 没有成功获取任何worker信息");
-        return null;
-    }
+            // 处理gatekeeper字段
+            const isGatekeeper = responseData.gatekeeper
+                ? (typeof responseData.gatekeeper === 'object'
+                    ? (responseData.gatekeeper.role !== undefined && responseData.gatekeeper.role !== 0)
+                    : Boolean(responseData.gatekeeper))
+                : false;
 
-    const recommended =
-        workers.reduce<WorkerInsight | null>((best, worker) => {
-            if (!best || worker.score > best.score) {
-                return worker;
+            // 优先使用worker返回的评分，如果score为0则使用评分函数计算
+            let workerScore: number;
+            if (typeof responseData.score === 'number' && responseData.score > 0) {
+                workerScore = responseData.score;
+            } else if (typeof responseData.rating === 'number' && responseData.rating > 0) {
+                workerScore = responseData.rating;
+            } else {
+                // 使用评分函数计算
+                workerScore = scoreWorker(latencyMs, responseData.blocknum || 0, isOnline, isRegistered);
             }
-            return best;
-        }, null) ?? workers[0];
 
-    if (recommended) {
-        recommended.isRecommended = true;
+            // 构建WorkerInsight
+            const workerInsight: WorkerInsight = {
+                pubkey: chainWorker.publicKey, // 使用链上的publicKey
+                endpoint: responseInfo.url,
+                online: isOnline,
+                latencyMs: latencyMs,
+                version: responseData.git_revision ?? responseData.version ?? chainWorker.version ?? "unknown",
+                registered: isRegistered,
+                state: responseData.state ?? chainWorker.state ?? (isOnline ? "Ready" : "Unknown"),
+                gatekeeper: isGatekeeper,
+                inCluster: isRegistered,
+                lastUpdated: Date.now(),
+                score: workerScore,
+            };
+
+            workers.push(workerInsight);
+        }
+
+        console.info(`[scheduling/workers] 成功获取 ${workers.length} 个有响应的worker信息`);
+
+        if (!workers.length) {
+            console.warn("[scheduling/workers] 没有成功获取任何worker信息");
+            return null;
+        }
+
+        // 选择推荐worker（分数最高的）
+        const recommended =
+            workers.reduce<WorkerInsight | null>((best, worker) => {
+                if (!best || worker.score > best.score) {
+                    return worker;
+                }
+                return best;
+            }, null) ?? workers[0];
+
+        if (recommended) {
+            recommended.isRecommended = true;
+        }
+
+        return {
+            clusterId: process.env.SCHEDULING_CLUSTER_ID ?? "local-cluster",
+            fetchedAt: Date.now(),
+            recommended,
+            workers,
+        };
+    } catch (error) {
+        console.error("[scheduling/workers] 获取worker信息失败:", error);
+        // 如果获取链上worker失败，回退到原来的方式
+        const endpoints = parseWorkerEndpoints();
+        if (!endpoints.length) {
+            console.warn("[scheduling/workers] 没有配置worker端点");
+            return null;
+        }
+        console.info("[scheduling/workers] 回退到检查本地worker端点:", endpoints);
+        const workerResults = await Promise.all(
+            endpoints.map(async (endpoint) => {
+                try {
+                    return await fetchWorkerInfo(endpoint);
+                } catch (error) {
+                    console.error(`[scheduling/workers] 获取worker信息失败 ${endpoint}:`, error);
+                    return null;
+                }
+            })
+        );
+
+        const workers = workerResults.filter(Boolean) as WorkerInsight[];
+        if (!workers.length) {
+            return null;
+        }
+
+        const recommended =
+            workers.reduce<WorkerInsight | null>((best, worker) => {
+                if (!best || worker.score > best.score) {
+                    return worker;
+                }
+                return best;
+            }, null) ?? workers[0];
+
+        if (recommended) {
+            recommended.isRecommended = true;
+        }
+
+        return {
+            clusterId: process.env.SCHEDULING_CLUSTER_ID ?? "local-cluster",
+            fetchedAt: Date.now(),
+            recommended,
+            workers,
+        };
     }
-
-    return {
-        clusterId: process.env.SCHEDULING_CLUSTER_ID ?? "local-cluster",
-        fetchedAt: Date.now(),
-        recommended,
-        workers,
-    };
 }
 
 function buildFallback(): WorkerResponse {

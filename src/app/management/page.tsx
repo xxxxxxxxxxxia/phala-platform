@@ -6,8 +6,7 @@ import { DesktopOutlined, GlobalOutlined, SafetyCertificateOutlined, TrophyOutli
 import MainLayout from '../../components/layout/MainLayout';
 import AuthGuard from '../../components/AuthGuard';
 import DataCard from '../../components/DataCard';
-import { getNetworkStats, NetworkStats } from '../../lib/phalaApi';
-import { getAverageBlockTime } from '../../lib/phalaApi';
+import { NetworkStats } from '../../lib/phalaApi';
 import Link from 'next/link';
 
 const { Title, Text } = Typography;
@@ -26,19 +25,31 @@ export default function Dashboard() {
         setLoading(true);
         setError(null);
 
-        // 添加超时控制，避免长时间等待
-        const statsPromise = getNetworkStats();
-        const blockTimePromise = getAverageBlockTime(10);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('数据加载超时，请检查后端服务')), 20000) // 20秒超时
-        );
-
-        const [stats, abt] = await Promise.all([
-          Promise.race([statsPromise, timeoutPromise]) as Promise<NetworkStats>,
-          blockTimePromise
-        ]);
-        setNetworkStats(stats);
-        setAvgBlockTime(abt);
+        // 使用和响应监控页面相同的数据源：dashboard/summary API
+        const response = await fetch('/api/dashboard/summary', {
+          headers: { 'cache-control': 'no-store' }
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const result = await response.json();
+        if (result.success && result.data) {
+          const data = result.data;
+          // 转换为 NetworkStats 格式
+          setNetworkStats({
+            totalWorkers: data.workers?.total || 0, // 和响应监控页面的总worker数一样
+            onlineWorkers: data.workers?.online || 0, // 和响应监控页面的在线worker数一样
+            offlineWorkers: data.workers?.offline || 0,
+            unresponsiveWorkers: data.workers?.unresponsive || 0,
+            totalSessions: data.workers?.totalSessions || 0,
+            activeSessions: data.workers?.activeSessions || 0,
+            averageScore: data.incentives?.averageScore || 0,
+            lastBlockNumber: data.blockchain?.blockNumber || 0,
+          });
+          setAvgBlockTime(data.blockchain?.avgBlockTime || null);
+        } else {
+          throw new Error('API返回数据格式错误');
+        }
       } catch (err: unknown) {
         console.error('获取网络统计失败:', err);
         setError(err instanceof Error ? err.message : '未知错误');
@@ -99,7 +110,7 @@ export default function Dashboard() {
             <Col xs={24} sm={12} lg={6}>
               <DataCard title="总注册计算节点">
                 <Statistic
-                  value={networkStats?.totalWorkers + 3 || 0}
+                  value={networkStats?.totalWorkers || 0}
                   prefix={<DesktopOutlined />}
                 />
               </DataCard>

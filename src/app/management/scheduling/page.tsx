@@ -28,6 +28,8 @@ import {
   Upload,
   message,
   Empty,
+  Collapse,
+  Badge,
 } from "antd";
 import {
   ApiOutlined,
@@ -42,15 +44,24 @@ import {
   SearchOutlined,
   ThunderboltOutlined,
   UnorderedListOutlined,
+  DownOutlined,
+  UpOutlined,
+  MonitorOutlined,
+  UploadOutlined,
+  FileTextOutlined,
+  SafetyCertificateOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
 import type { UploadFile } from "antd/es/upload/interface";
 const { Title, Text } = Typography;
 import dynamic from "next/dynamic";
 import axios from "axios";
+import { HygonDeviceInfo } from "@/types/hygon";
 
 import MainLayout from "@/components/layout/MainLayout";
 import DataCard from "@/components/DataCard";
 import AuthGuard from '@/components/AuthGuard';
+import { getOfflineThreshold, isOnline as checkIsOnline } from '@/lib/offlineThreshold';
 
 // 后端服务器的地址，请确保与你的后端服务地址一致
 const API_BASE_URL = "http://8.147.106.136:3002/api";
@@ -139,6 +150,48 @@ interface WorkerInsightResponse {
 }
 
 type ScenarioResult = Record<string, any>;
+
+const HIGHLIGHT_CVM_ID = "45R2pfjQUW2s9PQRHU48HQKLKHVMaDja7N3wpBtmF28UYDs2";
+
+const formatTimestamp = (value?: number) =>
+  value ? new Date(value * 1000).toLocaleString() : "—";
+
+const formatMemoryLabel = (value: number) => `${value.toLocaleString()} MB`;
+
+// 判断是否在线：使用共享工具函数，从localStorage读取阈值
+const isOnline = (lastHeartbeat?: number): boolean => {
+  return checkIsOnline(lastHeartbeat);
+};
+
+// 判断SGX Worker是否在线：基于lastUpdated时间，使用共享工具函数
+const isWorkerOnline = (lastUpdated?: number): boolean => {
+  return checkIsOnline(lastUpdated);
+};
+
+const truncateId = (value?: string, prefix = 6, suffix = 4) => {
+  if (!value) return "--";
+  if (value.length <= prefix + suffix) return value;
+  return `${value.slice(0, prefix)}...${value.slice(-suffix)}`;
+};
+
+// 合约信息类型（复用隐私合约的类型）
+type PrivacyContract = {
+  id: string;
+  name: string;
+  address: string;
+  type: 'SGX' | 'ZK' | 'MPC' | 'HE' | 'SGX+SideVM';
+  status: 'active' | 'inactive' | 'pending' | 'error';
+  deployedAt: number;
+  lastUpdate: number;
+  gasUsed: number;
+  storageUsed: number;
+  privacyLevel: number;
+  securityScore: number;
+  executionCount: number;
+  owner: string;
+  version: string;
+  isVerified: boolean;
+};
 
 const SCENARIOS: ScenarioConfig[] = [
   {
@@ -324,7 +377,7 @@ export default function HomePage() {
 
   // SGX 调度相关状态
   const [sgxLoading, setSgxLoading] = useState(false);
-  const [sgxAutoRefresh, setSgxAutoRefresh] = useState(true);
+  const [sgxAutoRefresh, setSgxAutoRefresh] = useState(false); // 默认手动刷新
   const [workerInsights, setWorkerInsights] = useState<WorkerInsightResponse | null>(null);
   const [workerLoading, setWorkerLoading] = useState(false);
   const [scenarioRunning, setScenarioRunning] = useState<string | null>(null);
@@ -336,6 +389,30 @@ export default function HomePage() {
   const [addLoading, setAddLoading] = useState(false);
   const [sfqStatus, setSfqStatus] = useState<any>(null);
   const [sfqLoading, setSfqLoading] = useState(false);
+  const [sfqExpanded, setSfqExpanded] = useState(false);
+
+  // CSV Worker监控相关状态
+  const [hygonDevices, setHygonDevices] = useState<HygonDeviceInfo[]>([]);
+  const [hygonLoading, setHygonLoading] = useState(false);
+  const [hygonError, setHygonError] = useState<string | null>(null);
+
+  // SGX Worker监控相关状态
+  const [contracts, setContracts] = useState<PrivacyContract[]>([]);
+  const [contractsLoading, setContractsLoading] = useState(false);
+
+  // 部署服务相关状态
+  const [deployLoading, setDeployLoading] = useState(false);
+  const [deployForm] = Form.useForm();
+  const [deployFileList, setDeployFileList] = useState<UploadFile[]>([]);
+
+  // 上传合约相关状态
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadForm] = Form.useForm();
+
+  // 终端输出相关状态
+  const [terminalOutput, setTerminalOutput] = useState<string>('等待操作...');
+  const [isTerminalActive, setIsTerminalActive] = useState(false);
 
   const {
     token: { colorBgContainer, colorText },
@@ -343,8 +420,215 @@ export default function HomePage() {
 
   // 在组件加载时自动获取所有VM服务信息
   useEffect(() => {
-    fetchAllVmServices();
+    loadHygonDevices();
+    loadContracts();
   }, []);
+
+  // 获取链上 Hygon 设备信息
+  const loadHygonDevices = async () => {
+    setHygonLoading(true);
+    try {
+      const response = await fetch("/api/hygon-devices");
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "无法获取 Hygon 设备数据");
+      }
+
+      const devices: HygonDeviceInfo[] = Array.isArray(payload.data?.devices)
+        ? payload.data.devices
+        : [];
+      setHygonDevices(devices);
+      setHygonError(null);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "获取 Hygon 设备失败";
+      setHygonError(messageText);
+      setHygonDevices([]);
+      message.error(messageText);
+    } finally {
+      setHygonLoading(false);
+    }
+  };
+
+  // 加载合约信息
+  const loadContracts = async () => {
+    setContractsLoading(true);
+    try {
+      // 先尝试真实API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      try {
+        const response = await fetch('/api/contracts/real', {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const result = await response.json();
+
+        if (result.success && result.data?.contracts) {
+          setContracts(result.data.contracts);
+          return;
+        }
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name !== 'AbortError') {
+          console.log('真实API失败，回退到快速API:', error.message);
+        }
+      }
+
+      // 回退到快速API
+      const response = await fetch('/api/contracts/fast?action=status');
+      const result = await response.json();
+
+      if (result.success && result.data?.contracts) {
+        setContracts(result.data.contracts);
+      }
+    } catch (error: any) {
+      console.error('加载合约信息失败:', error);
+    } finally {
+      setContractsLoading(false);
+    }
+  };
+
+  // 上传合约函数
+  const handleUploadContract = async (values: any) => {
+    setUploading(true);
+    setIsTerminalActive(true);
+    setTerminalOutput('📤 开始上传合约...\n正在处理合约文件...');
+
+    // 立即关闭弹窗，让用户看到终端输出
+    setUploadModalVisible(false);
+    uploadForm.resetFields();
+
+    try {
+      const formData = new FormData();
+      formData.append('description', values.description || '');
+      if (values.contractFile && values.contractFile.length > 0) {
+        formData.append('contractFile', values.contractFile[0].originFileObj);
+      }
+
+      setTerminalOutput(prev => prev + '\n📋 合约信息:');
+      setTerminalOutput(prev => prev + '\n正在上传到链上...');
+      setTerminalOutput(prev => prev + '\n⏳ 这可能需要20-30秒，请耐心等待...');
+
+      const response = await fetch('/api/contracts/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        setTerminalOutput(prev => prev + '\n✅ 合约上传成功！');
+        setTerminalOutput(prev => prev + `\n📋 部署详情:`);
+
+        const contractAddress = result.data?.address || result.data?.contractId || result.contractAddress;
+        const contractId = result.data?.contractId || result.data?.address || result.contractAddress;
+
+        if (contractId && contractId !== 'unknown') {
+          setTerminalOutput(prev => prev + `\n   - 合约ID: ${contractId}`);
+        }
+        if (contractAddress && contractAddress !== 'unknown') {
+          setTerminalOutput(prev => prev + `\n   - 合约地址: ${contractAddress}`);
+        }
+
+        if (result.warning) {
+          setTerminalOutput(prev => prev + `\n⚠️ 警告: ${result.warning}`);
+          message.warning(result.warning);
+        } else {
+          message.success('合约上传成功！');
+        }
+
+        loadContracts(); // 刷新合约列表
+      } else {
+        setTerminalOutput(prev => prev + '\n❌ 上传失败！');
+        setTerminalOutput(prev => prev + `\n错误: ${result.error || '未知错误'}`);
+        message.error(result.error || '上传失败');
+      }
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      setTerminalOutput(prev => prev + '\n❌ 上传失败！');
+      setTerminalOutput(prev => prev + `\n错误: ${error.message}`);
+      message.error('上传失败，请重试');
+    } finally {
+      setUploading(false);
+      setIsTerminalActive(false);
+    }
+  };
+
+  // 部署系统合约函数
+  const deploySystemContract = async () => {
+    setUploadModalVisible(false);
+    uploadForm.resetFields();
+
+    try {
+      setUploading(true);
+      setIsTerminalActive(true);
+      setTerminalOutput('🚀 开始部署系统合约...\n正在连接区块链节点...');
+      setTerminalOutput(prev => prev + '\n⏳ 系统合约部署需要1-2分钟，请耐心等待...');
+
+      const response = await fetch('/api/contracts/deploy-system', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setTerminalOutput(prev => prev + '\n✅ 系统合约部署成功！');
+        message.success(`系统合约部署成功！`);
+
+        if (result.output) {
+          setTerminalOutput(prev => prev + '\n\n📋 部署详情:\n' + result.output);
+        }
+
+        loadContracts(); // 刷新合约列表
+      } else {
+        setTerminalOutput(prev => prev + '\n❌ 部署失败！');
+        message.error(result.error || '部署失败');
+        if (result.error) {
+          setTerminalOutput(prev => prev + '\n错误: ' + result.error);
+        }
+      }
+    } catch (error: any) {
+      console.error('Deploy failed:', error);
+      setTerminalOutput(prev => prev + '\n❌ 部署失败！');
+      setTerminalOutput(prev => prev + `\n错误: ${error.message}`);
+      message.error('部署失败，请重试');
+    } finally {
+      setUploading(false);
+      setIsTerminalActive(false);
+    }
+  };
+
+  // 下载示例合约函数
+  const downloadSampleContract = () => {
+    const link = document.createElement('a');
+    link.href = '/sample_contracts/phat_hello.contract';
+    link.download = 'phat_hello.contract';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    message.success('示例合约下载成功！请使用 phat_hello.contract 文件上传部署。注意：只支持.contract和.wasm文件格式。');
+  };
+
+  // 下载示例部署文件函数
+  const downloadSampleDeployFile = () => {
+    const link = document.createElement('a');
+    link.href = '/api/download-compose';
+    link.download = 'docker-compose.yml';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    message.success('开始下载部署示例文件');
+  };
 
   // 定期获取VM状态
   useEffect(() => {
@@ -514,10 +798,23 @@ export default function HomePage() {
   const loadWorkerInsights = useCallback(async () => {
     setWorkerLoading(true);
     try {
+      // 使用原来的API，但API内部已经使用监控页面的方式获取worker
       const res = await fetch("/api/scheduling/workers");
       const data = await res.json();
-      if (data.success) {
-        setWorkerInsights(data.data);
+      if (data.success && data.data) {
+        // 只保留有响应的worker（online: true）
+        const onlineWorkers = data.data.workers?.filter((w: WorkerInsight) => w.online === true) || [];
+        setWorkerInsights({
+          ...data.data,
+          workers: onlineWorkers,
+          // 重新选择推荐worker（从在线worker中选择）
+          recommended: onlineWorkers.find((w: WorkerInsight) => w.isRecommended) ||
+            onlineWorkers.reduce((best: WorkerInsight | null, worker: WorkerInsight) => {
+              if (!best || worker.score > best.score) return worker;
+              return best;
+            }, null) ||
+            null,
+        });
       } else {
         message.warning(data.error || "无法获取 Worker 信息");
       }
@@ -540,11 +837,11 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!sgxAutoRefresh) return;
-    // 将刷新间隔从8秒增加到30秒，减少服务器访问频率
+    // 默认手动刷新，自动刷新间隔设置为120秒（2分钟）
     const timer = setInterval(() => {
       loadWorkerInsights();
       loadSFQStatus();
-    }, 60000); // 30秒刷新一次
+    }, 120000); // 120秒刷新一次
     return () => clearInterval(timer);
   }, [sgxAutoRefresh, loadWorkerInsights, loadSFQStatus]);
 
@@ -1030,7 +1327,7 @@ export default function HomePage() {
 
   const handleDeployButtonClick = async () => {
     try {
-      setLoading(true);
+      setDeployLoading(true);
       const response = await axios.get(`${API_BASE_URL}/scheduled-vm`);
       console.log(response.data);
 
@@ -1055,7 +1352,7 @@ export default function HomePage() {
       console.error("调度接口调用失败:", error);
       message.error("调度失败，请稍后重试");
     } finally {
-      setLoading(false);
+      setDeployLoading(false);
     }
   };
 
@@ -1077,27 +1374,37 @@ export default function HomePage() {
     return false; // 手动上传
   };
 
-  /* 自定义上传逻辑 */
-  const customRequest = async (options: any) => {
+  /* 自定义部署上传逻辑 */
+  const customDeployRequest = async (options: any) => {
     const { file } = options;
-    setLoading(true);
-    setResult(null);
+    setDeployLoading(true);
+    setIsTerminalActive(true);
+    setTerminalOutput('🚀 开始部署服务...\n正在处理部署文件...');
+
+    // 立即关闭弹窗，让用户看到终端输出
+    setDeployModalOpen(false);
+    deployForm.resetFields();
+
     const formData = new FormData();
     formData.append("composeFile", file);
 
     // 获取表单中的部署路径和调度的主机IP
-    const values = form.getFieldsValue();
+    const values = deployForm.getFieldsValue();
     const vmPath = values.name; // 部署路径
     const vmIp = scheduledInfo?.ip; // 主机IP
 
     // 添加主机IP和路径到formData
     if (vmIp) {
       formData.append("vmIp", vmIp);
+      setTerminalOutput(prev => prev + `\n📋 目标主机: ${vmIp}`);
     }
 
     if (vmPath) {
       formData.append("vmPath", vmPath);
+      setTerminalOutput(prev => prev + `\n📋 部署路径: ${vmPath}`);
     }
+
+    setTerminalOutput(prev => prev + '\n⏳ 正在上传并部署，请耐心等待...');
 
     try {
       const { data } = await axios.post<DeployResponse>(
@@ -1107,18 +1414,26 @@ export default function HomePage() {
           headers: { "Content-Type": "multipart/form-data" },
         }
       );
-      setResult(data);
       console.log(data);
 
+      setTerminalOutput(prev => prev + '\n✅ 部署完成！');
+      if (data.message) {
+        setTerminalOutput(prev => prev + `\n📋 ${data.message}`);
+      }
+      if (data.output) {
+        setTerminalOutput(prev => prev + '\n\n📋 部署输出:\n' + data.output);
+      }
+
       message.success(data.message || "部署完成");
-      setDeployModalOpen(false);
-      fetchAllVmServices();
+      loadHygonDevices(); // 刷新链上 Hygon 数据
     } catch (err: any) {
       const resp = err.response?.data as DeployResponse;
-      setResult(resp || { message: "网络异常，请稍后重试" });
+      setTerminalOutput(prev => prev + '\n❌ 部署失败！');
+      setTerminalOutput(prev => prev + `\n错误: ${resp?.message || err.message || '网络异常，请稍后重试'}`);
       message.error(resp?.message || "部署失败");
     } finally {
-      setLoading(false);
+      setDeployLoading(false);
+      setIsTerminalActive(false);
     }
   };
 
@@ -1165,150 +1480,446 @@ export default function HomePage() {
               安全调度
             </Title>
             <Text type="secondary"></Text>
-            {/* <Divider /> */}
-            <DataCard title="服务列表">
-              {/* 显示关闭服务后的警告横幅 */}
-              {stopServiceAlert.visible && (
-                <Alert
-                  message={stopServiceAlert.message}
-                  banner
-                  type="warning"
-                  closable
-                  onClose={() =>
-                    setStopServiceAlert({ visible: false, message: "" })
+
+            {/* 监控信息大模块 */}
+            <div style={{ marginBottom: 32 }}>
+              {/* CSV Worker监控模块 */}
+              <div style={{ marginBottom: 24 }}>
+                <DataCard
+                  title="CSV Worker 监控"
+                  extra={
+                    <Space>
+                      <Button
+                        icon={<PlusOutlined />}
+                        onClick={handleDeployButtonClick}
+                        loading={deployLoading}
+                        size="small"
+                        type="primary"
+                      >
+                        部署服务
+                      </Button>
+                      <Button
+                        icon={<ReloadOutlined />}
+                        onClick={loadHygonDevices}
+                        loading={hygonLoading}
+                        size="small"
+                        type="text"
+                        style={{ color: "rgba(255,255,255,0.85)" }}
+                      >
+                        刷新
+                      </Button>
+                    </Space>
                   }
-                  style={{ marginBottom: 16 }}
-                />
-              )}
-              {/* 顶部操作区 */}
-              <Space style={{ marginBottom: 16 }} wrap>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={handleDeployButtonClick}
-                  loading={loading}
                 >
-                  部署服务
-                </Button>
-                <Button
-                  type="primary"
-                  onClick={fetchAllVmServices}
-                  loading={loadingAllServices}
-                  icon={<UnorderedListOutlined />}
-                >
-                  查看服务
-                </Button>
-              </Space>
+                  <Spin spinning={hygonLoading}>
+                    {hygonError && (
+                      <div style={{ marginBottom: 12 }}>
+                        <Text type="danger">{hygonError}</Text>
+                      </div>
+                    )}
+                    {hygonDevices.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                        {hygonDevices.map((device) => (
+                          <Card
+                            key={device.deviceId}
+                            size="small"
+                            style={{
+                              background: "#1a1d3a",
+                              borderColor: "#1f2a44",
+                              marginBottom: 16,
+                            }}
+                          >
+                            <Row gutter={[24, 16]}>
+                              <Col xs={24} lg={8}>
+                                <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                  <div>
+                                    <Text strong style={{ color: "#fff", fontSize: 16 }}>
+                                      {truncateId(device.deviceId, 8, 6)}
+                                    </Text>
+                                    <Tag color="purple" style={{ marginLeft: 8 }}>
+                                      Hygon TEE
+                                    </Tag>
+                                  </div>
+                                  <Space direction="vertical" size="small">
+                                    <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                      CPU: {device.cpuCount} 核
+                                    </Text>
+                                    <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                      内存: {formatMemoryLabel(device.memoryMb)}
+                                    </Text>
+                                    <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                      最后心跳: {formatTimestamp(device.lastHeartbeat)}
+                                      <Tag
+                                        color={isOnline(device.lastHeartbeat) ? "green" : "red"}
+                                        style={{ marginLeft: 8 }}
+                                      >
+                                        {isOnline(device.lastHeartbeat) ? "在线" : "离线"}
+                                      </Tag>
+                                    </Text>
+                                    <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                      心跳次数: {device.heartbeatCount}
+                                    </Text>
+                                    <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                      累计奖励:{" "}
+                                      <Text code style={{ fontSize: 12 }}>
+                                        {device.totalRewards}
+                                      </Text>
+                                    </Text>
+                                    <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                      绑定 CVM: {device.cvms.length} 台
+                                    </Text>
+                                  </Space>
+                                </Space>
+                              </Col>
+                              <Col xs={24} lg={16}>
+                                <div>
+                                  <Text strong style={{ color: "#fff", marginBottom: 12, display: "block", fontSize: 14 }}>
+                                    CVM 详情
+                                  </Text>
+                                  {device.cvms.length > 0 ? (
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        flexWrap: "wrap",
+                                        gap: 12,
+                                        maxHeight: "260px",
+                                        overflowY: "auto",
+                                        paddingRight: 4,
+                                      }}
+                                    >
+                                      {device.cvms.map((cvm) => (
+                                        <Card
+                                          key={cvm.id}
+                                          size="small"
+                                          style={{
+                                            background: "#0f111a",
+                                            borderColor: "#1f2a44",
+                                            minWidth: 220,
+                                            flex: "1 1 220px",
+                                          }}
+                                          bodyStyle={{ padding: "12px" }}
+                                        >
+                                          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                              <Text strong style={{ color: "#fff", fontSize: 13 }}>
+                                                {truncateId(cvm.id, 8, 4)}
+                                              </Text>
+                                              {cvm.id === HIGHLIGHT_CVM_ID && (
+                                                <Tag color="gold">重点 CVM</Tag>
+                                              )}
+                                            </div>
+                                            <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                              CPU: {cvm.cpuCount} 核 / 内存: {formatMemoryLabel(cvm.memoryMb)}
+                                            </Text>
+                                            <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                              最后心跳: {formatTimestamp(cvm.lastHeartbeat)}
+                                              <Tag
+                                                color={isOnline(cvm.lastHeartbeat) ? "green" : "red"}
+                                                style={{ marginLeft: 8 }}
+                                              >
+                                                {isOnline(cvm.lastHeartbeat) ? "在线" : "离线"}
+                                              </Tag>
+                                            </Text>
+                                            <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                              心跳次数: {cvm.heartbeatCount}
+                                            </Text>
+                                          </Space>
+                                        </Card>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <Empty
+                                      description="未绑定 CVM"
+                                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                      style={{ padding: "16px 0" }}
+                                    />
+                                  )}
+                                </div>
+                              </Col>
+                            </Row>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : (
+                      !hygonLoading && (
+                        <Empty
+                          description="链上暂未检测到 Hygon 设备"
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        />
+                      )
+                    )}
+                  </Spin>
+                </DataCard>
+              </div>
 
-              {/* 所有服务信息展示区域 */}
-              <Spin
-                tip="正在查询服务列表..."
-                size="large"
-                spinning={loadingAllServices}
+              <div style={{ marginTop: 24 }} />
+
+              {/* SGX Worker监控模块 */}
+              <DataCard
+                title="SGX Worker 监控"
+                extra={
+                  <Space>
+                    <Button
+                      icon={<UploadOutlined />}
+                      onClick={() => setUploadModalVisible(true)}
+                      size="small"
+                      type="primary"
+                    >
+                      上传合约
+                    </Button>
+                    <Button
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        loadWorkerInsights();
+                        loadContracts();
+                      }}
+                      loading={workerLoading || contractsLoading}
+                      size="small"
+                      type="text"
+                      style={{ color: "rgba(255,255,255,0.85)" }}
+                    >
+                      刷新
+                    </Button>
+                  </Space>
+                }
               >
-                {allVmServices.length > 0 ? (
-                  <Table
-                    rowKey={(record, index) => `vm-${index}`}
-                    columns={allVmServicesColumns}
-                    dataSource={(() => {
-                      const flattenedData: any[] = [];
-                      allVmServices.forEach((vm) => {
-                        if (
-                          vm.success &&
-                          vm.services?.docker &&
-                          Array.isArray(vm.services.docker) &&
-                          vm.services.docker.length > 0
-                        ) {
-                          vm.services.docker.forEach((service) => {
-                            // 只添加状态包含"Up"的服务
-                            if (service.status && service.status.includes("Up")) {
-                              flattenedData.push({
-                                ...service,
-                                vmIp: vm.vmIp,
-                                vmStatus: vm.success,
-                              });
-                            }
-                          });
-                        } else {
-                          // 添加一个表示无服务的条目
-                          flattenedData.push({
-                            vmIp: vm.vmIp,
-                            vmStatus: vm.success,
-                            error: vm.error,
-                            isEmpty: true,
-                          });
-                        }
-                      });
-                      return flattenedData;
-                    })()}
-                    pagination={false}
-                    size="small"
-                  />
-                ) : (
-                  <div
-                    style={{
-                      textAlign: "center",
-                      padding: "40px 0",
-                      color: "rgba(255, 255, 255, 0.3)",
-                    }}
-                  >
-                    {/* 点击"查看所有服务"按钮获取服务信息 */}
-                  </div>
-                )}
-              </Spin>
-            </DataCard>
+                <Spin spinning={workerLoading || contractsLoading}>
+                  {workerInsights?.workers && workerInsights.workers.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                      {workerInsights.workers.map((worker) => (
+                        <Card
+                          key={worker.pubkey}
+                          size="small"
+                          style={{
+                            background: "#1a1d3a",
+                            borderColor: "#1f2a44",
+                            marginBottom: 16,
+                          }}
+                        >
+                          <Row gutter={[24, 16]}>
+                            {/* 左面：Worker信息 */}
+                            <Col xs={24} lg={8}>
+                              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                <div>
+                                  <Text strong style={{ color: "#fff", fontSize: 16 }}>
+                                    Worker
+                                  </Text>
+                                  {worker.isRecommended && (
+                                    <Tag color="cyan" style={{ marginLeft: 8 }}>推荐</Tag>
+                                  )}
+                                  {!worker.inCluster && (
+                                    <Tag style={{ marginLeft: 8 }}>未入集群</Tag>
+                                  )}
+                                </div>
+                                <Space direction="vertical" size="small">
+                                  <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                    公钥: <Text code style={{ color: "#fff", fontSize: 12 }}>
+                                      {worker.pubkey ? `${worker.pubkey.slice(0, 10)}...${worker.pubkey.slice(-6)}` : "--"}
+                                    </Text>
+                                  </Text>
+                                  <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                    Endpoint: {worker.endpoint || "链上注册"}
+                                  </Text>
+                                  <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                    状态: <Tag color={worker.online ? "green" : "red"}>
+                                      {worker.online ? "有响应" : "无响应"}
+                                    </Tag>
+                                  </Text>
+                                  <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                    延迟: {typeof worker.latencyMs === "number" ? `${worker.latencyMs.toFixed(0)} ms` : "--"}
+                                    <Tag
+                                      color={isWorkerOnline(worker.lastUpdated) ? "green" : "red"}
+                                      style={{ marginLeft: 8 }}
+                                    >
+                                      {isWorkerOnline(worker.lastUpdated) ? "在线" : "离线"}
+                                    </Tag>
+                                  </Text>
+                                  <Text type="secondary" style={{ color: "rgba(255,255,255,0.65)" }}>
+                                    健康得分: {typeof worker.score === "number" ? worker.score.toFixed(1) : "--"}
+                                  </Text>
+                                </Space>
+                              </Space>
+                            </Col>
 
-            <p></p>
+                            {/* 右面：合约信息 */}
+                            <Col xs={24} lg={16}>
+                              <div>
+                                <Text strong style={{ color: "#fff", marginBottom: 12, display: "block", fontSize: 14 }}>
+                                  链上合约 ({contracts.length} 个)
+                                </Text>
+                                {contracts.length > 0 ? (
+                                  <div style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 8,
+                                    maxHeight: "250px",
+                                    overflowY: "auto",
+                                    overflowX: "hidden",
+                                    paddingRight: 4,
+                                  }}>
+                                    {contracts.map((contract) => {
+                                      const typeColors: Record<string, string> = {
+                                        'SGX': 'blue',
+                                        'ZK': 'purple',
+                                        'MPC': 'orange',
+                                        'HE': 'green',
+                                        'SGX+SideVM': 'cyan'
+                                      };
+                                      const statusMap: Record<string, { color: string; text: string }> = {
+                                        'active': { color: 'green', text: '运行中' },
+                                        'inactive': { color: 'orange', text: '已停止' },
+                                        'pending': { color: 'blue', text: '等待中' },
+                                        'error': { color: 'red', text: '错误' }
+                                      };
+                                      const statusInfo = statusMap[contract.status] || { color: 'default', text: contract.status.toUpperCase() };
 
-            <DataCard title="设备列表">
-              {/* 设备信息表格 */}
-              <Table
-                rowKey="key"
-                columns={hostColumns}
-                dataSource={hostDataSource}
-                pagination={{
-                  pageSize: 50,
-                  showSizeChanger: false,
-                  showTotal: (t) => `设备总数: ${t}台`,
-                }}
-                size="small"
-              />
-            </DataCard>
+                                      return (
+                                        <Card
+                                          key={contract.address}
+                                          size="small"
+                                          style={{
+                                            background: "#0f111a",
+                                            borderColor: "#1f2a44",
+                                            marginBottom: 0,
+                                          }}
+                                          bodyStyle={{ padding: "12px" }}
+                                        >
+                                          <Row gutter={[12, 8]}>
+                                            <Col span={24}>
+                                              <Space>
+                                                <Text strong style={{ color: "#fff", fontSize: 13 }}>
+                                                  {contract.name}
+                                                </Text>
+                                                {contract.isVerified && (
+                                                  <Tag color="green">已验证</Tag>
+                                                )}
+                                                <Tag color={typeColors[contract.type] || 'default'}>
+                                                  {contract.type}
+                                                </Tag>
+                                                <Tag color={statusInfo.color}>
+                                                  {statusInfo.text}
+                                                </Tag>
+                                              </Space>
+                                            </Col>
+                                            <Col span={24}>
+                                              <Text type="secondary" style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
+                                                地址: <Text code style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, wordBreak: "break-all" }}>
+                                                  {contract.address}
+                                                </Text>
+                                              </Text>
+                                            </Col>
+                                            <Col span={12}>
+                                              <Text type="secondary" style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                                                Gas: <Text style={{ color: "rgba(255,255,255,0.75)" }}>
+                                                  {contract.gasUsed?.toLocaleString() || 0}
+                                                </Text>
+                                              </Text>
+                                            </Col>
+                                            <Col span={12}>
+                                              <Text type="secondary" style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                                                存储: <Text style={{ color: "rgba(255,255,255,0.75)" }}>
+                                                  {(contract.storageUsed || 0).toLocaleString()} bytes
+                                                </Text>
+                                              </Text>
+                                            </Col>
+                                          </Row>
+                                        </Card>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <Empty
+                                    description="暂无合约数据"
+                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                    style={{ padding: "20px 0" }}
+                                  />
+                                )}
+                              </div>
+                            </Col>
+                          </Row>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <Empty description="暂无Worker数据" />
+                  )}
+                </Spin>
+              </DataCard>
+            </div>
 
-            {/* 部署弹窗 */}
+            {/* 终端输出区域 */}
+            <Card style={{ marginBottom: '24px' }}>
+              <Title level={4}>
+                终端输出
+                {isTerminalActive && <Badge status="processing" text="运行中" style={{ marginLeft: 8 }} />}
+              </Title>
+              <pre style={{
+                background: '#000000',
+                color: '#00ff00',
+                padding: '16px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                maxHeight: '400px',
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                border: '1px solid #333',
+                lineHeight: '1.4'
+              }}>
+                {terminalOutput}
+              </pre>
+              <div style={{ marginTop: '8px' }}>
+                <Button
+                  type="link"
+                  onClick={() => setTerminalOutput('等待操作...')}
+                  size="small"
+                >
+                  清空终端
+                </Button>
+                <Button
+                  type="link"
+                  onClick={() => setTerminalOutput(prev => prev + '\n' + new Date().toLocaleTimeString() + ' - 手动刷新')}
+                  size="small"
+                >
+                  添加时间戳
+                </Button>
+              </div>
+            </Card>
+
+            {/* 部署服务弹窗 */}
             <Modal
-              title="部署信息"
+              title="部署服务"
               open={deployModalOpen}
               onCancel={() => {
                 setDeployModalOpen(false);
                 setScheduledInfo(null);
+                deployForm.resetFields();
+                setDeployFileList([]);
               }}
               footer={null}
+              width={600}
               afterOpenChange={(open) => {
                 if (open && scheduledInfo) {
-                  // 模态框打开后设置表单字段值
-                  form.setFieldsValue({
+                  deployForm.setFieldsValue({
                     scheduledVmIp: scheduledInfo.ip,
                     hostName: scheduledInfo.hostName,
                   });
                 } else if (!open) {
-                  // 模态框关闭时重置表单和调度信息
-                  form.resetFields();
+                  deployForm.resetFields();
                   setScheduledInfo(null);
+                  setDeployFileList([]);
                 }
               }}
             >
               <Form
-                form={form}
+                form={deployForm}
                 layout="vertical"
-                onFinish={handleDeploy}
                 preserve={false}
               >
                 <Form.Item
                   label="部署路径"
                   name="name"
                   rules={[{ required: true, message: "请输入部署路径" }]}
-                // initialValue=""
                 >
                   <Input placeholder="例如 /root/test" />
                 </Form.Item>
@@ -1322,7 +1933,6 @@ export default function HomePage() {
                   name="hostName"
                   rules={[{ required: true, message: "请选择调度主机" }]}
                 >
-                  {/* <Input readOnly placeholder="调度成功后将显示主机名称" /> */}
                   <Input disabled placeholder="调度成功后将显示主机名称" />
                 </Form.Item>
 
@@ -1332,12 +1942,12 @@ export default function HomePage() {
                   rules={[{ required: true, message: "请上传部署文件" }]}
                 >
                   <Dragger
-                    fileList={fileList}
+                    fileList={deployFileList}
                     beforeUpload={beforeUpload}
-                    customRequest={customRequest}
-                    onChange={(info) => setFileList(info.fileList)}
+                    customRequest={customDeployRequest}
+                    onChange={(info) => setDeployFileList(info.fileList)}
                     maxCount={1}
-                    disabled={loading}
+                    disabled={deployLoading}
                   >
                     <p className="ant-upload-drag-icon">
                       <InboxOutlined />
@@ -1353,20 +1963,122 @@ export default function HomePage() {
 
                 <Form.Item style={{ marginBottom: 0, textAlign: "right" }}>
                   <Space>
-                    <Button onClick={() => setDeployModalOpen(false)}>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      onClick={downloadSampleDeployFile}
+                    >
+                      下载示例文件
+                    </Button>
+                    <Button onClick={() => {
+                      setDeployModalOpen(false);
+                      deployForm.resetFields();
+                      setDeployFileList([]);
+                    }}>
                       取消
                     </Button>
                     <Button
                       type="primary"
-                      loading={loading}
-                      disabled={fileList.length === 0}
+                      loading={deployLoading}
+                      disabled={deployFileList.length === 0}
                       onClick={() => {
-                        const file = fileList[0].originFileObj;
-                        if (file) customRequest({ file });
+                        const file = deployFileList[0].originFileObj;
+                        if (file) customDeployRequest({ file });
                       }}
-                      block
                     >
                       部署
+                    </Button>
+                  </Space>
+                </Form.Item>
+              </Form>
+            </Modal>
+
+            {/* 上传合约弹窗 */}
+            <Modal
+              title="上传隐私智能合约"
+              open={uploadModalVisible}
+              onCancel={() => {
+                setUploadModalVisible(false);
+                uploadForm.resetFields();
+              }}
+              footer={null}
+              width={600}
+            >
+              <Form
+                form={uploadForm}
+                layout="vertical"
+                onFinish={handleUploadContract}
+              >
+                <Form.Item
+                  label="合约描述"
+                  name="description"
+                >
+                  <Input.TextArea
+                    placeholder="请输入合约描述（可选）"
+                    rows={3}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label="合约文件"
+                  name="contractFile"
+                  rules={[{ required: true, message: '请上传合约文件' }]}
+                  valuePropName="fileList"
+                  getValueFromEvent={(e) => {
+                    if (Array.isArray(e)) {
+                      return e;
+                    }
+                    return e && e.fileList;
+                  }}
+                >
+                  <Upload.Dragger
+                    name="contractFile"
+                    multiple={false}
+                    accept=".sol,.wasm,.contract"
+                    beforeUpload={() => false}
+                    listType="text"
+                  >
+                    <p className="ant-upload-drag-icon">
+                      <UploadOutlined />
+                    </p>
+                    <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+                    <p className="ant-upload-hint">
+                      支持 .sol, .wasm, .contract 格式文件
+                    </p>
+                  </Upload.Dragger>
+                </Form.Item>
+
+                <Alert
+                  message="上传说明"
+                  description="请确保您的合约文件符合隐私保护要求，系统将自动进行安全验证和隐私等级评估。"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+
+                <Form.Item>
+                  <Space wrap>
+                    <Button type="primary" htmlType="submit" loading={uploading}>
+                      上传合约
+                    </Button>
+                    <Button
+                      icon={<FileTextOutlined />}
+                      onClick={downloadSampleContract}
+                    >
+                      下载示例合约
+                    </Button>
+                    <Button
+                      icon={<SafetyCertificateOutlined />}
+                      onClick={deploySystemContract}
+                      loading={uploading}
+                      style={{ background: '#1890ff', borderColor: '#1890ff' }}
+                    >
+                      部署系统合约
+                    </Button>
+                    <Button onClick={() => {
+                      setUploadModalVisible(false);
+                      uploadForm.resetFields();
+                    }}>
+                      取消
                     </Button>
                   </Space>
                 </Form.Item>
@@ -1517,50 +2229,27 @@ export default function HomePage() {
               >
                 <Space direction="vertical" size={24} style={{ width: "100%" }}>
                   <Card
-                    variant="outlined"
-                    style={{
-                      borderRadius: 18,
-                      background: "linear-gradient(125deg,#141e30,#243b55)",
-                      color: "#fff",
-                    }}
-                    styles={{ body: { padding: 32 } }}
-                  >
-                    <Row justify="space-between" align="middle" gutter={[16, 16]}>
-                      <Col xs={24} lg={16}>
-                        <Space direction="vertical" size="small">
-                          <Title level={3} style={{ color: "#fff", margin: 0 }}>
-                            安全调度控制台（SGX）
-                          </Title>
-                          <Text style={{ color: "rgba(255,255,255,0.75)" }}>
-                            查看 worker 健康度、运行 SFQ 调度场景，以及直接调用 phat_hello。
-                          </Text>
-                        </Space>
-                      </Col>
-                      <Col>
-                        <Space>
-                          <Button icon={<ReloadOutlined />} onClick={loadSgxAll} loading={sgxLoading}>
-                            刷新
-                          </Button>
-                          <Select
-                            size="small"
-                            value={sgxAutoRefresh ? "auto" : "manual"}
-                            style={{ width: 140 }}
-                            onChange={(val) => setSgxAutoRefresh(val === "auto")}
-                            options={[
-                              { label: "自动刷新", value: "auto" },
-                              { label: "手动刷新", value: "manual" },
-                            ]}
-                          />
-                        </Space>
-                      </Col>
-                    </Row>
-                  </Card>
-
-                  <Card
                     title={
                       <Space>
                         <ThunderboltOutlined />
                         <span>Worker 推荐与全局视图</span>
+                      </Space>
+                    }
+                    extra={
+                      <Space>
+                        <Button icon={<ReloadOutlined />} onClick={loadSgxAll} loading={sgxLoading} size="small">
+                          刷新
+                        </Button>
+                        <Select
+                          size="small"
+                          value={sgxAutoRefresh ? "auto" : "manual"}
+                          style={{ width: 140 }}
+                          onChange={(val) => setSgxAutoRefresh(val === "auto")}
+                          options={[
+                            { label: "自动刷新", value: "auto" },
+                            { label: "手动刷新", value: "manual" },
+                          ]}
+                        />
                       </Space>
                     }
                     style={{
@@ -1740,315 +2429,342 @@ export default function HomePage() {
                     )}
                   </Card>
 
-                  <Card
-                    title={
-                      <Space>
-                        <PlayCircleOutlined />
-                        <span>SFQ 请求调度与服务器控制</span>
-                      </Space>
-                    }
-                    extra={
-                      <Space>
-                        <Tag color={sfqStatus?.available ? "green" : "red"}>
-                          {sfqStatus?.available ? "运行中" : "未运行"}
-                        </Tag>
-                        <Button icon={<ReloadOutlined />} onClick={loadSFQStatus} loading={sfqLoading}>
-                          刷新状态
-                        </Button>
-                      </Space>
-                    }
+                  <Collapse
+                    activeKey={sfqExpanded ? ["sfq"] : []}
+                    onChange={(keys) => setSfqExpanded(keys.includes("sfq"))}
                     style={{
                       background: "#111325",
                       borderColor: "#1f2a44",
-                      color: "#fff",
                     }}
-                    headStyle={{ borderColor: "#1f2a44", color: "#fff" }}
-                    bodyStyle={{ color: "#fff" }}
-                  >
-                    <Alert
-                      type="info"
-                      showIcon
-                      message="SFQ 调度服务器"
-                      description={
-                        <div>
-                          <div style={{ marginBottom: 8 }}>
-                            请使用脚本管理服务器：<code>./scripts/sfq-server.sh [start|stop|status|restart]</code>
-                          </div>
-                        </div>
-                      }
-                    />
-                    <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
-                      <Text>
-                        SFQ 调度器就像银行的多个服务窗口，根据每个客户（任务流）的优先级（权重）公平分配服务时间。
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        💡 <strong>通俗理解：</strong>多个任务同时到达，调度器按权重比例分配处理资源。高权重的任务获得更多处理时间，就像VIP客户有优先服务通道。
-                      </Text>
-                    </Space>
-
-                    {sfqSummaryStats.length > 0 && (
-                      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                        {sfqSummaryStats.map((stat) => (
-                          <Col xs={12} md={6} key={stat.title}>
-                            <Card size="small">
-                              <Statistic
-                                title={stat.title}
-                                value={stat.value ?? "--"}
-                                suffix={stat.suffix}
-                                valueStyle={{ color: stat.title.includes("成功率") ? "#52c41a" : undefined }}
-                              />
-                            </Card>
-                          </Col>
-                        ))}
-                      </Row>
-                    )}
-
-                    {flowChartData.length > 0 ? (
-                      <>
-                        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                          <Col xs={24} lg={12}>
-                            <Card size="small" title="各流处理进度（已完成/总数）" bordered={false}>
-                              <Space direction="vertical" style={{ width: "100%" }} size="middle">
-                                {flowChartData.map((flow: any, idx: number) => {
-                                  const total = (flow.accepted || 0) + (flow.rejected || 0);
-                                  const progress = total > 0 ? ((flow.accepted || 0) / total) * 100 : 0;
-                                  return (
-                                    <div key={idx}>
-                                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                                        <Text strong style={{ fontSize: 13 }}>
-                                          {flow.flow?.replace("_", " ").toUpperCase() || `流 ${idx + 1}`}
-                                          {flow.weight && (
-                                            <Tag color="blue" style={{ marginLeft: 8 }}>
-                                              权重 {flow.weight}x
-                                            </Tag>
-                                          )}
-                                        </Text>
-                                        <Text type="secondary" style={{ fontSize: 12 }}>
-                                          {flow.accepted || 0}/{total} 成功
-                                        </Text>
-                                      </div>
-                                      <Progress
-                                        percent={Math.round(progress)}
-                                        status={progress === 100 ? "success" : "active"}
-                                        strokeColor={{
-                                          from: "#52c41a",
-                                          to: "#13c2c2",
-                                        }}
-                                        trailColor="#434343"
-                                        showInfo={false}
-                                      />
-                                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                                        <Text type="secondary" style={{ fontSize: 11 }}>
-                                          {flow.rejected || 0} 个被拒绝
-                                        </Text>
-                                        <Text type="secondary" style={{ fontSize: 11 }}>
-                                          {flow.backlog || 0} 个等待中
-                                        </Text>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </Space>
-                            </Card>
-                          </Col>
-                          <Col xs={24} lg={12}>
-                            <Card size="small" title="资源分配比例（饼图）" bordered={false}>
-                              <div style={{ height: 260 }}>
-                                <ColumnChart
-                                  data={flowChartData.map((flow: any) => ({
-                                    flow: flow.flow,
-                                    label: `${flow.flow?.replace("_", " ").toUpperCase() || "Unknown"} (${flow.weight || 1}x)`,
-                                    accepted: flow.accepted || 0,
-                                    weight: flow.weight || 1,
-                                  }))}
-                                  xField="label"
-                                  yField="accepted"
-                                  meta={{
-                                    accepted: { alias: "已处理数" },
-                                  }}
-                                  color={["#9254de", "#13c2c2", "#52c41a", "#faad14", "#f5222d"]}
-                                  autoFit
-                                  height={240}
-                                />
-                                <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 12 }}>
-                                  💡 柱状图高度表示各流已处理的请求数。高权重流应该处理更多请求。
-                                </Text>
-                              </div>
-                            </Card>
-                          </Col>
-                        </Row>
-                        {flowPerformanceData.length > 0 && (
-                          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                            <Col span={24}>
-                              <Card size="small" title="各流处理结果" bordered={false}>
-                                <div style={{ height: 300 }}>
-                                  <ColumnChart
-                                    data={flowPerformanceData}
-                                    xField="label"
-                                    yField="value"
-                                    seriesField="category"
-                                    isGroup
-                                    color={["#52c41a", "#f5222d"]}
-                                    autoFit
-                                    height={280}
-                                    legend={{ position: "top" }}
-                                  />
-                                </div>
-                              </Card>
-                            </Col>
-                          </Row>
-                        )}
-                      </>
-                    ) : (
-                      <Empty description="等待 SFQ 服务器返回流量数据" style={{ marginBottom: 16 }} />
-                    )}
-
-                    {sfqFlowTableData.length > 0 && (
-                      <Card
-                        size="small"
-                        title="实时流量详情"
-                        bordered={false}
-                        style={{ marginBottom: 16, marginTop: 8 }}
-                      >
-                        <Table
-                          size="small"
-                          dataSource={sfqFlowTableData}
-                          columns={sfqFlowColumns}
-                          pagination={false}
-                          scroll={{ x: true }}
-                        />
-                      </Card>
-                    )}
-
-                    <Divider />
-
-                    <Space direction="vertical" size="middle" style={{ width: "100%", marginBottom: 16 }}>
-                      <Text strong>请求调度场景</Text>
-                      <Row gutter={[16, 16]}>
-                        {SCENARIOS.map((scenario) => {
-                          const ScenarioIcon = scenario.icon;
-                          const isRunning = scenarioRunning === scenario.id;
-                          return (
-                            <Col xs={24} md={12} lg={8} key={scenario.id}>
-                              <Card
-                                size="small"
-                                style={{
-                                  height: "100%",
-                                  borderColor: isRunning ? scenario.accent : undefined,
-                                }}
-                              >
-                                <Space align="start" size="middle" style={{ marginBottom: 12 }}>
-                                  <div
-                                    style={{
-                                      width: 40,
-                                      height: 40,
-                                      borderRadius: 12,
-                                      background: `${scenario.accent}22`,
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      color: scenario.accent,
-                                    }}
-                                  >
-                                    <ScenarioIcon />
-                                  </div>
-                                  <Space direction="vertical" size={4} style={{ flex: 1 }}>
-                                    <Space size="small">
-                                      <Text strong>{scenario.title}</Text>
-                                      <Tag color={scenario.accent}>{scenario.tag}</Tag>
-                                    </Space>
-                                    <Text type="secondary">{scenario.description}</Text>
-                                  </Space>
-                                </Space>
-                                <Button
-                                  block
-                                  size="large"
-                                  type={isRunning ? "primary" : "default"}
-                                  loading={isRunning}
-                                  onClick={() => runScenario(scenario.id)}
-                                >
-                                  运行场景
-                                </Button>
-                              </Card>
-                            </Col>
-                          );
-                        })}
-                      </Row>
-                    </Space>
-
-                    {scenarioResult ? (
-                      <Space direction="vertical" style={{ width: "100%" }} size="large">
-                        <Space direction="vertical" size="small">
-                          <Text strong>{scenarioResult.scenarioName}</Text>
-                          <Text type="secondary">{scenarioResult.description}</Text>
-                        </Space>
-                        <Row gutter={[16, 16]}>
-                          {scenarioStats.map((stat) => (
-                            <Col xs={12} md={6} key={stat.title}>
-                              <Card size="small">
-                                <Statistic title={stat.title} value={stat.value ?? "--"} />
-                              </Card>
-                            </Col>
-                          ))}
-                        </Row>
-                        {scenarioFlowData.length > 0 && (
-                          <>
-                            <Table
+                    ghost
+                    items={[
+                      {
+                        key: "sfq",
+                        label: (
+                          <Space>
+                            <PlayCircleOutlined />
+                            <span>SFQ 请求调度与服务器控制</span>
+                            <Tag color={sfqStatus?.available ? "green" : "red"} style={{ marginLeft: 8 }}>
+                              {sfqStatus?.available ? "运行中" : "未运行"}
+                            </Tag>
+                          </Space>
+                        ),
+                        extra: (
+                          <Space>
+                            <Button
+                              icon={<ReloadOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                loadSFQStatus();
+                              }}
+                              loading={sfqLoading}
                               size="small"
-                              dataSource={scenarioFlowData}
-                              columns={scenarioFlowColumns}
-                              pagination={false}
+                            >
+                              刷新状态
+                            </Button>
+                            <Button
+                              type="text"
+                              icon={sfqExpanded ? <UpOutlined /> : <DownOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSfqExpanded(!sfqExpanded);
+                              }}
+                              size="small"
+                            >
+                              {sfqExpanded ? "收起" : "更多"}
+                            </Button>
+                          </Space>
+                        ),
+                        children: (
+                          <div style={{ color: "#fff" }}>
+                            <Alert
+                              type="info"
+                              showIcon
+                              message="SFQ 调度服务器"
+                              description={
+                                <div>
+                                  <div style={{ marginBottom: 8 }}>
+                                    请使用脚本管理服务器：<code>./scripts/sfq-server.sh [start|stop|status|restart]</code>
+                                  </div>
+                                </div>
+                              }
                             />
-                            {scenarioResult?.scenarioId === "weight-distribution" && (
-                              <Card
-                                size="small"
-                                title="权重效果可视化对比"
-                                style={{ marginTop: 16 }}
-                              >
-                                <Row gutter={[16, 16]}>
+                            <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
+                              <Text>
+                                SFQ 调度器就像银行的多个服务窗口，根据每个客户（任务流）的优先级（权重）公平分配服务时间。
+                              </Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                💡 <strong>通俗理解：</strong>多个任务同时到达，调度器按权重比例分配处理资源。高权重的任务获得更多处理时间，就像VIP客户有优先服务通道。
+                              </Text>
+                            </Space>
+
+                            {sfqSummaryStats.length > 0 && (
+                              <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                                {sfqSummaryStats.map((stat) => (
+                                  <Col xs={12} md={6} key={stat.title}>
+                                    <Card size="small">
+                                      <Statistic
+                                        title={stat.title}
+                                        value={stat.value ?? "--"}
+                                        suffix={stat.suffix}
+                                        valueStyle={{ color: stat.title.includes("成功率") ? "#52c41a" : undefined }}
+                                      />
+                                    </Card>
+                                  </Col>
+                                ))}
+                              </Row>
+                            )}
+
+                            {flowChartData.length > 0 ? (
+                              <>
+                                <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                                   <Col xs={24} lg={12}>
-                                    <Card size="small" title="资源分配对比（接受数）" bordered={false}>
-                                      <div style={{ height: 300 }}>
+                                    <Card size="small" title="各流处理进度（已完成/总数）" bordered={false}>
+                                      <Space direction="vertical" style={{ width: "100%" }} size="middle">
+                                        {flowChartData.map((flow: any, idx: number) => {
+                                          const total = (flow.accepted || 0) + (flow.rejected || 0);
+                                          const progress = total > 0 ? ((flow.accepted || 0) / total) * 100 : 0;
+                                          return (
+                                            <div key={idx}>
+                                              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                                <Text strong style={{ fontSize: 13 }}>
+                                                  {flow.flow?.replace("_", " ").toUpperCase() || `流 ${idx + 1}`}
+                                                  {flow.weight && (
+                                                    <Tag color="blue" style={{ marginLeft: 8 }}>
+                                                      权重 {flow.weight}x
+                                                    </Tag>
+                                                  )}
+                                                </Text>
+                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                  {flow.accepted || 0}/{total} 成功
+                                                </Text>
+                                              </div>
+                                              <Progress
+                                                percent={Math.round(progress)}
+                                                status={progress === 100 ? "success" : "active"}
+                                                strokeColor={{
+                                                  from: "#52c41a",
+                                                  to: "#13c2c2",
+                                                }}
+                                                trailColor="#434343"
+                                                showInfo={false}
+                                              />
+                                              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                                  {flow.rejected || 0} 个被拒绝
+                                                </Text>
+                                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                                  {flow.backlog || 0} 个等待中
+                                                </Text>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </Space>
+                                    </Card>
+                                  </Col>
+                                  <Col xs={24} lg={12}>
+                                    <Card size="small" title="资源分配比例（饼图）" bordered={false}>
+                                      <div style={{ height: 260 }}>
                                         <ColumnChart
-                                          data={scenarioFlowData.flatMap((flow: any) => [
-                                            {
-                                              flow: flow.flowId,
-                                              label: `${flow.flowId} (权重: ${flow.weight}x)`,
-                                              type: "实际接受数",
-                                              value: flow.accepted || 0,
-                                            },
-                                            {
-                                              flow: flow.flowId,
-                                              label: `${flow.flowId} (权重: ${flow.weight}x)`,
-                                              type: "期望接受数",
-                                              value: flow.expectedAccepted || 0,
-                                            },
-                                          ])}
+                                          data={flowChartData.map((flow: any) => ({
+                                            flow: flow.flow,
+                                            label: `${flow.flow?.replace("_", " ").toUpperCase() || "Unknown"} (${flow.weight || 1}x)`,
+                                            accepted: flow.accepted || 0,
+                                            weight: flow.weight || 1,
+                                          }))}
                                           xField="label"
-                                          yField="value"
-                                          seriesField="type"
-                                          isGroup
-                                          color={["#52c41a", "#1890ff"]}
-                                          legend={{ position: "top" }}
+                                          yField="accepted"
+                                          meta={{
+                                            accepted: { alias: "已处理数" },
+                                          }}
+                                          color={["#9254de", "#13c2c2", "#52c41a", "#faad14", "#f5222d"]}
                                           autoFit
-                                          height={260}
+                                          height={240}
                                         />
+                                        <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 12 }}>
+                                          💡 柱状图高度表示各流已处理的请求数。高权重流应该处理更多请求。
+                                        </Text>
                                       </div>
-                                      <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: "block" }}>
-                                        期望接受数 = (该流权重 / 总权重) × 总接受数。实际接受数与期望值越接近，说明权重调度越公平。
-                                      </Text>
                                     </Card>
                                   </Col>
                                 </Row>
+                                {flowPerformanceData.length > 0 && (
+                                  <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                                    <Col span={24}>
+                                      <Card size="small" title="各流处理结果" bordered={false}>
+                                        <div style={{ height: 300 }}>
+                                          <ColumnChart
+                                            data={flowPerformanceData}
+                                            xField="label"
+                                            yField="value"
+                                            seriesField="category"
+                                            isGroup
+                                            color={["#52c41a", "#f5222d"]}
+                                            autoFit
+                                            height={280}
+                                            legend={{ position: "top" }}
+                                          />
+                                        </div>
+                                      </Card>
+                                    </Col>
+                                  </Row>
+                                )}
+                              </>
+                            ) : (
+                              <Empty description="等待 SFQ 服务器返回流量数据" style={{ marginBottom: 16 }} />
+                            )}
+
+                            {sfqFlowTableData.length > 0 && (
+                              <Card
+                                size="small"
+                                title="实时流量详情"
+                                bordered={false}
+                                style={{ marginBottom: 16, marginTop: 8 }}
+                              >
+                                <Table
+                                  size="small"
+                                  dataSource={sfqFlowTableData}
+                                  columns={sfqFlowColumns}
+                                  pagination={false}
+                                  scroll={{ x: true }}
+                                />
                               </Card>
                             )}
-                          </>
-                        )}
-                      </Space>
-                    ) : (
-                      <Empty description="运行任意场景即可查看结果" />
-                    )}
-                  </Card>
+
+                            <Divider />
+
+                            <Space direction="vertical" size="middle" style={{ width: "100%", marginBottom: 16 }}>
+                              <Text strong>请求调度场景</Text>
+                              <Row gutter={[16, 16]}>
+                                {SCENARIOS.map((scenario) => {
+                                  const ScenarioIcon = scenario.icon;
+                                  const isRunning = scenarioRunning === scenario.id;
+                                  return (
+                                    <Col xs={24} md={12} lg={8} key={scenario.id}>
+                                      <Card
+                                        size="small"
+                                        style={{
+                                          height: "100%",
+                                          borderColor: isRunning ? scenario.accent : undefined,
+                                        }}
+                                      >
+                                        <Space align="start" size="middle" style={{ marginBottom: 12 }}>
+                                          <div
+                                            style={{
+                                              width: 40,
+                                              height: 40,
+                                              borderRadius: 12,
+                                              background: `${scenario.accent}22`,
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              color: scenario.accent,
+                                            }}
+                                          >
+                                            <ScenarioIcon />
+                                          </div>
+                                          <Space direction="vertical" size={4} style={{ flex: 1 }}>
+                                            <Space size="small">
+                                              <Text strong>{scenario.title}</Text>
+                                              <Tag color={scenario.accent}>{scenario.tag}</Tag>
+                                            </Space>
+                                            <Text type="secondary">{scenario.description}</Text>
+                                          </Space>
+                                        </Space>
+                                        <Button
+                                          block
+                                          size="large"
+                                          type={isRunning ? "primary" : "default"}
+                                          loading={isRunning}
+                                          onClick={() => runScenario(scenario.id)}
+                                        >
+                                          运行场景
+                                        </Button>
+                                      </Card>
+                                    </Col>
+                                  );
+                                })}
+                              </Row>
+                            </Space>
+
+                            {scenarioResult ? (
+                              <Space direction="vertical" style={{ width: "100%" }} size="large">
+                                <Space direction="vertical" size="small">
+                                  <Text strong>{scenarioResult.scenarioName}</Text>
+                                  <Text type="secondary">{scenarioResult.description}</Text>
+                                </Space>
+                                <Row gutter={[16, 16]}>
+                                  {scenarioStats.map((stat) => (
+                                    <Col xs={12} md={6} key={stat.title}>
+                                      <Card size="small">
+                                        <Statistic title={stat.title} value={stat.value ?? "--"} />
+                                      </Card>
+                                    </Col>
+                                  ))}
+                                </Row>
+                                {scenarioFlowData.length > 0 && (
+                                  <>
+                                    <Table
+                                      size="small"
+                                      dataSource={scenarioFlowData}
+                                      columns={scenarioFlowColumns}
+                                      pagination={false}
+                                    />
+                                    {scenarioResult?.scenarioId === "weight-distribution" && (
+                                      <Card
+                                        size="small"
+                                        title="权重效果可视化对比"
+                                        style={{ marginTop: 16 }}
+                                      >
+                                        <Row gutter={[16, 16]}>
+                                          <Col xs={24} lg={12}>
+                                            <Card size="small" title="资源分配对比（接受数）" bordered={false}>
+                                              <div style={{ height: 300 }}>
+                                                <ColumnChart
+                                                  data={scenarioFlowData.flatMap((flow: any) => [
+                                                    {
+                                                      flow: flow.flowId,
+                                                      label: `${flow.flowId} (权重: ${flow.weight}x)`,
+                                                      type: "实际接受数",
+                                                      value: flow.accepted || 0,
+                                                    },
+                                                    {
+                                                      flow: flow.flowId,
+                                                      label: `${flow.flowId} (权重: ${flow.weight}x)`,
+                                                      type: "期望接受数",
+                                                      value: flow.expectedAccepted || 0,
+                                                    },
+                                                  ])}
+                                                  xField="label"
+                                                  yField="value"
+                                                  seriesField="type"
+                                                  isGroup
+                                                  color={["#52c41a", "#1890ff"]}
+                                                  legend={{ position: "top" }}
+                                                  autoFit
+                                                  height={260}
+                                                />
+                                              </div>
+                                              <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: "block" }}>
+                                                期望接受数 = (该流权重 / 总权重) × 总接受数。实际接受数与期望值越接近，说明权重调度越公平。
+                                              </Text>
+                                            </Card>
+                                          </Col>
+                                        </Row>
+                                      </Card>
+                                    )}
+                                  </>
+                                )}
+                              </Space>
+                            ) : (
+                              <Empty description="运行任意场景即可查看结果" />
+                            )}
+                          </div>
+                        ),
+                      },
+                    ]}
+                  />
                 </Space>
               </div>
             </ConfigProvider>

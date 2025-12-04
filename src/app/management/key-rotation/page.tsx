@@ -144,7 +144,21 @@ export default function KeyRotationPage() {
   const [kmsForm] = Form.useForm();
   const [queryModalVisible, setQueryModalVisible] = useState(false);
   const [queryContractId, setQueryContractId] = useState('');
-  const [queryResult, setQueryResult] = useState<{ contractKey: string | null; hasKey: boolean; error?: string; data?: any; k256Pubkey?: string; caCert?: string } | null>(null);
+  const [queryResult, setQueryResult] = useState<{ 
+    contractKey?: string | null; 
+    hasKey: boolean; 
+    error?: string; 
+    data?: any; 
+    k256Pubkey?: string; 
+    caCert?: string;
+    current_key?: string | null;
+    currentKey?: string | null;
+    next_key?: string | null;
+    nextKey?: string | null;
+    currentVersion?: number;
+    nextVersion?: number;
+    activeVersion?: number;
+  } | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [rotatingContractId, setRotatingContractId] = useState<string | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -684,15 +698,25 @@ export default function KeyRotationPage() {
       const data = await response.json();
       
       if (data.success) {
-        // GetMeta返回k256_pubkey和证书信息
+        // 返回当前密钥和下一次轮换后的密钥
         setQueryResult({
-          contractKey: data.contractKey || data.k256Pubkey || null,
-          hasKey: data.hasKey || !!data.k256Pubkey,
-          k256Pubkey: data.k256Pubkey,
+          contractKey: data.current_key || data.currentKey || data.contractKey || data.k256Pubkey || null,
+          hasKey: data.hasKey || !!data.current_key,
+          k256Pubkey: data.current_key || data.k256Pubkey,
           caCert: data.caCert,
-          data: data.data
+          data: data.data,
+          // 当前使用的密钥（基于 active_version - 1）
+          current_key: data.current_key || data.currentKey || null,
+          currentKey: data.current_key || data.currentKey || null,
+          // 下一次轮换后的密钥（基于 active_version）
+          next_key: data.next_key || data.nextKey || null,
+          nextKey: data.next_key || data.nextKey || null,
+          // 版本信息
+          currentVersion: data.currentVersion,
+          nextVersion: data.nextVersion,
+          activeVersion: data.activeVersion
         });
-        if (data.hasKey || data.k256Pubkey) {
+        if (data.hasKey || data.current_key) {
           showCustomNotification('查询成功', 'success', 3000);
         } else {
           showCustomNotification(data.message || '未找到密钥信息', 'warning', 3000);
@@ -1097,10 +1121,10 @@ export default function KeyRotationPage() {
             <Card title="密钥详情" extra={<LockOutlined />}>
               <Space direction="vertical" style={{ width: '100%' }}>
                 <div>
-                  <Text strong>主密钥 (SR25519)</Text>
+                  <Text strong>身份密钥</Text>
                   <br />
                   <Text type="secondary" style={{ fontSize: '12px' }}>
-                    基于Pruntime的public_key生成，用于系统核心加密操作
+                    pruntime启动时生成，用于系统核心加密操作
                   </Text>
                   <br />
                   <Tag color="blue">算法: Sr25519</Tag>
@@ -1108,7 +1132,7 @@ export default function KeyRotationPage() {
                 </div>
                 <Divider style={{ margin: '8px 0' }} />
                 <div>
-                  <Text strong>ECDH交换密钥 (ECDSA)</Text>
+                  <Text strong>ECDH交换密钥</Text>
                   <br />
                   <Text type="secondary" style={{ fontSize: '12px' }}>
                     基于Pruntime的ecdh_public_key，用于密钥交换和协商
@@ -1124,7 +1148,7 @@ export default function KeyRotationPage() {
             <Card title="Gatekeeper密钥详情" extra={<SecurityScanOutlined />}>
               <Space direction="vertical" style={{ width: '100%' }}>
                 <div>
-                  <Text strong>Gatekeeper主密钥 (SR25519)</Text>
+                  <Text strong>Gatekeeper密钥</Text>
                   <br />
                   <Text type="secondary" style={{ fontSize: '12px' }}>
                     基于Gatekeeper的master_public_key，负责TEE设备认证和密钥管理
@@ -1135,13 +1159,14 @@ export default function KeyRotationPage() {
                 </div>
                 <Divider style={{ margin: '8px 0' }} />
                 <div>
-                  <Text strong>密钥功能说明</Text>
+                  <Text strong>合约密钥</Text>
                   <br />
                   <Text type="secondary" style={{ fontSize: '12px' }}>
-                    • ECDH密钥：处理密钥交换协议<br />
-                    • Gatekeeper密钥：管理TEE设备认证<br />
-                    • Worker密钥：计算节点通信加密
+                    由根密钥派生，为隐私合约生成对称密钥、加密状态或证书
                   </Text>
+                  <br />
+                  <Tag color="blue">算法: secp256k1</Tag>
+                  <Tag color="purple">长度: 256位</Tag>
                 </div>
               </Space>
             </Card>
@@ -1156,7 +1181,7 @@ export default function KeyRotationPage() {
                 <SyncOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
                 <Title level={5} style={{ marginTop: '8px' }}>自动轮换</Title>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  系统根据密钥使用频率和安全性要求自动触发密钥轮换
+                  当达到配置的时间间隔或手动触发时，会轮换根密钥，然后为每个合约重新派生密钥
                 </Text>
               </div>
             </Col>
@@ -1165,7 +1190,7 @@ export default function KeyRotationPage() {
                 <SecurityScanOutlined style={{ fontSize: '24px', color: '#52c41a' }} />
                 <Title level={5} style={{ marginTop: '8px' }}>前向安全</Title>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  新密钥生成后，旧密钥立即失效，确保历史数据的前向隐私安全
+                  新的派生密钥激活后，旧密钥即停止使用，保证历史数据不会被新密钥解密
                 </Text>
               </div>
             </Col>
@@ -1174,7 +1199,7 @@ export default function KeyRotationPage() {
                 <LockOutlined style={{ fontSize: '24px', color: '#faad14' }} />
                 <Title level={5} style={{ marginTop: '8px' }}>安全备份</Title>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  所有密钥都有安全备份机制，防止密钥丢失导致的数据不可访问
+                  保留密钥轮换历史，可查看曾使用的公钥，避免密钥丢失导致的状态无法恢复
                 </Text>
               </div>
             </Col>
@@ -1761,8 +1786,8 @@ export default function KeyRotationPage() {
                   type="error"
                   showIcon
                 />
-              ) : queryResult.hasKey && queryResult.contractKey ? (
-                <Space direction="vertical" style={{ width: '100%' }} size="small">
+              ) : queryResult.hasKey && (queryResult.current_key || queryResult.contractKey) ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
                   <div>
                     <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
                       合约地址
@@ -1771,21 +1796,61 @@ export default function KeyRotationPage() {
                       {queryContractId}
                     </Text>
                   </div>
+
+                  {/* 当前合约公钥 */}
                   <div>
                     <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
-                      合约公钥
+                      当前合约公钥
                     </Text>
                     <Text 
-                      copyable={{ text: queryResult.contractKey || queryResult.k256Pubkey || '' }} 
+                      copyable={{ text: queryResult.current_key || queryResult.currentKey || queryResult.contractKey || queryResult.k256Pubkey || '' }} 
                       style={{ 
                         fontSize: '12px', 
                         fontFamily: 'monospace', 
                         color: '#52c41a',
-                        wordBreak: 'break-all'
+                        wordBreak: 'break-all',
+                        display: 'block',
+                        padding: '8px 12px',
+                        background: 'rgba(82, 196, 26, 0.1)',
+                        borderRadius: '4px',
+                        border: '1px solid rgba(82, 196, 26, 0.3)'
                       }}
                     >
-                      {queryResult.contractKey || queryResult.k256Pubkey || ''}
+                      {queryResult.current_key || queryResult.currentKey || queryResult.contractKey || queryResult.k256Pubkey || '未找到'}
                     </Text>
+                  </div>
+
+                  {/* 下一次轮换的合约公钥 */}
+                  <div>
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                      下一次轮换的合约公钥
+                    </Text>
+                    {queryResult.next_key || queryResult.nextKey ? (
+                      <Text 
+                        copyable={{ text: queryResult.next_key || queryResult.nextKey || '' }} 
+                        style={{ 
+                          fontSize: '12px', 
+                          fontFamily: 'monospace', 
+                          color: '#1890ff',
+                          wordBreak: 'break-all',
+                          display: 'block',
+                          padding: '8px 12px',
+                          background: 'rgba(24, 144, 255, 0.1)',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(24, 144, 255, 0.3)'
+                        }}
+                      >
+                        {queryResult.next_key || queryResult.nextKey || ''}
+                      </Text>
+                    ) : (
+                      <Alert
+                        message="未生成"
+                        description="下一次轮换后的密钥尚未生成"
+                        type="info"
+                        showIcon
+                        style={{ fontSize: '12px' }}
+                      />
+                    )}
                   </div>
                 </Space>
               ) : (
