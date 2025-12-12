@@ -5,7 +5,9 @@ import styles from '../styles/IncentiveFlow.module.css';
 import type { IAccount, ISession } from './IncentiveFlow';
 
 interface Props {
-    sessions: ISession[];
+    sgxSessions: ISession[];
+    csvSessions: ISession[];
+    sessionBindings: Map<string, string>; // session账户地址 -> 公钥
     sessionAccount: string;
     setSessionAccount: (value: string) => void;
     querySessions: () => void;
@@ -27,7 +29,7 @@ interface Props {
 const { Text: AntdText } = Typography;
 const SessionManager: React.FC<Props> = (props) => {
     const {
-        sessions, sessionAccount, setSessionAccount, querySessions, isTxInProgress,
+        sgxSessions, csvSessions, sessionBindings, sessionAccount, setSessionAccount, querySessions, isTxInProgress,
         withdrawSender, setWithdrawSender, withdrawPoolId, setWithdrawPoolId,
         withdrawWorkerPubkey, setWithdrawWorkerPubkey, withdrawSessionReward,
         accounts, formatAddress, formatLargeNumber, formatTimestamp, formatBalance
@@ -39,12 +41,23 @@ const SessionManager: React.FC<Props> = (props) => {
         if (state.includes('CoolingDown')) return styles.statusWarning;
         return styles.statusInactive;
     };
-    const columns = [
+
+    // 创建列配置的函数，包含公钥字段
+    const createColumns = () => [
         { title: 'Session账户', dataIndex: 'accountId', key: 'accountId', render: (text: string) => <Tooltip title={text}><AntdText code>{formatAddress(text)}</AntdText></Tooltip> },
-        { 
-            title: '状态', 
-            dataIndex: ['info', 'state'], 
-            key: 'state', 
+        {
+            title: '公钥 (Pubkey)',
+            dataIndex: 'accountId',
+            key: 'pubkey',
+            render: (accountId: string) => {
+                const pubkey = sessionBindings.get(accountId) || '-';
+                return pubkey !== '-' ? <Tooltip title={pubkey}><AntdText code>{formatAddress(pubkey)}</AntdText></Tooltip> : '-';
+            }
+        },
+        {
+            title: '状态',
+            dataIndex: ['info', 'state'],
+            key: 'state',
             render: (state: { toString: () => string }) => {
                 const stateStr = state.toString();
                 let color = 'default';
@@ -57,21 +70,23 @@ const SessionManager: React.FC<Props> = (props) => {
         { title: 'Ve', dataIndex: ['info', 've'], key: 've', render: (text: any) => formatLargeNumber(text) },
         { title: 'V', dataIndex: ['info', 'v'], key: 'v', render: (text: any) => formatLargeNumber(text) },
         { title: 'Working Start Time', dataIndex: ['info', 'benchmark', 'workingStartTime'], key: 'workingStartTime', render: (text: any) => formatTimestamp(text) },
-        { 
-        	title: '总奖励 (CMC)', 
-        	dataIndex: ['info', 'stats', 'totalReward'], 
-        	key: 'totalReward', 
-        	render: (text: any) => {
+        {
+            title: '总奖励 (CMC)',
+            dataIndex: ['info', 'stats', 'totalReward'],
+            key: 'totalReward',
+            render: (text: any) => {
                 const formattedValue = formatBalance(text);
                 if (typeof formattedValue === 'string') {
                     return formattedValue.replace('PHA', 'CMC');
                 }
                 return formattedValue;
-         } 
+            }
         },
         { title: '当前性能分', dataIndex: ['info', 'benchmark', 'pInstant'], key: 'pInstant' },
         { title: '迭代次数', dataIndex: ['info', 'benchmark', 'iterations'], key: 'iterations', render: (text: any) => text?.toLocaleString() },
     ];
+
+    const columns = createColumns();
 
     return (
         <Card title="Session管理">
@@ -89,20 +104,31 @@ const SessionManager: React.FC<Props> = (props) => {
                     </Space.Compact>
                 </Card>
 
-                <Card type="inner" title="会话列表">
+                <Card type="inner" title="SGX会话列表">
                     <Table
                         columns={columns}
-                        dataSource={sessions}
+                        dataSource={sgxSessions}
                         rowKey="accountId"
                         pagination={{ pageSize: 5 }}
                         scroll={{ x: 1200 }}
                         size="small"
                     />
                 </Card>
-                
+
+                <Card type="inner" title="CSV会话列表" style={{ marginTop: 16 }}>
+                    <Table
+                        columns={columns}
+                        dataSource={csvSessions}
+                        rowKey="accountId"
+                        pagination={{ pageSize: 5 }}
+                        scroll={{ x: 1200 }}
+                        size="small"
+                    />
+                </Card>
+
                 <Card type="inner" title="提取会话奖励">
                     <Form layout="vertical">
-                         <Form.Item label="交易发送账户">
+                        <Form.Item label="交易发送账户">
                             <Select
                                 value={withdrawSender}
                                 onChange={value => setWithdrawSender(value)}

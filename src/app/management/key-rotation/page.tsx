@@ -1237,7 +1237,7 @@ export default function KeyRotationPage() {
         <Card
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>密钥管理列表</span>
+              <span>SGX-密钥管理列表</span>
               <Space size="middle">
                 <Text type="secondary" style={{ fontSize: '14px' }}>
                   轮换间隔: <Text strong style={{ color: '#1890ff' }}>{contractRotationInterval}分钟</Text>

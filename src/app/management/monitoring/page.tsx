@@ -9,6 +9,9 @@ import {
   ReloadOutlined, EyeOutlined, InfoCircleOutlined,
   SettingOutlined, CheckOutlined, DatabaseOutlined, ApiOutlined
 } from '@ant-design/icons';
+import { ApiPromise, WsProvider } from '@polkadot/api';
+import { decodeAddress } from '@polkadot/util-crypto';
+import { getNodeUrl } from '@/lib/config';
 import MainLayout from '@/components/layout/MainLayout';
 import AuthGuard from '@/components/AuthGuard';
 import { getWorkersInfo } from '@/lib/phalaApi';
@@ -66,6 +69,12 @@ interface MonitoringState {
 }
 
 const HIGHLIGHT_CVM_ID = '45R2pfjQUW2s9PQRHU48HQKLKHVMaDja7N3wpBtmF28UYDs2';
+
+// CSV Worker 映射：公钥 -> 账户地址
+const CSV_WORKER_MAPPING: Record<string, string> = {
+  '0x42ccb38c3ed84007abed3e5b14de0dc766d1cb6f3ed6b91fe2cb0944616f155c': '428NizHpx2EKS4v3GhY2rk6nhJwPRZrK2LWPQ7P3xnu1MvrY',
+  '0x16ce45340f940e602bc1cb53a20d13e049120739bad1100dd579104daac96c1d': '418h5pUzNJhNezRTfVGvJCo5bJRkKReFEsmY5QDTPWmyR7Gj',
+};
 
 const formatTimestamp = (value?: number) =>
   value ? new Date(value * 1000).toLocaleString() : '—';
@@ -211,15 +220,40 @@ export default function MonitoringPage() {
   //   }
   // };
 
+  // 查询 hygonTeeDevices 的辅助函数
+  const queryHygonTeeDevices = async (): Promise<Set<string>> => {
+    try {
+      const wsUrl = getNodeUrl();
+      const provider = new WsProvider(wsUrl);
+      const apiPromise = ApiPromise.create({ provider, noInitWarn: true });
+      const api = await apiPromise;
+
+      if (api.query.phalaComputation?.hygonTeeDevices) {
+        const hygonDevicesData = await api.query.phalaComputation.hygonTeeDevices.entries();
+        const deviceAccounts = new Set<string>();
+        hygonDevicesData.forEach(([key]: [any, any]) => {
+          const accountId = key.args[0].toString();
+          deviceAccounts.add(accountId);
+        });
+        await api.disconnect();
+        return deviceAccounts;
+      }
+      await api.disconnect();
+      return new Set();
+    } catch (e) {
+      console.warn('⚠️ [Monitoring] 查询 Hygon TEE Devices 失败:', e);
+      return new Set();
+    }
+  };
+
   // 加载监控状态 - 基于真实Worker数据
   // 3. 【关键修改】重写 loadMonitoringState
   const loadMonitoringState = async () => {
     setLoading(true);
     try {
-      const [workers] = await Promise.all([
-        getWorkersInfo()
-        // 注释掉CSV虚拟机状态获取
-        // fetchCSVVMStatus()
+      const [workers, hygonTeeDevices] = await Promise.all([
+        getWorkersInfo(),
+        queryHygonTeeDevices()
       ]);
       console.log("--- [响应监控] 获取到真实Worker数据:", workers);
 
@@ -248,14 +282,84 @@ export default function MonitoringPage() {
       console.log("--- [响应监控] Worker响应状态检查完成 ---");
       console.log("--- [响应监控] Worker详情:", workerMonitors);
 
-      const onlineWorkers = workerMonitors.filter(w => w.status === 'online').length;
-      const offlineWorkers = workerMonitors.filter(w => w.status === 'offline').length;
+      // 构建公钥到账户地址的映射（用于判断 CSV Worker）
+      const pubkeyToAccountMap = new Map<string, string>();
+
+      // 1. 从 CSV_WORKER_MAPPING 添加已知映射
+      Object.entries(CSV_WORKER_MAPPING).forEach(([pubkey, account]) => {
+        pubkeyToAccountMap.set(pubkey, account);
+      });
+
+      // 2. 从 hygonTeeDevices 构建映射
+      hygonTeeDevices.forEach(accountAddress => {
+        // 先检查 CSV_WORKER_MAPPING 中是否已有
+        const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+          pk => CSV_WORKER_MAPPING[pk] === accountAddress
+        );
+
+        if (!knownPubkey) {
+          // 使用 decodeAddress 将账户地址转换为公钥
+          try {
+            const decoded = decodeAddress(accountAddress, false, 30); // ss58Format: 30 for Phala Network
+            // 将 Uint8Array 转换为十六进制字符串
+            const pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+            pubkeyToAccountMap.set(pubkey, accountAddress);
+          } catch (e) {
+            // 如果解码失败，跳过这个账户
+            console.warn(`Failed to decode address ${accountAddress}:`, e);
+          }
+        }
+      });
+
+      // 过滤掉 CSV Worker（公钥对应的账户在 hygonTeeDevices 中）
+      const sgxWorkers = workerMonitors.filter(worker => {
+        const workerPubkey = worker.publicKey;
+        return !pubkeyToAccountMap.has(workerPubkey);
+      });
+
+      const onlineWorkers = sgxWorkers.filter(w => w.status === 'online').length;
+      const offlineWorkers = sgxWorkers.filter(w => w.status === 'offline').length;
 
       const hygonDeviceList = await fetchHygonDevices();
-      const totalWorkers = workerMonitors.length + hygonDeviceList.length;
+
+      // 计算 Worker 数量（包括 hygonTeeDevices 中未注册的）
+      const baseCount = sgxWorkers.length;
+      const registeredPubkeys = new Set(sgxWorkers.map(w => w.publicKey));
+      let additionalCount = 0;
+      const processedPubkeys = new Set<string>(); // 用于去重
+
+      hygonTeeDevices.forEach(accountAddress => {
+        let pubkey: string | null = null;
+
+        // 先检查 CSV_WORKER_MAPPING 中是否有已知映射
+        const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+          pk => CSV_WORKER_MAPPING[pk] === accountAddress
+        );
+
+        if (knownPubkey) {
+          pubkey = knownPubkey;
+        } else {
+          // 使用 decodeAddress 将账户地址转换为公钥
+          try {
+            const decoded = decodeAddress(accountAddress, false, 30);
+            pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+          } catch (e) {
+            console.warn(`Failed to decode address ${accountAddress}:`, e);
+            return;
+          }
+        }
+
+        // 检查该公钥是否已注册，且未处理过（去重）
+        if (pubkey && !registeredPubkeys.has(pubkey) && !processedPubkeys.has(pubkey)) {
+          additionalCount++;
+          processedPubkeys.add(pubkey);
+        }
+      });
+
+      const totalWorkers = baseCount + additionalCount;
 
       const newState: MonitoringState = {
-        workers: workerMonitors,
+        workers: sgxWorkers, // 只包含 SGX Workers
         totalWorkers,
         onlineWorkers,
         offlineWorkers,
@@ -276,7 +380,10 @@ export default function MonitoringPage() {
   const loadWorkers = async () => {
     setWorkersLoading(true);
     try {
-      const workers = await getWorkersInfo();
+      const [workers, hygonTeeDevices] = await Promise.all([
+        getWorkersInfo(),
+        queryHygonTeeDevices()
+      ]);
       const workerResponses = await fetchWorkerResponses();
       const updatedWorkers = workers.map((worker, index) => {
         const publicKeyHex = worker.publicKey.replace('0x', '').toLowerCase();
@@ -293,12 +400,75 @@ export default function MonitoringPage() {
         };
       });
 
+      // 构建公钥到账户地址的映射（用于判断 CSV Worker）
+      const pubkeyToAccountMap = new Map<string, string>();
+
+      // 1. 从 CSV_WORKER_MAPPING 添加已知映射
+      Object.entries(CSV_WORKER_MAPPING).forEach(([pubkey, account]) => {
+        pubkeyToAccountMap.set(pubkey, account);
+      });
+
+      // 2. 从 hygonTeeDevices 构建映射
+      hygonTeeDevices.forEach(accountAddress => {
+        const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+          pk => CSV_WORKER_MAPPING[pk] === accountAddress
+        );
+
+        if (!knownPubkey) {
+          try {
+            const decoded = decodeAddress(accountAddress, false, 30);
+            const pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+            pubkeyToAccountMap.set(pubkey, accountAddress);
+          } catch (e) {
+            console.warn(`Failed to decode address ${accountAddress}:`, e);
+          }
+        }
+      });
+
+      // 过滤掉 CSV Worker
+      const sgxWorkers = updatedWorkers.filter(worker => {
+        const workerPubkey = worker.publicKey;
+        return !pubkeyToAccountMap.has(workerPubkey);
+      });
+
       const hygonDeviceList = await fetchHygonDevices();
-      const totalWorkers = updatedWorkers.length + hygonDeviceList.length;
+
+      // 计算 Worker 数量（包括 hygonTeeDevices 中未注册的）
+      const baseCount = sgxWorkers.length;
+      const registeredPubkeys = new Set(sgxWorkers.map(w => w.publicKey));
+      let additionalCount = 0;
+      const processedPubkeys = new Set<string>();
+
+      hygonTeeDevices.forEach(accountAddress => {
+        let pubkey: string | null = null;
+
+        const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+          pk => CSV_WORKER_MAPPING[pk] === accountAddress
+        );
+
+        if (knownPubkey) {
+          pubkey = knownPubkey;
+        } else {
+          try {
+            const decoded = decodeAddress(accountAddress, false, 30);
+            pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+          } catch (e) {
+            console.warn(`Failed to decode address ${accountAddress}:`, e);
+            return;
+          }
+        }
+
+        if (pubkey && !registeredPubkeys.has(pubkey) && !processedPubkeys.has(pubkey)) {
+          additionalCount++;
+          processedPubkeys.add(pubkey);
+        }
+      });
+
+      const totalWorkers = baseCount + additionalCount;
 
       setMonitoringState((prev) => ({
         ...prev,
-        workers: updatedWorkers,
+        workers: sgxWorkers, // 只包含 SGX Workers
         totalWorkers,
         hygonDeviceCount: hygonDeviceList.length,
       }));
@@ -569,55 +739,6 @@ export default function MonitoringPage() {
         {/* Worker监控列表 */}
         <Card
           title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
-              <span>Worker（SGX）监控</span>
-              <Space size="large" style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
-                <Input
-                  placeholder="搜索Worker ID或公钥"
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  allowClear
-                  style={{ width: '200px' }}
-                  size="small"
-                />
-                <Select
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                  style={{ width: '150px' }}
-                  size="small"
-                  options={[
-                    { value: 'all', label: '全部状态' },
-                    { value: 'online', label: '在线' },
-                    { value: 'registered', label: '已注册' }
-                  ]}
-                />
-              </Space>
-            </div>
-          }
-          extra={
-            <div style={{ marginLeft: '16px' }}>
-              <Button loading={workersLoading} icon={<ReloadOutlined />} size="small" onClick={loadWorkers}>刷新</Button>
-            </div>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          <Spin spinning={loading}><Table
-            columns={workerColumns}
-            dataSource={filteredWorkers}
-            rowKey="id"
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showQuickJumper: true,
-              showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`
-            }}
-            scroll={{ x: 800 }}
-            size="small"
-          /></Spin>
-        </Card>
-
-        <Card
-          title={
             <Space>
               <DatabaseOutlined />
               <span>Worker（CSV）监控 - Hygon TEE 设备</span>
@@ -681,6 +802,55 @@ export default function MonitoringPage() {
               )
             )}
           </Spin>
+        </Card>
+
+        <Card
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
+              <span>Worker（SGX）监控</span>
+              <Space size="large" style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
+                <Input
+                  placeholder="搜索Worker ID或公钥"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  allowClear
+                  style={{ width: '200px' }}
+                  size="small"
+                />
+                <Select
+                  value={statusFilter}
+                  onChange={setStatusFilter}
+                  style={{ width: '150px' }}
+                  size="small"
+                  options={[
+                    { value: 'all', label: '全部状态' },
+                    { value: 'online', label: '在线' },
+                    { value: 'registered', label: '已注册' }
+                  ]}
+                />
+              </Space>
+            </div>
+          }
+          extra={
+            <div style={{ marginLeft: '16px' }}>
+              <Button loading={workersLoading} icon={<ReloadOutlined />} size="small" onClick={loadWorkers}>刷新</Button>
+            </div>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Spin spinning={loading}><Table
+            columns={workerColumns}
+            dataSource={filteredWorkers}
+            rowKey="id"
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: true,
+              showQuickJumper: true,
+              showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`
+            }}
+            scroll={{ x: 800 }}
+            size="small"
+          /></Spin>
         </Card>
 
         {/* 注释掉CSV虚拟机监控 */}

@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Row, Col, Statistic, Typography, Tag, Table, Spin, Empty, Tooltip, Select, Input, Button } from 'antd';
+import { ApiPromise, WsProvider } from '@polkadot/api';
+import { decodeAddress } from '@polkadot/util-crypto';
+import { getNodeUrl } from '@/lib/config';
 import {
     DesktopOutlined,
     GlobalOutlined,
@@ -32,6 +35,7 @@ const topNavLinks = [
     { label: '应用开发者', href: '/developers' },
     { label: '系统管理端', href: '/management/login' },
     { label: '应用场景', href: '/#scenarios' },
+    { label: '系统大屏', href: '/polkadot-wall' },
 ];
 
 interface DashboardData {
@@ -174,6 +178,12 @@ const truncateMiddle = (value?: string, prefix = 6, suffix = 4) => {
     return `${value.slice(0, prefix)}...${value.slice(-suffix)}`;
 };
 
+// CSV Worker 映射：公钥 -> 账户地址
+const CSV_WORKER_MAPPING: Record<string, string> = {
+    '0x42ccb38c3ed84007abed3e5b14de0dc766d1cb6f3ed6b91fe2cb0944616f155c': '428NizHpx2EKS4v3GhY2rk6nhJwPRZrK2LWPQ7P3xnu1MvrY',
+    '0x16ce45340f940e602bc1cb53a20d13e049120739bad1100dd579104daac96c1d': '418h5pUzNJhNezRTfVGvJCo5bJRkKReFEsmY5QDTPWmyR7Gj',
+};
+
 export default function PolkadotWallPage() {
     const [loading, setLoading] = useState(true);
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -220,6 +230,8 @@ export default function PolkadotWallPage() {
     const [workerPage, setWorkerPage] = useState(1);
     const [incentiveAccountPage, setIncentiveAccountPage] = useState(1);
     const [isHydrated, setIsHydrated] = useState(false);
+    const [hygonTeeDevices, setHygonTeeDevices] = useState<Set<string>>(new Set());
+    const [api, setApi] = useState<ApiPromise | null>(null);
 
     // 更新时间
     useEffect(() => {
@@ -259,6 +271,57 @@ export default function PolkadotWallPage() {
         };
 
         loadSchedulingData();
+    }, []);
+
+    // 连接 Polkadot API 并查询 hygonTeeDevices
+    useEffect(() => {
+        let mounted = true;
+        let currentApi: ApiPromise | null = null;
+
+        const connectAndQuery = async () => {
+            try {
+                const wsUrl = getNodeUrl();
+                const provider = new WsProvider(wsUrl);
+                const apiPromise = ApiPromise.create({ provider, noInitWarn: true });
+                const newApi = await apiPromise;
+
+                if (!mounted) {
+                    await newApi.disconnect();
+                    return;
+                }
+
+                setApi(newApi);
+                currentApi = newApi;
+
+                // 查询 hygonTeeDevices
+                if (newApi.query.phalaComputation?.hygonTeeDevices) {
+                    try {
+                        const hygonDevicesData = await newApi.query.phalaComputation.hygonTeeDevices.entries();
+                        const deviceAccounts = new Set<string>();
+                        hygonDevicesData.forEach(([key]: [any, any]) => {
+                            const accountId = key.args[0].toString();
+                            deviceAccounts.add(accountId);
+                        });
+                        if (mounted) {
+                            setHygonTeeDevices(deviceAccounts);
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ [Dashboard] 查询 Hygon TEE Devices 失败:', e);
+                    }
+                }
+            } catch (e) {
+                console.warn('⚠️ [Dashboard] 连接 Polkadot API 失败:', e);
+            }
+        };
+
+        connectAndQuery();
+
+        return () => {
+            mounted = false;
+            if (currentApi) {
+                currentApi.disconnect().catch(console.error);
+            }
+        };
     }, []);
 
 
@@ -631,7 +694,12 @@ export default function PolkadotWallPage() {
             dataIndex: 'teeType',
             key: 'teeType',
             width: 70,
-            render: (type: string) => {
+            render: (type: string, record: any) => {
+                // 判断是否为 CSV Worker：如果 worker 的公钥对应的账户在 hygonTeeDevices 中，则为 CSV
+                const workerPubkey = record.publicKey || record.pubkey || record.workerId;
+                const isCsvWorker = workerPubkey && pubkeyToAccountMap.has(workerPubkey);
+                const finalType = isCsvWorker ? 'CSV' : (type || 'SGX');
+
                 const colors: { [key: string]: string } = {
                     SGX: 'blue',
                     CSV: 'green',
@@ -649,10 +717,10 @@ export default function PolkadotWallPage() {
                             fontSize: '11px',
                             padding: '0 6px',
                             margin: 0,
-                            color: textColors[type] || '#f9f0ff',
+                            color: textColors[finalType] || '#f9f0ff',
                         }}
                     >
-                        {type}
+                        {finalType}
                     </Tag>
                 );
             },
@@ -848,7 +916,83 @@ export default function PolkadotWallPage() {
         acc[key] = (acc[key] || 0) + 1;
         return acc;
     }, { online: 0, offline: 0, unresponsive: 0 }), [workerList]);
-    const workerCount = workerList.length;
+
+    // 构建公钥到账户地址的映射（用于判断 CSV Worker）
+    const pubkeyToAccountMap = useMemo<Map<string, string>>(() => {
+        const map = new Map<string, string>();
+
+        // 1. 从 CSV_WORKER_MAPPING 添加已知映射
+        Object.entries(CSV_WORKER_MAPPING).forEach(([pubkey, account]) => {
+            map.set(pubkey, account);
+        });
+
+        // 2. 从 hygonTeeDevices 构建映射
+        hygonTeeDevices.forEach(accountAddress => {
+            // 先检查 CSV_WORKER_MAPPING 中是否已有
+            const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+                pk => CSV_WORKER_MAPPING[pk] === accountAddress
+            );
+
+            if (!knownPubkey) {
+                // 使用 decodeAddress 将账户地址转换为公钥
+                try {
+                    const decoded = decodeAddress(accountAddress, false, 30); // ss58Format: 30 for Phala Network
+                    // 将 Uint8Array 转换为十六进制字符串
+                    const pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+                    map.set(pubkey, accountAddress);
+                } catch (e) {
+                    // 如果解码失败，跳过这个账户
+                    console.warn(`Failed to decode address ${accountAddress}:`, e);
+                }
+            }
+        });
+
+        return map;
+    }, [hygonTeeDevices]);
+
+    // 计算 Worker 数量（包括 hygonTeeDevices 中未注册的）
+    const workerCount = useMemo<number>(() => {
+        const baseCount = workerList.length;
+
+        // 获取所有已注册的 Worker 公钥集合
+        const registeredPubkeys = new Set(workerList.map((w: any) => w.publicKey).filter(Boolean));
+
+        // 统计 hygonTeeDevices 中未注册的账户数量
+        let additionalCount = 0;
+        const processedPubkeys = new Set<string>(); // 用于去重
+
+        hygonTeeDevices.forEach(accountAddress => {
+            let pubkey: string | null = null;
+
+            // 先检查 CSV_WORKER_MAPPING 中是否有已知映射
+            const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+                pk => CSV_WORKER_MAPPING[pk] === accountAddress
+            );
+
+            if (knownPubkey) {
+                pubkey = knownPubkey;
+            } else {
+                // 使用 decodeAddress 将账户地址转换为公钥
+                try {
+                    const decoded = decodeAddress(accountAddress, false, 30); // ss58Format: 30 for Phala Network
+                    // 将 Uint8Array 转换为十六进制字符串
+                    pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+                } catch (e) {
+                    // 如果解码失败，跳过这个账户
+                    console.warn(`Failed to decode address ${accountAddress}:`, e);
+                    return;
+                }
+            }
+
+            // 检查该公钥是否已注册，且未处理过（去重）
+            if (pubkey && !registeredPubkeys.has(pubkey) && !processedPubkeys.has(pubkey)) {
+                additionalCount++;
+                processedPubkeys.add(pubkey);
+            }
+        });
+
+        return baseCount + additionalCount;
+    }, [workerList, hygonTeeDevices]);
     const shouldPaginateWorkers = workerCount > 2;
     const workerTotalPages = Math.max(1, Math.ceil(workerCount / WORKER_PAGE_SIZE));
     const workerTableData = useMemo(() => {
@@ -1561,7 +1705,7 @@ export default function PolkadotWallPage() {
                         <div className={styles.statRow4}>
                             <Statistic
                                 title="总节点数"
-                                value={dashboardData?.workers.total || 0}
+                                value={workerCount}
                                 prefix={<GlobalOutlined />}
                                 valueStyle={{ color: '#ff7875', fontSize: '14px' }}
                             />
@@ -1704,16 +1848,6 @@ export default function PolkadotWallPage() {
                                                 <span className={styles.accountValue}>{account.totalRewardFormatted} CMC</span>
                                             </div>
                                         </div>
-                                        <div className={styles.accountMeta}>
-                                            <div>
-                                                <span className={styles.accountLabel}>VE</span>
-                                                <span className={styles.accountValue}>{account.ve || '--'}</span>
-                                            </div>
-                                            <div>
-                                                <span className={styles.accountLabel}>评分</span>
-                                                <span className={styles.accountValue}>{account.benchmarkScore || '--'}</span>
-                                            </div>
-                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -1723,10 +1857,11 @@ export default function PolkadotWallPage() {
                             </div>
                         )}
                         {shouldPaginateAccounts && (
-                            <div className={styles.accountPagination}>
+                            <div className={styles.tablePagination}>
                                 <Button
                                     size="small"
-                                    ghost
+                                    type="primary"
+                                    className={styles.paginationButton}
                                     disabled={incentiveAccountPage === 1}
                                     onClick={() => setIncentiveAccountPage((prev) => Math.max(1, prev - 1))}
                                 >
@@ -1736,6 +1871,7 @@ export default function PolkadotWallPage() {
                                 <Button
                                     size="small"
                                     type="primary"
+                                    className={styles.paginationButton}
                                     disabled={incentiveAccountPage === incentiveAccountTotalPages}
                                     onClick={() => setIncentiveAccountPage((prev) => Math.min(incentiveAccountTotalPages, prev + 1))}
                                 >
@@ -1855,7 +1991,7 @@ export default function PolkadotWallPage() {
                 <div className={styles.centerColumn}>
                     {/* 区块浏览器（含核心指标） */}
                     <DataCard
-                        title="区块链上数据"
+                        title="区块链数据"
                         titleIcon={<TransactionOutlined />}
                         className={styles.dataCard}
                     >
@@ -2112,13 +2248,12 @@ export default function PolkadotWallPage() {
                                         </div>
                                         <div className={styles.progressTrack}>
                                             <div
-                                                className={`${styles.progressFill} ${
-                                                    item.type === 'SGX'
-                                                        ? styles.progressFillSgx
-                                                        : item.type === 'System'
+                                                className={`${styles.progressFill} ${item.type === 'SGX'
+                                                    ? styles.progressFillSgx
+                                                    : item.type === 'System'
                                                         ? styles.progressFillSystem
                                                         : ''
-                                                }`}
+                                                    }`}
                                                 style={{ width: `${item.ratio}%` }}
                                             />
                                         </div>

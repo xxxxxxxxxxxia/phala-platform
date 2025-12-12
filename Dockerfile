@@ -39,6 +39,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/app/api/dcap-attestation/samp
 # 复制 data 目录（包含密钥轮换历史等数据文件）
 COPY --from=builder --chown=nextjs:nodejs /app/data ./data
 
+# 复制 docs 目录（包含部署手册等文档）
+COPY --from=builder --chown=nextjs:nodejs /app/docs ./docs
+
 # 不再复制phala-blockchain-setup目录，直接使用服务器上的目录
 
 # 切换到非root用户

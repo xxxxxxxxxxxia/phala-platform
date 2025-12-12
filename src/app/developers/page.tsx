@@ -3,7 +3,14 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Col, Row, Steps, Typography, message } from 'antd';
-import { CodeOutlined, ApiOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
+import {
+    CodeOutlined,
+    ApiOutlined,
+    DeploymentUnitOutlined,
+    CloudServerOutlined,
+    SafetyCertificateOutlined,
+    ThunderboltOutlined,
+} from '@ant-design/icons';
 import PortalLayout from '@/components/layout/PortalLayout';
 import styles from '../portal.module.css';
 import developersStyles from './developers.module.css';
@@ -24,6 +31,31 @@ const quickStartSteps = [
     '部署示例 Worker 或绑定已存在的计算资源',
     '通过 SDK 发送计算任务并订阅事件',
     '在门户查看日志、度量与奖励',
+];
+
+const capabilityColumns = [
+    {
+        title: '开发集成路径',
+        desc: 'SDK 与 API 组合拉起 TEE 任务与上链登记，全链路自动化。',
+        icon: <ThunderboltOutlined />,
+        items: [
+            '使用 JS SDK 触发 Worker 任务，自动签名与事件监听',
+            'Rust Toolkit 适配机密容器，覆盖镜像构建与证明写入',
+            '官方 docker-compose 示例可直接起服，快速完成联调',
+        ],
+    },
+    {
+        title: '安全交付保障',
+        desc: '从任务发起到结果返回的可信链路，满足审计与合规诉求。',
+        icon: <SafetyCertificateOutlined />,
+        items: ['TEE 远程证明与镜像度量校验', '密钥与机密卷由调度器托管分发', '算力与证明记录上链，留存可查'],
+    },
+    {
+        title: '运维与观测',
+        desc: '门户与事件订阅双通道，帮助 SRE 低成本运营。',
+        icon: <CloudServerOutlined />,
+        items: ['最佳主机调度避免手动筛资源', '门户实时查看任务日志与状态', 'Webhook / 事件订阅支持接入 CI 或报警'],
+    },
 ];
 
 // const apiHighlights = [
@@ -149,6 +181,36 @@ export default function DevelopersPage() {
                             </Col>
                         </Row>
                     </Card>
+                </section>
+
+                <section className={styles.section}>
+                    <Title level={3} className={styles.sectionTitle}>
+                        开发与交付指南
+                    </Title>
+                    <Paragraph className={styles.sectionDescription}>
+                        梳理从 SDK 联调到上线运维的关键动作，帮助团队在一处完成集成、验收与观测。
+                    </Paragraph>
+                    <Row gutter={[24, 24]}>
+                        {capabilityColumns.map((item) => (
+                            <Col xs={24} md={8} key={item.title}>
+                                <Card className={styles.portalCard}>
+                                    <div className={styles.cardIcon}>{item.icon}</div>
+                                    <Title level={4} className={styles.cardTitle}>
+                                        {item.title}
+                                    </Title>
+                                    <Paragraph className={styles.cardDescription}>{item.desc}</Paragraph>
+                                    <ul className={developersStyles.featureList}>
+                                        {item.items.map((point) => (
+                                            <li key={point} className={developersStyles.featureItem}>
+                                                <span className={developersStyles.featureBullet} />
+                                                <span>{point}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </Card>
+                            </Col>
+                        ))}
+                    </Row>
                 </section>
 
                 {/* <section className={styles.section}>

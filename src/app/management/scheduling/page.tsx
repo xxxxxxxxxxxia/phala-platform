@@ -5,9 +5,11 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import type { ComponentType } from "react";
 import {
   Alert,
+  Badge,
   Button,
   Card,
   Col,
+  Collapse,
   ConfigProvider,
   Divider,
   Flex,
@@ -28,16 +30,19 @@ import {
   Upload,
   message,
   Empty,
-  Collapse,
-  Badge,
+  Checkbox,
 } from "antd";
 import {
   ApiOutlined,
   BarChartOutlined,
   BranchesOutlined,
+  CloudServerOutlined,
   CloseCircleOutlined,
+  DownloadOutlined,
   FireOutlined,
+  GlobalOutlined,
   InboxOutlined,
+  MinusCircleOutlined,
   PlayCircleOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -50,8 +55,10 @@ import {
   UploadOutlined,
   FileTextOutlined,
   SafetyCertificateOutlined,
-  DownloadOutlined,
+  SafetyOutlined,
+  DashboardOutlined,
 } from "@ant-design/icons";
+import { x25519 } from "@noble/curves/ed25519.js";
 import type { UploadFile } from "antd/es/upload/interface";
 const { Title, Text } = Typography;
 import dynamic from "next/dynamic";
@@ -193,6 +200,454 @@ type PrivacyContract = {
   isVerified: boolean;
 };
 
+// ---------------- CVM / VM 部署相关类型，与 developers/start/page.tsx 保持一致 ----------------
+
+export interface VMData {
+  id: string;
+  name: string;
+  status: string;
+  uptime?: string;
+  app_id?: string;
+  instance_id?: string;
+  configuration?: any;
+  appCompose?: any;
+  boot_progress?: string;
+  shutdown_progress?: boolean;
+  image_version?: string;
+  app_url?: string;
+}
+
+interface VMListResponse {
+  vms: VMData[];
+  total?: number;
+  port_mapping_enabled?: boolean;
+}
+
+interface ImageData {
+  name: string;
+  version?: string;
+}
+
+interface GpuData {
+  slot: string;
+  description?: string;
+  product_id?: string;
+  is_free?: boolean;
+}
+
+interface PortMapping {
+  protocol: "tcp" | "udp";
+  host_address: string;
+  host_port: number | null;
+  vm_port: number | null;
+}
+
+interface EncryptedEnv {
+  key: string;
+  value: string;
+}
+
+interface VMFormData {
+  name: string;
+  image: string;
+  dockerComposeFile: string;
+  preLaunchScript: string;
+  vcpu: number;
+  memory: number;
+  memoryValue: number;
+  memoryUnit: "MB" | "GB";
+  disk_size: number;
+  selectedGpus: string[];
+  attachAllGpus: boolean;
+  ports: PortMapping[];
+  encryptedEnvs: EncryptedEnv[];
+  docker_config: {
+    enabled: boolean;
+    username: string;
+    token_key: string;
+  };
+  app_id: string;
+  kms_enabled: boolean;
+  local_key_provider_enabled: boolean;
+  key_provider_id: string;
+  gateway_enabled: boolean;
+  public_logs: boolean;
+  public_sysinfo: boolean;
+  public_tcbinfo: boolean;
+  pin_numa: boolean;
+  hugepages: boolean;
+  user_config: string;
+}
+
+// 默认主机 IP
+export const DEFAULT_BEST_HOST_IP = "localhost";
+
+// RPC 调用函数 - 通过代理API避免CORS问题（与 developers/start/page.tsx 保持一致）
+export const rpcCall = async (
+  bestHostIp: string,
+  method: string,
+  params?: any
+): Promise<Response> => {
+  const port = "9210";
+  const proxyUrl = `/api/vm-rpc?host=${encodeURIComponent(
+    bestHostIp
+  )}&method=${encodeURIComponent(method)}&port=${encodeURIComponent(port)}`;
+
+  const response = await fetch(proxyUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(params || {}),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error);
+  }
+
+  return response;
+};
+
+// 获取 VM 列表（仅用于探测端口映射能力）
+const loadVMList = async (
+  bestHostIp: string,
+  options?: {
+    brief?: boolean;
+    keyword?: string;
+    page?: number;
+    page_size?: number;
+    ids?: string[];
+  }
+): Promise<VMListResponse> => {
+  const response = await rpcCall(bestHostIp, "Status", {
+    brief: options?.brief ?? true,
+    keyword: options?.keyword || "",
+    page: options?.page || 1,
+    page_size: options?.page_size || 1,
+    ...(options?.ids && { ids: options.ids }),
+  });
+
+  return await response.json();
+};
+
+// 纯 JavaScript SHA-256 实现（作为后备）
+const sha256Fallback = (message: string): string => {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+    0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+    0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+    0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+    0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+    0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+
+  const H = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+    0x1f83d9ab, 0x5be0cd19,
+  ];
+
+  const rightRotate = (value: number, amount: number) =>
+    (value >>> amount) | (value << (32 - amount));
+
+  const bytes = new TextEncoder().encode(message);
+  const bitLength = bytes.length * 8;
+  const padding = new Uint8Array((64 - ((bytes.length + 9) % 64)) % 64);
+  const lengthBytes = new ArrayBuffer(8);
+  new DataView(lengthBytes).setBigUint64(0, BigInt(bitLength), false);
+  const lengthArray = new Uint8Array(lengthBytes);
+
+  const totalLength = bytes.length + 1 + padding.length + lengthArray.length;
+  const data = new Uint8Array(totalLength);
+  data.set(bytes, 0);
+  data[bytes.length] = 0x80;
+  data.set(padding, bytes.length + 1);
+  data.set(lengthArray, bytes.length + 1 + padding.length);
+
+  for (let chunkStart = 0; chunkStart < data.length; chunkStart += 64) {
+    const w = new Array(64);
+    for (let i = 0; i < 16; i++) {
+      w[i] =
+        (data[chunkStart + i * 4] << 24) |
+        (data[chunkStart + i * 4 + 1] << 16) |
+        (data[chunkStart + i * 4 + 2] << 8) |
+        data[chunkStart + i * 4 + 3];
+    }
+
+    for (let i = 16; i < 64; i++) {
+      const s0 =
+        rightRotate(w[i - 15], 7) ^
+        rightRotate(w[i - 15], 18) ^
+        (w[i - 15] >>> 3);
+      const s1 =
+        rightRotate(w[i - 2], 17) ^
+        rightRotate(w[i - 2], 19) ^
+        (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+    }
+
+    let [a, b, c, d, e, f, g, h] = H;
+
+    for (let i = 0; i < 64; i++) {
+      const S1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
+      const S0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) >>> 0;
+
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+
+    H[0] = (H[0] + a) >>> 0;
+    H[1] = (H[1] + b) >>> 0;
+    H[2] = (H[2] + c) >>> 0;
+    H[3] = (H[3] + d) >>> 0;
+    H[4] = (H[4] + e) >>> 0;
+    H[5] = (H[5] + f) >>> 0;
+    H[6] = (H[6] + g) >>> 0;
+    H[7] = (H[7] + h) >>> 0;
+  }
+
+  return H.map((h) => h.toString(16).padStart(8, "0")).join("");
+};
+
+// 计算 Compose Hash
+const calcComposeHash = async (content: string): Promise<string> => {
+  if (typeof window !== "undefined") {
+    const cryptoObj = window.crypto;
+    if (cryptoObj && cryptoObj.subtle) {
+      try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(content);
+        const hashBuffer = await cryptoObj.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+      } catch (error) {
+        console.warn("Web Crypto API failed, using fallback:", error);
+      }
+    }
+  }
+
+  return sha256Fallback(content);
+};
+
+// 创建 App Compose 文件内容
+const makeAppComposeFile = async (
+  formData: VMFormData,
+  availableImages: ImageData[]
+): Promise<string> => {
+  const app_compose: any = {
+    manifest_version: 2,
+    name: formData.name,
+    runner: "docker-compose",
+    docker_compose_file: formData.dockerComposeFile,
+    docker_config: formData.docker_config.enabled
+      ? {
+          username: formData.docker_config.username,
+          token_key: formData.docker_config.token_key,
+        }
+      : {},
+    kms_enabled: formData.kms_enabled,
+    gateway_enabled: formData.gateway_enabled,
+    public_logs: formData.public_logs,
+    public_sysinfo: formData.public_sysinfo,
+    public_tcbinfo: formData.public_tcbinfo,
+    local_key_provider_enabled: formData.local_key_provider_enabled,
+    key_provider_id: formData.key_provider_id || undefined,
+    allowed_envs: formData.encryptedEnvs.map((env) => env.key),
+    no_instance_id: !formData.gateway_enabled,
+    secure_time: false,
+  };
+
+  if (formData.preLaunchScript?.trim()) {
+    (app_compose as any).pre_launch_script = formData.preLaunchScript;
+  }
+
+  const launchToken = formData.encryptedEnvs.find(
+    (env) => env.key === "APP_LAUNCH_TOKEN"
+  );
+  if (launchToken) {
+    (app_compose as any).launch_token_hash = await calcComposeHash(
+      launchToken.value
+    );
+  }
+
+  const selectedImage = availableImages.find(
+    (img) => img.name === formData.image
+  );
+  if (selectedImage?.version) {
+    const verGE = (versionStr: string, otherVersionStr: string): boolean => {
+      const version = versionStr.split(".").map(Number);
+      const otherVersion = otherVersionStr.split(".").map(Number);
+      return (
+        version[0] > otherVersion[0] ||
+        (version[0] === otherVersion[0] && version[1] > otherVersion[1]) ||
+        (version[0] === otherVersion[0] &&
+          version[1] === otherVersion[1] &&
+          version[2] >= otherVersion[2])
+      );
+    };
+
+    const versionStr = selectedImage.version;
+    let composeVersion = 1;
+
+    if (verGE(versionStr, "0.3.3")) {
+      composeVersion = 2;
+    }
+    if (verGE(versionStr, "0.4.2")) {
+      composeVersion = 3;
+    }
+
+    if (composeVersion < 2) {
+      const features = [];
+      if (formData.kms_enabled) features.push("kms");
+      if (formData.gateway_enabled) features.push("tproxy-net");
+      (app_compose as any).features = features;
+      (app_compose as any).manifest_version = 1;
+      (app_compose as any).version = "1.0.0";
+    }
+    if (composeVersion < 3) {
+      (app_compose as any).tproxy_enabled = (app_compose as any).gateway_enabled;
+      delete (app_compose as any)["gateway_enabled"];
+    }
+  }
+
+  return JSON.stringify(app_compose);
+};
+
+// 加密环境变量
+const encryptEnv = async (
+  envs: EncryptedEnv[],
+  hexPublicKey: string
+): Promise<string> => {
+  const cryptoObj =
+    typeof window !== "undefined" ? window.crypto : globalThis.crypto;
+  if (!cryptoObj || !cryptoObj.subtle) {
+    throw new Error(
+      "Web Crypto API is not available. Please ensure you are using HTTPS or localhost."
+    );
+  }
+
+  const envsJson = JSON.stringify({ env: envs });
+
+  let processedPublicKey = hexPublicKey;
+  if (processedPublicKey.startsWith("0x")) {
+    processedPublicKey = processedPublicKey.slice(2);
+  }
+
+  const remotePubkey = new Uint8Array(
+    processedPublicKey
+      .match(/.{1,2}/g)
+      ?.map((byte) => parseInt(byte, 16)) || []
+  );
+
+  const seed = cryptoObj.getRandomValues(new Uint8Array(32));
+  const ephemeralKeyPair = x25519.keygen(seed);
+  const ephemeralPrivateKey = ephemeralKeyPair.secretKey;
+  const ephemeralPublicKey = ephemeralKeyPair.publicKey;
+
+  const shared = x25519.getSharedSecret(ephemeralPrivateKey, remotePubkey);
+  const sharedKey = new Uint8Array(shared);
+
+  const importedShared = await cryptoObj.subtle.importKey(
+    "raw",
+    sharedKey,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt"]
+  );
+
+  const iv = cryptoObj.getRandomValues(new Uint8Array(12));
+
+  const encrypted = await cryptoObj.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    importedShared,
+    new TextEncoder().encode(envsJson)
+  );
+
+  const result = new Uint8Array(
+    ephemeralPublicKey.length + iv.length + encrypted.byteLength
+  );
+  result.set(ephemeralPublicKey, 0);
+  result.set(iv, ephemeralPublicKey.length);
+  result.set(new Uint8Array(encrypted), ephemeralPublicKey.length + iv.length);
+
+  return Array.from(result)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+// 创建加密的环境变量
+const makeEncryptedEnv = async (
+  envs: EncryptedEnv[],
+  kmsEnabled: boolean,
+  appId: string | null | undefined,
+  bestHostIp: string | null,
+  formData?: VMFormData
+): Promise<string> => {
+  if (!kmsEnabled || envs.length === 0 || !bestHostIp) return "";
+
+  let finalAppId = appId;
+  if (!finalAppId && formData) {
+    finalAppId = await calcAppId(formData, []);
+  }
+
+  if (!finalAppId) return "";
+
+  try {
+    const response = await rpcCall(bestHostIp, "GetAppEnvEncryptPubKey", {
+      app_id: finalAppId,
+    });
+    const data = await response.json();
+    return await encryptEnv(envs, data.public_key);
+  } catch (error) {
+    console.error("Error getting encrypt public key:", error);
+    return "";
+  }
+};
+
+// 配置 GPU
+const configGpu = (formData: VMFormData) => {
+  if (formData.attachAllGpus) {
+    return { attach_mode: "all" };
+  } else {
+    const gpus =
+      formData.selectedGpus?.length > 0
+        ? formData.selectedGpus.map((slot) => ({ slot }))
+        : [];
+    if (gpus.length === 0) {
+      return null;
+    }
+    return {
+      attach_mode: "listed",
+      gpus: gpus,
+    };
+  }
+};
+
+// 计算 App ID
+const calcAppId = async (
+  formData: VMFormData,
+  availableImages: ImageData[]
+): Promise<string> => {
+  const appCompose = await makeAppComposeFile(formData, availableImages);
+  const composeHash = await calcComposeHash(appCompose);
+  return composeHash.slice(0, 40);
+};
+
 const SCENARIOS: ScenarioConfig[] = [
   {
     id: "fairness",
@@ -316,7 +771,6 @@ const sfqFlowColumns = [
 export default function HomePage() {
   const [search] = useState("");
   const [deployModalOpen, setDeployModalOpen] = useState(false);
-  // const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
   const [resourceModalOpen, setResourceModalOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [, setAllServicesModalOpen] = useState(false);
@@ -400,10 +854,16 @@ export default function HomePage() {
   const [contracts, setContracts] = useState<PrivacyContract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(false);
 
-  // 部署服务相关状态
+  // CVM / VM 部署相关状态（与 developers/start/page.tsx 对齐）
   const [deployLoading, setDeployLoading] = useState(false);
   const [deployForm] = Form.useForm();
-  const [deployFileList, setDeployFileList] = useState<UploadFile[]>([]);
+  const [availableImages, setAvailableImages] = useState<ImageData[]>([]);
+  const [availableGpus, setAvailableGpus] = useState<GpuData[]>([]);
+  const [allowAttachAllGpus, setAllowAttachAllGpus] = useState(false);
+  const [portMappingEnabled, setPortMappingEnabled] = useState(false);
+  const [composeHashPreview, setComposeHashPreview] = useState("");
+  // 管理页面固定使用指定最佳主机 IP
+  const bestHostIp: string = "43.132.154.142";
 
   // 上传合约相关状态
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
@@ -417,6 +877,154 @@ export default function HomePage() {
   const {
     token: { colorBgContainer, colorText },
   } = antTheme.useToken();
+
+  // 为部署弹窗表单注入浅色样式，使文字和控件在白底上清晰可见
+  useEffect(() => {
+    const styleId = "deploy-modal-styles";
+    if (document.getElementById(styleId)) {
+      return;
+    }
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+            @keyframes pulse {
+                0%, 100% {
+                    opacity: 0.3;
+                    transform: scale(1);
+                }
+                50% {
+                    opacity: 0.6;
+                    transform: scale(1.1);
+                }
+            }
+            /* 部署弹窗表单样式（浅色） */
+            .ant-modal-content .ant-form-item-label > label {
+                color: #1f2937 !important;
+                font-weight: 500 !important;
+                font-size: 14px !important;
+            }
+            .ant-modal-content .ant-input,
+            .ant-modal-content .ant-input-number-input,
+            .ant-modal-content .ant-select-selector,
+            .ant-modal-content .ant-input-number {
+                background: #ffffff !important;
+                border: 1px solid #d1d5db !important;
+                border-radius: 8px !important;
+                color: #1f2937 !important;
+                transition: all 0.3s ease !important;
+            }
+            .ant-modal-content .ant-input:hover,
+            .ant-modal-content .ant-input-number:hover,
+            .ant-modal-content .ant-select:hover .ant-select-selector {
+                border-color: #3b82f6 !important;
+                background: #ffffff !important;
+            }
+            .ant-modal-content .ant-input:focus,
+            .ant-modal-content .ant-input-focused,
+            .ant-modal-content .ant-input-number:focus,
+            .ant-modal-content .ant-input-number-focused,
+            .ant-modal-content .ant-select-focused .ant-select-selector {
+                border-color: #3b82f6 !important;
+                box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
+                background: #ffffff !important;
+            }
+            .ant-modal-content .ant-input::placeholder,
+            .ant-modal-content .ant-input-number-input::placeholder {
+                color: #9ca3af !important;
+            }
+            .ant-modal-content .ant-select-selection-placeholder {
+                color: #9ca3af !important;
+            }
+            .ant-modal-content .ant-select-selection-item {
+                color: #1f2937 !important;
+            }
+            .ant-modal-content .ant-select-arrow {
+                color: #6b7280 !important;
+            }
+            .ant-modal-content .ant-select-dropdown {
+                background: #ffffff !important;
+                border: 1px solid #e5e7eb !important;
+                border-radius: 12px !important;
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1) !important;
+            }
+            .ant-modal-content .ant-select-item {
+                color: #1f2937 !important;
+            }
+            .ant-modal-content .ant-select-item:hover {
+                background: #f3f4f6 !important;
+            }
+            .ant-modal-content .ant-select-item-option-selected {
+                background: #dbeafe !important;
+                color: #3b82f6 !important;
+            }
+            .ant-modal-content .ant-checkbox-wrapper {
+                color: #1f2937 !important;
+            }
+            .ant-modal-content .ant-checkbox-inner {
+                background: #ffffff !important;
+                border-color: #d1d5db !important;
+            }
+            .ant-modal-content .ant-checkbox-checked .ant-checkbox-inner {
+                background: #3b82f6 !important;
+                border-color: #3b82f6 !important;
+            }
+            .ant-modal-content .ant-checkbox-wrapper:hover .ant-checkbox-inner {
+                border-color: #3b82f6 !important;
+            }
+            .ant-modal-content .ant-btn-dashed {
+                background: #ffffff !important;
+                border: 1px dashed #d1d5db !important;
+                color: #1f2937 !important;
+                border-radius: 8px !important;
+            }
+            .ant-modal-content .ant-btn-dashed:hover {
+                background: #f9fafb !important;
+                border-color: #3b82f6 !important;
+                color: #3b82f6 !important;
+            }
+            .ant-modal-content .ant-upload .ant-btn {
+                background: #ffffff !important;
+                border: 1px solid #d1d5db !important;
+                color: #1f2937 !important;
+                border-radius: 8px !important;
+            }
+            .ant-modal-content .ant-upload .ant-btn:hover {
+                background: #f9fafb !important;
+                border-color: #3b82f6 !important;
+                color: #3b82f6 !important;
+            }
+            .ant-modal-content .ant-input-number-handler-wrap {
+                background: #f9fafb !important;
+                border-left: 1px solid #e5e7eb !important;
+            }
+            .ant-modal-content .ant-input-number-handler {
+                color: #6b7280 !important;
+            }
+            .ant-modal-content .ant-input-number-handler:hover {
+                color: #1f2937 !important;
+            }
+            .ant-modal-content code {
+                background: #f3f4f6 !important;
+                border: 1px solid #e5e7eb !important;
+                color: #3b82f6 !important;
+                padding: 4px 8px !important;
+                border-radius: 6px !important;
+            }
+            .ant-modal-content .anticon {
+                color: #6b7280 !important;
+            }
+            .ant-modal-content .anticon:hover {
+                color: #1f2937 !important;
+            }
+        `;
+    document.head.appendChild(style);
+    return () => {
+      const existingStyle = document.getElementById(styleId);
+      if (existingStyle) {
+        existingStyle.remove();
+      }
+    };
+  }, []);
 
   // 在组件加载时自动获取所有VM服务信息
   useEffect(() => {
@@ -1319,123 +1927,206 @@ export default function HomePage() {
     },
   ];
 
-  const handleDeploy = async (vals: { name: string }) => {
-    console.log("Deploy new instance:", vals.name);
-    form.resetFields();
-    setDeployModalOpen(false);
-  };
-
   const handleDeployButtonClick = async () => {
     try {
       setDeployLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/scheduled-vm`);
-      console.log(response.data);
 
-      if (response.data && response.data.scheduledVmIp) {
-        const ip = response.data.scheduledVmIp;
+      // 探测端口映射能力
+      const vmStatus = await loadVMList(bestHostIp, { brief: true, page_size: 1 });
+      setPortMappingEnabled(vmStatus.port_mapping_enabled || false);
 
-        // 查找对应的主机名称
-        const matchedHost = hosts.find((host) => host.address === ip);
-        const hostName = matchedHost ? matchedHost.name : "未知主机";
-        console.log(hostName);
+      // 加载镜像和 GPU 列表
+      const [imagesResp, gpusResp] = await Promise.all([
+        rpcCall(bestHostIp, "ListImages"),
+        rpcCall(bestHostIp, "ListGpus"),
+      ]);
+      const imagesData = await imagesResp.json();
+      const gpusData = await gpusResp.json();
+      setAvailableImages(imagesData.images || []);
+      setAvailableGpus(gpusData.gpus || []);
+      setAllowAttachAllGpus(gpusData.allow_attach_all || false);
 
-        // 存储调度信息
-        setScheduledInfo({
-          ip,
-          hostName,
-        });
-
-        // 打开部署模态框
-        setDeployModalOpen(true);
-      }
+      // 重置表单为默认值（与 developers/start 保持一致）
+      deployForm.setFieldsValue({
+        name: "",
+        image: undefined,
+        dockerComposeFile: "",
+        preLaunchScript: `EXPECTED_TOKEN_HASH=$(jq -j .launch_token_hash app-compose.json)
+if [ "$EXPECTED_TOKEN_HASH" == "null" ]; then
+    echo "Skipped APP_LAUNCH_TOKEN check"
+else
+  ACTUAL_TOKEN_HASH=$(echo -n "$APP_LAUNCH_TOKEN" | sha256sum | cut -d' ' -f1)
+  if [ "$EXPECTED_TOKEN_HASH" != "$ACTUAL_TOKEN_HASH" ]; then
+      echo "Error: Incorrect APP_LAUNCH_TOKEN, please make sure set the correct APP_LAUNCH_TOKEN in env"
+      reboot
+      exit 1
+  else
+      echo "APP_LAUNCH_TOKEN checked OK"
+  fi
+fi`,
+        vcpu: 1,
+        memoryValue: 2,
+        memoryUnit: "GB",
+        disk_size: 20,
+        selectedGpus: [],
+        attachAllGpus: false,
+        ports: [],
+        encryptedEnvs: [],
+        docker_config: {
+          enabled: false,
+          username: "",
+          token_key: "",
+        },
+        app_id: "",
+        kms_enabled: true,
+        local_key_provider_enabled: false,
+        key_provider_id: "",
+        gateway_enabled: true,
+        public_logs: true,
+        public_sysinfo: true,
+        public_tcbinfo: true,
+        pin_numa: false,
+        hugepages: false,
+        user_config: "",
+      });
+      setComposeHashPreview("");
+      setDeployModalOpen(true);
     } catch (error) {
-      console.error("调度接口调用失败:", error);
-      message.error("调度失败，请稍后重试");
+      console.error("打开部署弹窗失败:", error);
+      message.error("加载部署配置失败，请稍后重试");
     } finally {
       setDeployLoading(false);
     }
   };
 
-  /* 上传前校验 */
-  const beforeUpload = (file: File) => {
-    const isYaml =
-      file.type === "application/x-yaml" ||
-      file.name.endsWith(".yaml") ||
-      file.name.endsWith(".yml");
-    if (!isYaml) {
-      message.error("只能上传 docker-compose.yaml / *.yml 文件");
-      return Upload.LIST_IGNORE;
+  // 创建 VM（与 developers/start/page.tsx 的 CreateVm 逻辑一致）
+  const createVm = async (values: any) => {
+    if (!bestHostIp) {
+      message.warning("请先在开发者中心设置最佳主机 IP");
+      return;
     }
-    const isLt10M = file.size / 1024 / 1024 < 10;
-    if (!isLt10M) {
-      message.error("文件大小不能超过 10MB");
-      return Upload.LIST_IGNORE;
-    }
-    return false; // 手动上传
-  };
 
-  /* 自定义部署上传逻辑 */
-  const customDeployRequest = async (options: any) => {
-    const { file } = options;
     setDeployLoading(true);
-    setIsTerminalActive(true);
-    setTerminalOutput('🚀 开始部署服务...\n正在处理部署文件...');
-
-    // 立即关闭弹窗，让用户看到终端输出
-    setDeployModalOpen(false);
-    deployForm.resetFields();
-
-    const formData = new FormData();
-    formData.append("composeFile", file);
-
-    // 获取表单中的部署路径和调度的主机IP
-    const values = deployForm.getFieldsValue();
-    const vmPath = values.name; // 部署路径
-    const vmIp = scheduledInfo?.ip; // 主机IP
-
-    // 添加主机IP和路径到formData
-    if (vmIp) {
-      formData.append("vmIp", vmIp);
-      setTerminalOutput(prev => prev + `\n📋 目标主机: ${vmIp}`);
-    }
-
-    if (vmPath) {
-      formData.append("vmPath", vmPath);
-      setTerminalOutput(prev => prev + `\n📋 部署路径: ${vmPath}`);
-    }
-
-    setTerminalOutput(prev => prev + '\n⏳ 正在上传并部署，请耐心等待...');
-
     try {
-      const { data } = await axios.post<DeployResponse>(
-        `${API_BASE_URL}/deploy`,
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        }
+      const memory =
+        values.memoryUnit === "GB"
+          ? values.memoryValue * 1024
+          : values.memoryValue;
+
+      const formData: VMFormData = {
+        ...values,
+        memory,
+      };
+
+      const composeFile = await makeAppComposeFile(formData, availableImages);
+
+      const appId = formData.app_id || (await calcAppId(formData, availableImages));
+
+      const encryptedEnv = await makeEncryptedEnv(
+        formData.encryptedEnvs,
+        formData.kms_enabled,
+        formData.app_id || null,
+        bestHostIp,
+        formData
       );
-      console.log(data);
 
-      setTerminalOutput(prev => prev + '\n✅ 部署完成！');
-      if (data.message) {
-        setTerminalOutput(prev => prev + `\n📋 ${data.message}`);
-      }
-      if (data.output) {
-        setTerminalOutput(prev => prev + '\n\n📋 部署输出:\n' + data.output);
-      }
+      const gpuConfig = configGpu(formData);
 
-      message.success(data.message || "部署完成");
-      loadHygonDevices(); // 刷新链上 Hygon 数据
-    } catch (err: any) {
-      const resp = err.response?.data as DeployResponse;
-      setTerminalOutput(prev => prev + '\n❌ 部署失败！');
-      setTerminalOutput(prev => prev + `\n错误: ${resp?.message || err.message || '网络异常，请稍后重试'}`);
-      message.error(resp?.message || "部署失败");
+      const createParams: any = {
+        name: formData.name,
+        image: formData.image,
+        vcpu: formData.vcpu,
+        memory: formData.memory,
+        disk_size: formData.disk_size,
+        compose_file: composeFile,
+        allowed_envs: formData.encryptedEnvs.map((env) => env.key),
+        encrypted_env: encryptedEnv,
+        user_config: formData.user_config,
+        ...(gpuConfig && { gpus: gpuConfig }),
+        ...(portMappingEnabled &&
+          formData.ports?.length > 0 && {
+            ports: formData.ports.map((port: PortMapping) => ({
+              host_address: port.host_address,
+              protocol: port.protocol,
+              host_port: port.host_port,
+              vm_port: port.vm_port,
+            })),
+          }),
+        ...(formData.app_id && { app_id: formData.app_id }),
+      };
+
+      await rpcCall(bestHostIp, "CreateVm", createParams);
+
+      message.success("VM 创建成功");
+      setDeployModalOpen(false);
+    } catch (error: any) {
+      console.error("Error creating VM:", error);
+      message.error(`创建 VM 失败: ${error.message || "未知错误"}`);
     } finally {
       setDeployLoading(false);
-      setIsTerminalActive(false);
     }
   };
+
+  // 监听表单变化，实时预览 Compose Hash
+  const watchedValues = Form.useWatch([], deployForm);
+
+  useEffect(() => {
+    if (!deployModalOpen || !watchedValues) return;
+
+    const updateHash = async () => {
+      try {
+        const values = watchedValues;
+        if (values?.name && values?.dockerComposeFile) {
+          const formData: VMFormData = {
+            name: values.name || "",
+            image: values.image || "",
+            dockerComposeFile: values.dockerComposeFile || "",
+            preLaunchScript: values.preLaunchScript || "",
+            vcpu: values.vcpu || 1,
+            memory: 0,
+            memoryValue: values.memoryValue || 2,
+            memoryUnit: values.memoryUnit || "GB",
+            disk_size: values.disk_size || 20,
+            selectedGpus: values.selectedGpus || [],
+            attachAllGpus: values.attachAllGpus || false,
+            ports: values.ports || [],
+            encryptedEnvs: values.encryptedEnvs || [],
+            docker_config: values.docker_config || {
+              enabled: false,
+              username: "",
+              token_key: "",
+            },
+            app_id: values.app_id || "",
+            kms_enabled: values.kms_enabled !== false,
+            local_key_provider_enabled:
+              values.local_key_provider_enabled || false,
+            key_provider_id: values.key_provider_id || "",
+            gateway_enabled: values.gateway_enabled !== false,
+            public_logs: values.public_logs !== false,
+            public_sysinfo: values.public_sysinfo !== false,
+            public_tcbinfo: values.public_tcbinfo !== false,
+            pin_numa: values.pin_numa || false,
+            hugepages: values.hugepages || false,
+            user_config: values.user_config || "",
+          };
+          const appCompose = await makeAppComposeFile(
+            formData,
+            availableImages
+          );
+          const hash = await calcComposeHash(appCompose);
+          setComposeHashPreview(hash);
+        } else {
+          setComposeHashPreview("");
+        }
+      } catch (error) {
+        console.error("Error calculating hash:", error);
+        setComposeHashPreview("");
+      }
+    };
+
+    const timer = setTimeout(updateHash, 500);
+    return () => clearTimeout(timer);
+  }, [deployModalOpen, watchedValues, availableImages]);
 
   // const handleDispatch = (vals: { name: string }) => {
   //   console.log("Dispatch instance:", vals.name);
@@ -1886,109 +2577,885 @@ export default function HomePage() {
               </div>
             </Card>
 
-            {/* 部署服务弹窗 */}
+            {/* CVM / VM 部署弹窗：与 developers/start/page.tsx 保持一致 */}
             <Modal
-              title="部署服务"
+              title={
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: 0,
+                  }}
+                >
+                  <CloudServerOutlined
+                    style={{
+                      fontSize: 20,
+                      color: "#3b82f6",
+                    }}
+                  />
+                  <Title
+                    level={4}
+                    style={{
+                      margin: 0,
+                      color: "#111827",
+                      fontWeight: 600,
+                      fontSize: 20,
+                      letterSpacing: "-0.3px",
+                    }}
+                  >
+                    部署新实例
+                  </Title>
+                </div>
+              }
               open={deployModalOpen}
-              onCancel={() => {
-                setDeployModalOpen(false);
-                setScheduledInfo(null);
-                deployForm.resetFields();
-                setDeployFileList([]);
-              }}
+              onCancel={() => setDeployModalOpen(false)}
+              width={900}
               footer={null}
-              width={600}
-              afterOpenChange={(open) => {
-                if (open && scheduledInfo) {
-                  deployForm.setFieldsValue({
-                    scheduledVmIp: scheduledInfo.ip,
-                    hostName: scheduledInfo.hostName,
-                  });
-                } else if (!open) {
-                  deployForm.resetFields();
-                  setScheduledInfo(null);
-                  setDeployFileList([]);
-                }
+              style={{ top: 20 }}
+              styles={{
+                content: {
+                  background: "#ffffff",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "16px",
+                  boxShadow:
+                    "0 20px 60px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04)",
+                  overflow: "hidden",
+                  overflowX: "hidden",
+                },
+                header: {
+                  background: "transparent",
+                  borderBottom: "1px solid #f3f4f6",
+                  padding: "24px 32px",
+                  borderRadius: "16px 16px 0 0",
+                  position: "relative",
+                },
+                body: {
+                  maxHeight: "calc(100vh - 200px)",
+                  overflowY: "auto",
+                  overflowX: "hidden",
+                  padding: "32px",
+                  background: "transparent",
+                },
+                mask: {
+                  backdropFilter: "blur(4px)",
+                  background: "rgba(0, 0, 0, 0.45)",
+                },
               }}
             >
               <Form
                 form={deployForm}
                 layout="vertical"
-                preserve={false}
+                onFinish={createVm}
+                style={{ maxWidth: "100%", overflowX: "hidden" }}
+                initialValues={{
+                  vcpu: 1,
+                  memoryValue: 2,
+                  memoryUnit: "GB",
+                  disk_size: 20,
+                  kms_enabled: true,
+                  gateway_enabled: true,
+                  public_logs: true,
+                  public_sysinfo: true,
+                  public_tcbinfo: true,
+                  ports: [],
+                  encryptedEnvs: [],
+                  docker_config: { enabled: false, username: "", token_key: "" },
+                }}
               >
-                <Form.Item
-                  label="部署路径"
-                  name="name"
-                  rules={[{ required: true, message: "请输入部署路径" }]}
+                {/* 基本信息分组 */}
+                <div
+                  style={{
+                    background: "#f9fafb",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "12px",
+                    padding: "24px",
+                    marginBottom: "20px",
+                  }}
                 >
-                  <Input placeholder="例如 /root/test" />
-                </Form.Item>
-
-                <Form.Item label="主机IP" name="scheduledVmIp" hidden>
-                  <Input />
-                </Form.Item>
-
-                <Form.Item
-                  label="worker名称"
-                  name="hostName"
-                  rules={[{ required: true, message: "请选择调度主机" }]}
-                >
-                  <Input disabled placeholder="调度成功后将显示主机名称" />
-                </Form.Item>
-
-                <Form.Item
-                  label="部署文件"
-                  name="file"
-                  rules={[{ required: true, message: "请上传部署文件" }]}
-                >
-                  <Dragger
-                    fileList={deployFileList}
-                    beforeUpload={beforeUpload}
-                    customRequest={customDeployRequest}
-                    onChange={(info) => setDeployFileList(info.fileList)}
-                    maxCount={1}
-                    disabled={deployLoading}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      marginBottom: "20px",
+                      paddingBottom: "16px",
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
                   >
-                    <p className="ant-upload-drag-icon">
-                      <InboxOutlined />
-                    </p>
-                    <p className="ant-upload-text">
-                      点击或拖拽 docker-compose.yaml 文件到此处
-                    </p>
-                    <p className="ant-upload-hint">
-                      仅支持 .yaml / .yml 文件，大小 ≤ 10MB
-                    </p>
-                  </Dragger>
-                </Form.Item>
-
-                <Form.Item style={{ marginBottom: 0, textAlign: "right" }}>
-                  <Space>
-                    <Button
-                      icon={<DownloadOutlined />}
-                      onClick={downloadSampleDeployFile}
-                    >
-                      下载示例文件
-                    </Button>
-                    <Button onClick={() => {
-                      setDeployModalOpen(false);
-                      deployForm.resetFields();
-                      setDeployFileList([]);
-                    }}>
-                      取消
-                    </Button>
-                    <Button
-                      type="primary"
-                      loading={deployLoading}
-                      disabled={deployFileList.length === 0}
-                      onClick={() => {
-                        const file = deployFileList[0].originFileObj;
-                        if (file) customDeployRequest({ file });
+                    <FileTextOutlined
+                      style={{ fontSize: "16px", color: "#3b82f6" }}
+                    />
+                    <Title
+                      level={5}
+                      style={{
+                        margin: 0,
+                        color: "#111827",
+                        fontSize: "15px",
+                        fontWeight: 600,
                       }}
                     >
-                      部署
-                    </Button>
-                  </Space>
+                      基本信息
+                    </Title>
+                  </div>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item
+                        label="名称"
+                        name="name"
+                        rules={[{ required: true, message: "请输入 VM 名称" }]}
+                      >
+                        <Input placeholder="输入 VM 名称" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item
+                        label="镜像"
+                        name="image"
+                        rules={[{ required: true, message: "请选择镜像" }]}
+                      >
+                        <Select placeholder="选择镜像" showSearch>
+                          {availableImages.map((img) => (
+                            <Select.Option key={img.name} value={img.name}>
+                              {img.name}
+                            </Select.Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                  </Row>
+
+                  <Row gutter={16}>
+                    <Col span={8}>
+                      <Form.Item
+                        label="vCPU 数量"
+                        name="vcpu"
+                        rules={[{ required: true, message: "请输入 vCPU 数量" }]}
+                      >
+                        <InputNumber min={1} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        label="内存"
+                        name="memoryValue"
+                        rules={[{ required: true, message: "请输入内存大小" }]}
+                      >
+                        <InputNumber min={1} style={{ width: "100%" }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item label="内存单位" name="memoryUnit">
+                        <Select>
+                          <Select.Option value="MB">MB</Select.Option>
+                          <Select.Option value="GB">GB</Select.Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                  </Row>
+
+                  <Form.Item
+                    label="磁盘大小 (GB)"
+                    name="disk_size"
+                    rules={[{ required: true, message: "请输入磁盘大小" }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                </div>
+
+                {/* Docker Compose 配置分组 */}
+                <div
+                  style={{
+                    background: "#f9fafb",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "12px",
+                    padding: "24px",
+                    marginBottom: "20px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      marginBottom: "20px",
+                      paddingBottom: "16px",
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <ThunderboltOutlined
+                      style={{ fontSize: "16px", color: "#3b82f6" }}
+                    />
+                    <Title
+                      level={5}
+                      style={{
+                        margin: 0,
+                        color: "#111827",
+                        fontSize: "15px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Docker Compose 配置
+                    </Title>
+                  </div>
+                  <Form.Item
+                    label="Docker Compose 文件"
+                    name="dockerComposeFile"
+                    rules={[
+                      { required: true, message: "请输入 Docker Compose 文件内容" },
+                    ]}
+                  >
+                    <Input.TextArea
+                      rows={8}
+                      placeholder="粘贴您的 docker-compose.yml 内容"
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: "13px",
+                        lineHeight: "1.6",
+                      }}
+                    />
+                  </Form.Item>
+                </div>
+
+                {availableGpus.length > 0 && (
+                  <div
+                    style={{
+                      background: "#f9fafb",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "12px",
+                      padding: "24px",
+                      marginBottom: "20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        marginBottom: "20px",
+                        paddingBottom: "16px",
+                        borderBottom: "1px solid #e5e7eb",
+                      }}
+                    >
+                      <ThunderboltOutlined
+                        style={{ fontSize: "16px", color: "#3b82f6" }}
+                      />
+                      <Title
+                        level={5}
+                        style={{
+                          margin: 0,
+                          color: "#111827",
+                          fontSize: "15px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        GPU 配置
+                      </Title>
+                    </div>
+                    {allowAttachAllGpus && (
+                      <Form.Item
+                        name="attachAllGpus"
+                        valuePropName="checked"
+                        style={{ marginBottom: 16 }}
+                      >
+                        <Checkbox>附加所有 GPU 和 NVSwitch</Checkbox>
+                      </Form.Item>
+                    )}
+                    <Form.Item label="选择 GPU" name="selectedGpus">
+                      <Select mode="multiple" placeholder="选择要附加的 GPU">
+                        {availableGpus.map((gpu) => (
+                          <Select.Option key={gpu.slot} value={gpu.slot}>
+                            {gpu.slot}: {gpu.description}{" "}
+                            {gpu.is_free ? "" : "(使用中)"}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </div>
+                )}
+
+                {/* 高级配置分组 */}
+                <div
+                  style={{
+                    background: "#f9fafb",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "12px",
+                    padding: "24px",
+                    marginBottom: "20px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      marginBottom: "20px",
+                      paddingBottom: "16px",
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <SafetyOutlined
+                      style={{ fontSize: "16px", color: "#3b82f6" }}
+                    />
+                    <Title
+                      level={5}
+                      style={{
+                        margin: 0,
+                        color: "#111827",
+                        fontSize: "15px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      高级配置
+                    </Title>
+                  </div>
+                  <Form.Item label="App ID (可选)" name="app_id">
+                    <Input placeholder="将根据配置自动生成" />
+                  </Form.Item>
+
+                  <Form.Item label="预启动脚本" name="preLaunchScript">
+                    <Input.TextArea
+                      rows={6}
+                      placeholder="可选：在启动容器之前运行的 Bash 脚本"
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: "13px",
+                        lineHeight: "1.6",
+                      }}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label="用户配置" name="user_config">
+                    <Input.TextArea
+                      rows={4}
+                      placeholder="可选：将放置在 CVM 中 /dstack/.user-config 的用户配置"
+                      style={{
+                        fontFamily: "monospace",
+                        fontSize: "13px",
+                        lineHeight: "1.6",
+                      }}
+                    />
+                  </Form.Item>
+                </div>
+
+                {portMappingEnabled && (
+                  <div
+                    style={{
+                      background: "#f9fafb",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "12px",
+                      padding: "24px",
+                      marginBottom: "20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        marginBottom: "20px",
+                        paddingBottom: "16px",
+                        borderBottom: "1px solid #e5e7eb",
+                      }}
+                    >
+                      <GlobalOutlined
+                        style={{ fontSize: "16px", color: "#3b82f6" }}
+                      />
+                      <Title
+                        level={5}
+                        style={{
+                          margin: 0,
+                          color: "#111827",
+                          fontSize: "15px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        端口映射
+                      </Title>
+                    </div>
+                    <Form.Item label="端口映射">
+                      <Form.List name="ports">
+                        {(fields, { add, remove }) => (
+                          <>
+                            {fields.map(({ key, name, ...restField }) => (
+                              <Space
+                                key={key}
+                                style={{ display: "flex", marginBottom: 12 }}
+                                align="baseline"
+                              >
+                                <Form.Item
+                                  {...restField}
+                                  name={[name, "protocol"]}
+                                  rules={[{ required: true }]}
+                                >
+                                  <Select style={{ width: 90 }}>
+                                    <Select.Option value="tcp">TCP</Select.Option>
+                                    <Select.Option value="udp">UDP</Select.Option>
+                                  </Select>
+                                </Form.Item>
+                                <Form.Item
+                                  {...restField}
+                                  name={[name, "host_address"]}
+                                  rules={[{ required: true }]}
+                                >
+                                  <Select style={{ width: 110 }}>
+                                    <Select.Option value="127.0.0.1">
+                                      本地
+                                    </Select.Option>
+                                    <Select.Option value="0.0.0.0">
+                                      公开
+                                    </Select.Option>
+                                  </Select>
+                                </Form.Item>
+                                <Form.Item
+                                  {...restField}
+                                  name={[name, "host_port"]}
+                                  rules={[{ required: true }]}
+                                >
+                                  <InputNumber
+                                    placeholder="主机端口"
+                                    style={{ width: 130 }}
+                                  />
+                                </Form.Item>
+                                <Form.Item
+                                  {...restField}
+                                  name={[name, "vm_port"]}
+                                  rules={[{ required: true }]}
+                                >
+                                  <InputNumber
+                                    placeholder="VM 端口"
+                                    style={{ width: 130 }}
+                                  />
+                                </Form.Item>
+                                <Button
+                                  type="text"
+                                  icon={<MinusCircleOutlined />}
+                                  onClick={() => remove(name)}
+                                  style={{
+                                    color: "#ef4444",
+                                    padding: "4px 8px",
+                                  }}
+                                />
+                              </Space>
+                            ))}
+                            <Form.Item>
+                              <Button
+                                type="dashed"
+                                onClick={() => add()}
+                                block
+                                icon={<PlusOutlined />}
+                                style={{
+                                  height: "40px",
+                                  borderRadius: "10px",
+                                  fontWeight: 500,
+                                }}
+                              >
+                                添加端口映射
+                              </Button>
+                            </Form.Item>
+                          </>
+                        )}
+                      </Form.List>
+                    </Form.Item>
+                  </div>
+                )}
+
+                {/* 功能特性分组 */}
+                <div
+                  style={{
+                    background: "#f9fafb",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: "12px",
+                    padding: "24px",
+                    marginBottom: "20px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      marginBottom: "20px",
+                      paddingBottom: "16px",
+                      borderBottom: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <DashboardOutlined
+                      style={{ fontSize: "16px", color: "#3b82f6" }}
+                    />
+                    <Title
+                      level={5}
+                      style={{
+                        margin: 0,
+                        color: "#111827",
+                        fontSize: "15px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      功能特性
+                    </Title>
+                  </div>
+                  <Form.Item label="功能特性">
+                    <Row gutter={[16, 16]}>
+                      <Col span={8}>
+                        <Form.Item
+                          name="kms_enabled"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>KMS</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="local_key_provider_enabled"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>本地密钥提供者</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="gateway_enabled"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>Dstack Gateway</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="public_logs"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>公开日志</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="public_sysinfo"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>公开系统信息</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="public_tcbinfo"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>公开 TCB 信息</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="pin_numa"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>NUMA 绑定</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item
+                          name="hugepages"
+                          valuePropName="checked"
+                          noStyle
+                        >
+                          <Checkbox>Hugepages</Checkbox>
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Form.Item>
+                </div>
+
+                {/* KMS 和安全配置分组 */}
+                <Form.Item
+                  noStyle
+                  shouldUpdate={(prevValues, currentValues) =>
+                    prevValues.kms_enabled !== currentValues.kms_enabled ||
+                    prevValues.docker_config?.enabled !==
+                      currentValues.docker_config?.enabled
+                  }
+                >
+                  {({ getFieldValue }) => {
+                    const kmsEnabled = getFieldValue("kms_enabled");
+                    const dockerConfigEnabled = getFieldValue([
+                      "docker_config",
+                      "enabled",
+                    ]);
+                    return (
+                      kmsEnabled && (
+                        <div
+                          style={{
+                            background: "#f9fafb",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "12px",
+                            padding: "24px",
+                            marginBottom: "20px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                              marginBottom: "20px",
+                              paddingBottom: "16px",
+                              borderBottom: "1px solid #e5e7eb",
+                            }}
+                          >
+                            <SafetyOutlined
+                              style={{ fontSize: "16px", color: "#3b82f6" }}
+                            />
+                            <Title
+                              level={5}
+                              style={{
+                                margin: 0,
+                                color: "#111827",
+                                fontSize: "15px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              KMS 和安全配置
+                            </Title>
+                          </div>
+                          <Form.Item
+                            label="密钥提供者 ID (可选)"
+                            name="key_provider_id"
+                            style={{ marginBottom: 20 }}
+                          >
+                            <Input placeholder="如果要绑定到特定的密钥提供者，请输入密钥提供者 ID" />
+                          </Form.Item>
+                          <Form.Item
+                            name={["docker_config", "enabled"]}
+                            valuePropName="checked"
+                            style={{ marginBottom: 16 }}
+                          >
+                            <Checkbox>Docker 镜像仓库登录</Checkbox>
+                          </Form.Item>
+                          {dockerConfigEnabled && (
+                            <Row gutter={16}>
+                              <Col span={12}>
+                                <Form.Item
+                                  label="用户名"
+                                  name={["docker_config", "username"]}
+                                >
+                                  <Input placeholder="Docker 镜像仓库用户名" />
+                                </Form.Item>
+                              </Col>
+                              <Col span={12}>
+                                <Form.Item
+                                  label="令牌密钥"
+                                  name={["docker_config", "token_key"]}
+                                >
+                                  <Input placeholder="加密环境变量中的密钥名称" />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          )}
+                        </div>
+                      )
+                    );
+                  }}
                 </Form.Item>
+
+                <Form.Item
+                  noStyle
+                  shouldUpdate={(prevValues, currentValues) =>
+                    prevValues.kms_enabled !== currentValues.kms_enabled
+                  }
+                >
+                  {({ getFieldValue }) =>
+                    getFieldValue("kms_enabled") && (
+                      <div
+                        style={{
+                          background: "#f9fafb",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "12px",
+                          padding: "24px",
+                          marginBottom: "20px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                            marginBottom: "20px",
+                            paddingBottom: "16px",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          <SafetyOutlined
+                            style={{ fontSize: "16px", color: "#3b82f6" }}
+                          />
+                          <Title
+                            level={5}
+                            style={{
+                              margin: 0,
+                              color: "#111827",
+                              fontSize: "15px",
+                              fontWeight: 600,
+                            }}
+                          >
+                            加密环境变量
+                          </Title>
+                        </div>
+                        <Form.Item label="加密环境变量">
+                          <Form.List name="encryptedEnvs">
+                            {(fields, { add, remove }) => (
+                              <>
+                                {fields.map(({ key, name, ...restField }) => (
+                                  <Space
+                                    key={key}
+                                    style={{ display: "flex", marginBottom: 12 }}
+                                    align="baseline"
+                                  >
+                                    <Form.Item
+                                      {...restField}
+                                      name={[name, "key"]}
+                                      rules={[{ required: true }]}
+                                    >
+                                      <Input
+                                        placeholder="变量名"
+                                        style={{ width: 220 }}
+                                      />
+                                    </Form.Item>
+                                    <Form.Item
+                                      {...restField}
+                                      name={[name, "value"]}
+                                      rules={[{ required: true }]}
+                                    >
+                                      <Input.Password
+                                        placeholder="值"
+                                        style={{ flex: 1, minWidth: 200 }}
+                                      />
+                                    </Form.Item>
+                                    <Button
+                                      type="text"
+                                      icon={<MinusCircleOutlined />}
+                                      onClick={() => remove(name)}
+                                      style={{
+                                        color: "#ef4444",
+                                        padding: "4px 8px",
+                                      }}
+                                    />
+                                  </Space>
+                                ))}
+                                <Form.Item>
+                                  <Button
+                                    type="dashed"
+                                    onClick={() => add()}
+                                    block
+                                    icon={<PlusOutlined />}
+                                    style={{
+                                      height: "40px",
+                                      borderRadius: "10px",
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    添加环境变量
+                                  </Button>
+                                </Form.Item>
+                              </>
+                            )}
+                          </Form.List>
+                        </Form.Item>
+                      </div>
+                    )
+                  }
+                </Form.Item>
+
+                {composeHashPreview && (
+                  <div
+                    style={{
+                      background: "#eff6ff",
+                      border: "1px solid #bfdbfe",
+                      borderRadius: "10px",
+                      padding: "14px 16px",
+                      marginBottom: "20px",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#374151",
+                        fontSize: "12px",
+                        fontWeight: 500,
+                        marginBottom: "8px",
+                        display: "block",
+                      }}
+                    >
+                      Compose Hash
+                    </Text>
+                    <Text
+                      code
+                      style={{
+                        border: "1px solid #dbeafe",
+                        color: "#3b82f6",
+                        padding: "6px 10px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontFamily: "monospace",
+                        display: "inline-block",
+                      }}
+                    >
+                      0x{composeHashPreview}
+                    </Text>
+                  </div>
+                )}
+
+                {/* 底部操作按钮 */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "12px",
+                    paddingTop: "24px",
+                    borderTop: "1px solid #e5e7eb",
+                    marginTop: "8px",
+                  }}
+                >
+                  <Button
+                    onClick={() => setDeployModalOpen(false)}
+                    style={{
+                      background: "#ffffff",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "8px",
+                      padding: "10px 24px",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      height: "44px",
+                      color: "#374151",
+                      minWidth: "100px",
+                    }}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={deployLoading}
+                    style={{
+                      background: "#3b82f6",
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "10px 28px",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      height: "44px",
+                      boxShadow: "0 4px 12px rgba(59, 130, 246, 0.25)",
+                      color: "#fff",
+                      minWidth: "120px",
+                    }}
+                  >
+                    部署
+                  </Button>
+                </div>
               </Form>
             </Modal>
 

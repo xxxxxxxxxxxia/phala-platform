@@ -9,7 +9,7 @@ import type { InjectedAccountWithMeta } from '@polkadot/extension-inject/types';
 import { Keyring } from '@polkadot/keyring';
 import { formatBalance as polkadotFormatBalance } from '@polkadot/util';
 import { BN } from '@polkadot/util';
-import { cryptoWaitReady } from '@polkadot/util-crypto';
+import { cryptoWaitReady, decodeAddress } from '@polkadot/util-crypto';
 
 // Import child components
 import ConnectionCard from '../../../components/ConnectionCard';
@@ -104,6 +104,12 @@ const DEFAULT_GATEKEEPER_PUBKEY = '0x3a3d45dc55b57bf542f4c6ff41af080ec675317f4ed
 const DEFAULT_ASSET_ID = 10000;
 const DEFAULT_SESSION_ACCOUNT = '43E9fDbtyZ4APY7hnnstrkSwyXk5CaQ66AEHZEshjMH4hqaq';
 
+// CSV Worker 映射：公钥 -> 账户地址
+const CSV_WORKER_MAPPING: Record<string, string> = {
+    '0x42ccb38c3ed84007abed3e5b14de0dc766d1cb6f3ed6b91fe2cb0944616f155c': '428NizHpx2EKS4v3GhY2rk6nhJwPRZrK2LWPQ7P3xnu1MvrY',
+    '0x16ce45340f940e602bc1cb53a20d13e049120739bad1100dd579104daac96c1d': '418h5pUzNJhNezRTfVGvJCo5bJRkKReFEsmY5QDTPWmyR7Gj',
+};
+
 
 const IncentiveFlow = (): React.ReactElement => {
     const [view, setView] = useState<'dashboard' | 'system'>('dashboard');
@@ -130,6 +136,8 @@ const IncentiveFlow = (): React.ReactElement => {
     const [sessions, setSessions] = useState<ISession[]>([]);
     const [pools, setPools] = useState<IPool[]>([]);
     const [gatekeepers, setGatekeepers] = useState<string[]>([]);
+    const [hygonTeeDevices, setHygonTeeDevices] = useState<Set<string>>(new Set());
+    const [sessionBindings, setSessionBindings] = useState<Map<string, string>>(new Map()); // session账户地址 -> 公钥
 
     // Form inputs
     const [gatekeeperPub, setGatekeeperPub] = useState<string>(DEFAULT_GATEKEEPER_PUBKEY);
@@ -186,6 +194,83 @@ const IncentiveFlow = (): React.ReactElement => {
             return total + reward;
         }, BigInt(0));
     }, [sessions]);
+
+    // 构建公钥到账户地址的映射（用于 CSV Worker 显示设备ID）
+    const pubkeyToAccountMap = useMemo<Map<string, string>>(() => {
+        const map = new Map<string, string>();
+
+        // 1. 从 CSV_WORKER_MAPPING 添加已知映射
+        Object.entries(CSV_WORKER_MAPPING).forEach(([pubkey, account]) => {
+            map.set(pubkey, account);
+        });
+
+        // 2. 从 hygonTeeDevices 构建映射
+        hygonTeeDevices.forEach(accountAddress => {
+            // 先检查 CSV_WORKER_MAPPING 中是否已有
+            const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+                pk => CSV_WORKER_MAPPING[pk] === accountAddress
+            );
+
+            if (!knownPubkey) {
+                // 使用 decodeAddress 将账户地址转换为公钥
+                try {
+                    const decoded = decodeAddress(accountAddress, false, 30); // ss58Format: 30 for Phala Network
+                    // 将 Uint8Array 转换为十六进制字符串
+                    const pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+                    map.set(pubkey, accountAddress);
+                } catch (e) {
+                    // 如果解码失败，跳过这个账户
+                    console.warn(`Failed to decode address ${accountAddress}:`, e);
+                }
+            }
+        });
+
+        return map;
+    }, [hygonTeeDevices]);
+
+    // 计算 Worker 数量（包括 hygonTeeDevices 中未注册的）
+    const workerCount = useMemo<number>(() => {
+        const baseCount = workers.length;
+
+        // 获取所有已注册的 Worker 公钥集合
+        const registeredPubkeys = new Set(workers.map(w => w.pubkey));
+
+        // 统计 hygonTeeDevices 中未注册的账户数量
+        let additionalCount = 0;
+        const processedPubkeys = new Set<string>(); // 用于去重
+
+        hygonTeeDevices.forEach(accountAddress => {
+            let pubkey: string | null = null;
+
+            // 先检查 CSV_WORKER_MAPPING 中是否有已知映射
+            const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+                pk => CSV_WORKER_MAPPING[pk] === accountAddress
+            );
+
+            if (knownPubkey) {
+                pubkey = knownPubkey;
+            } else {
+                // 使用 decodeAddress 将账户地址转换为公钥
+                try {
+                    const decoded = decodeAddress(accountAddress, false, 30); // ss58Format: 30 for Phala Network
+                    // 将 Uint8Array 转换为十六进制字符串
+                    pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+                } catch (e) {
+                    // 如果解码失败，跳过这个账户
+                    console.warn(`Failed to decode address ${accountAddress}:`, e);
+                    return;
+                }
+            }
+
+            // 检查该公钥是否已注册，且未处理过（去重）
+            if (pubkey && !registeredPubkeys.has(pubkey) && !processedPubkeys.has(pubkey)) {
+                additionalCount++;
+                processedPubkeys.add(pubkey);
+            }
+        });
+
+        return baseCount + additionalCount;
+    }, [workers, hygonTeeDevices]);
 
     // --- Utility Functions ---
     const formatAddress = useCallback((address: string, length = 6): string => {
@@ -297,7 +382,7 @@ const IncentiveFlow = (): React.ReactElement => {
 
         try {
             // Fetch Workers
-            if (isManual) log('1/4: 查询 Workers...');
+            if (isManual) log('1/6: 查询 Workers...');
             try {
                 const workersData = await queryWithTimeout(api.query.phalaRegistry.workers.entries(), 10000);
                 setWorkers(workersData.map(([, worker]: [any, any]) => worker.isSome ? worker.unwrap().toJSON() : null).filter(Boolean));
@@ -308,7 +393,7 @@ const IncentiveFlow = (): React.ReactElement => {
             }
 
             // Fetch Pools
-            if (isManual) log('2/4: 查询质押池...');
+            if (isManual) log('2/6: 查询质押池...');
             let foundPools: (IPool | null)[] = [];
             try {
                 const poolCountRaw = await queryWithTimeout(api.query.phalaBasePool.poolCount(), 8000);
@@ -341,7 +426,7 @@ const IncentiveFlow = (): React.ReactElement => {
             if (isManual) log(`  > 成功! 找到 ${foundPools.length} 个质押池。`);
 
             // Fetch Gatekeepers
-            if (isManual) log('3/4: 查询 Gatekeeper...');
+            if (isManual) log('3/6: 查询 Gatekeeper...');
             try {
                 const gatekeepersData = await queryWithTimeout(api.query.phalaRegistry.gatekeeper(), 8000);
                 setGatekeepers(Array.isArray(gatekeepersData) ? gatekeepersData.map(gk => gk.toHex()) : []);
@@ -351,7 +436,42 @@ const IncentiveFlow = (): React.ReactElement => {
                 log(`查询 Gatekeeper 失败: ${e.message}`, true);
             }
 
-            if (isManual) log('4/4: 查询会话 (静默)...');
+            // Fetch Hygon TEE Devices
+            if (isManual) log('4/6: 查询 Hygon TEE Devices...');
+            try {
+                const hygonDevicesData = await queryWithTimeout(api.query.phalaComputation.hygonTeeDevices.entries(), 8000);
+                const deviceAccounts = new Set<string>();
+                hygonDevicesData.forEach(([key]: [any, any]) => {
+                    const accountId = key.args[0].toString();
+                    deviceAccounts.add(accountId);
+                });
+                setHygonTeeDevices(deviceAccounts);
+                if (isManual) log(`  > 成功! 找到 ${deviceAccounts.size} 个 Hygon TEE Device。`);
+            } catch (e: any) {
+                setHygonTeeDevices(new Set());
+                log(`查询 Hygon TEE Devices 失败: ${e.message}`, true);
+            }
+
+            // Fetch Session Bindings
+            if (isManual) log('5/6: 查询 Session Bindings...');
+            try {
+                const bindingsData = await queryWithTimeout(api.query.phalaComputation.sessionBindings.entries(), 8000);
+                const bindingsMap = new Map<string, string>();
+                bindingsData.forEach(([key, value]: [any, any]) => {
+                    const sessionAccount = key.args[0].toString();
+                    const pubkey = value.isSome ? value.unwrap().toHex() : '';
+                    if (pubkey) {
+                        bindingsMap.set(sessionAccount, pubkey);
+                    }
+                });
+                setSessionBindings(bindingsMap);
+                if (isManual) log(`  > 成功! 找到 ${bindingsMap.size} 个 Session Binding。`);
+            } catch (e: any) {
+                setSessionBindings(new Map());
+                log(`查询 Session Bindings 失败: ${e.message}`, true);
+            }
+
+            if (isManual) log('6/6: 查询会话 (静默)...');
             await querySessions(true, isManual, true);
 
             if (isManual) showSuccessToast('✅ 所有数据刷新完毕。');
@@ -820,28 +940,66 @@ const IncentiveFlow = (): React.ReactElement => {
 
                             {api && (
                                 <LiveData
-                                    workers={workers} pools={pools} activeSessions={sessions}
+                                    workerCount={workerCount} pools={pools} activeSessions={sessions}
                                     totalRewards={totalRewards} formatBalance={formatBalance}
                                     refreshAllData={refreshAllData} loading={loading} isTxInProgress={isTxInProgress}
                                 />
                             )}
 
-                            {api && (
-                                <WorkerDashboard
-                                    pruntimeUrl={pruntimeUrl} setPruntimeUrl={setPruntimeUrl}
-                                    getPruntimeInfo={getPruntimeInfo}
-                                    pruntimeInfoForRegister={pruntimeInfoForRegister}
-                                    setPruntimeInfoForRegister={setPruntimeInfoForRegister}
-                                    registerV2Sender={registerV2Sender} setRegisterV2Sender={setRegisterV2Sender}
-                                    setOperatorForV2={setOperatorForV2} setSetOperatorForV2={setSetOperatorForV2}
-                                    registerWorkerV2={registerWorkerV2}
-                                    workers={workers}
-                                    gatekeepers={gatekeepers}
-                                    accounts={accounts}
-                                    formatAddress={formatAddress}
-                                    isTxInProgress={isTxInProgress}
-                                />
-                            )}
+                            {api && (() => {
+                                // 分离 SGX Workers 和 CSV Workers
+                                const csvWorkerAccounts = new Set(Object.values(CSV_WORKER_MAPPING));
+                                const csvWorkerPubkeys = new Set(Object.keys(CSV_WORKER_MAPPING));
+
+                                // 检查哪些CSV Worker账户在hygonTeeDevices中
+                                const csvWorkerAccountsInHygon = Array.from(csvWorkerAccounts).filter(account =>
+                                    hygonTeeDevices.has(account)
+                                );
+
+                                // 如果CSV Worker账户在hygonTeeDevices中，则从SGX Workers中排除
+                                const sgxWorkers = workers.filter(worker => {
+                                    // 如果worker的pubkey是CSV Worker的pubkey，且对应的账户在hygonTeeDevices中，则排除
+                                    if (csvWorkerPubkeys.has(worker.pubkey)) {
+                                        const account = CSV_WORKER_MAPPING[worker.pubkey];
+                                        return !hygonTeeDevices.has(account);
+                                    }
+                                    return true;
+                                });
+
+                                // CSV Workers：只包含在hygonTeeDevices中的CSV Worker
+                                const csvWorkers = csvWorkerAccountsInHygon.map(account => {
+                                    const pubkey = Object.keys(CSV_WORKER_MAPPING).find(
+                                        key => CSV_WORKER_MAPPING[key] === account
+                                    ) || '';
+                                    // 尝试从workers中找到对应的worker信息，如果找不到则创建基本结构
+                                    const existingWorker = workers.find(w => w.pubkey === pubkey);
+                                    return existingWorker || {
+                                        pubkey,
+                                        operator: null,
+                                        initialScore: { toLocaleString: () => '0' },
+                                        lastUpdated: 0
+                                    };
+                                });
+
+                                return (
+                                    <WorkerDashboard
+                                        pruntimeUrl={pruntimeUrl} setPruntimeUrl={setPruntimeUrl}
+                                        getPruntimeInfo={getPruntimeInfo}
+                                        pruntimeInfoForRegister={pruntimeInfoForRegister}
+                                        setPruntimeInfoForRegister={setPruntimeInfoForRegister}
+                                        registerV2Sender={registerV2Sender} setRegisterV2Sender={setRegisterV2Sender}
+                                        setOperatorForV2={setOperatorForV2} setSetOperatorForV2={setSetOperatorForV2}
+                                        registerWorkerV2={registerWorkerV2}
+                                        sgxWorkers={sgxWorkers}
+                                        csvWorkers={csvWorkers}
+                                        pubkeyToAccountMap={pubkeyToAccountMap}
+                                        gatekeepers={gatekeepers}
+                                        accounts={accounts}
+                                        formatAddress={formatAddress}
+                                        isTxInProgress={isTxInProgress}
+                                    />
+                                );
+                            })()}
 
                             {api && (
                                 <PoolDashboard
@@ -871,20 +1029,44 @@ const IncentiveFlow = (): React.ReactElement => {
                                 />
                             )}
 
-                            {api && (
-                                <SessionManager
-                                    sessions={sessions} sessionAccount={sessionAccount}
-                                    setSessionAccount={setSessionAccount} querySessions={querySessions}
-                                    isTxInProgress={isTxInProgress} withdrawSender={withdrawSender}
-                                    setWithdrawSender={setWithdrawSender} withdrawPoolId={withdrawPoolId}
-                                    setWithdrawPoolId={setWithdrawPoolId} withdrawWorkerPubkey={withdrawWorkerPubkey}
-                                    setWithdrawWorkerPubkey={setWithdrawWorkerPubkey}
-                                    withdrawSessionReward={withdrawSessionReward}
-                                    accounts={accounts} formatAddress={formatAddress}
-                                    formatLargeNumber={formatLargeNumber} formatTimestamp={formatTimestamp}
-                                    formatBalance={formatBalance}
-                                />
-                            )}
+                            {api && (() => {
+                                // CSV Worker 公钥列表
+                                const csvWorkerPubkeys = new Set([
+                                    '0x42ccb38c3ed84007abed3e5b14de0dc766d1cb6f3ed6b91fe2cb0944616f155c',
+                                    '0x16ce45340f940e602bc1cb53a20d13e049120739bad1100dd579104daac96c1d'
+                                ]);
+
+                                // 分离 SGX Sessions 和 CSV Sessions
+                                const sgxSessions: ISession[] = [];
+                                const csvSessions: ISession[] = [];
+
+                                sessions.forEach(session => {
+                                    const pubkey = sessionBindings.get(session.accountId) || '';
+                                    if (csvWorkerPubkeys.has(pubkey)) {
+                                        csvSessions.push(session);
+                                    } else {
+                                        sgxSessions.push(session);
+                                    }
+                                });
+
+                                return (
+                                    <SessionManager
+                                        sgxSessions={sgxSessions}
+                                        csvSessions={csvSessions}
+                                        sessionBindings={sessionBindings}
+                                        sessionAccount={sessionAccount}
+                                        setSessionAccount={setSessionAccount} querySessions={querySessions}
+                                        isTxInProgress={isTxInProgress} withdrawSender={withdrawSender}
+                                        setWithdrawSender={setWithdrawSender} withdrawPoolId={withdrawPoolId}
+                                        setWithdrawPoolId={setWithdrawPoolId} withdrawWorkerPubkey={withdrawWorkerPubkey}
+                                        setWithdrawWorkerPubkey={setWithdrawWorkerPubkey}
+                                        withdrawSessionReward={withdrawSessionReward}
+                                        accounts={accounts} formatAddress={formatAddress}
+                                        formatLargeNumber={formatLargeNumber} formatTimestamp={formatTimestamp}
+                                        formatBalance={formatBalance}
+                                    />
+                                );
+                            })()}
 
                             {lastResult && <Console lastResult={lastResult} />}
                         </>

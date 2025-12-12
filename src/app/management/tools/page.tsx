@@ -266,7 +266,7 @@ const ToolsPage = () => {
 
           {/* 区块链 API接口 */}
           <Col span={24}>
-            <Card title="区块链 API接口" extra={<DatabaseOutlined />}>
+            <Card title="链计算API接口" extra={<DatabaseOutlined />}>
               <Row gutter={[16, 16]}>
                 <Col xs={24} lg={12}>
                   <Card size="small" title="节点健康检查">

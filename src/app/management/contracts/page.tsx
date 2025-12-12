@@ -738,7 +738,7 @@ export default function ContractsPage() {
             <Card>
               <Statistic
                 title="活跃合约数量"
-                value={contractState.activeContracts + servicesList.filter(s => s.status === 'running').length}
+                value={contractState.totalContracts + servicesList.length}
                 prefix={<SafetyCertificateOutlined />}
                 valueStyle={{ color: '#52c41a' }}
               />
@@ -781,7 +781,7 @@ export default function ContractsPage() {
 
         {/* 当前服务列表 */}
         <Card
-          title="当前服务列表"
+          title="CSV合约列表"
           extra={
             <Space>
               <Button
@@ -794,7 +794,7 @@ export default function ContractsPage() {
                 刷新状态
               </Button>
               <Badge count={servicesList.length} showZero>
-                <Text>服务总数</Text>
+                <Text>合约总数</Text>
               </Badge>
             </Space>
           }
@@ -845,7 +845,7 @@ export default function ContractsPage() {
                       onClick={() => window.open('https://6543e5c07a91f18cbf5e60a1e93f8c48113a7f20-3001.020919.xyz:9204/privacy_demo.html', '_blank')}
                       size="small"
                     >
-                      服务调用
+                      合约调用
                     </Button>
                   ),
                 },
@@ -854,14 +854,14 @@ export default function ContractsPage() {
               rowKey="cvmId"
               pagination={{ pageSize: 10 }}
               scroll={{ x: 1200 }}
-              locale={{ emptyText: '暂无CVM数据' }}
+              locale={{ emptyText: 'No data' }}
             />
           </Spin>
         </Card>
 
         {/* 合约列表 */}
         <Card
-          title="当前合约列表"
+          title="SGX合约列表"
           extra={
             <Space>
               <Button
@@ -874,7 +874,7 @@ export default function ContractsPage() {
                 刷新状态
               </Button>
               <Badge count={contractState.totalContracts} showZero>
-                <Text>链上合约总数</Text>
+                <Text>合约总数</Text>
               </Badge>
             </Space>
           }

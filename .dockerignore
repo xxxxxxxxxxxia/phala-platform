@@ -30,12 +30,14 @@ uploads
 # 文档和配置文件（不需要在镜像中）
 *.md
 !README.md
-docs
 DEPLOYMENT_GUIDE.md
 QUICK_DEPLOY.md
 CONFIG.md
 DASHBOARD_README.md
 测试用例.md
+# docs 目录需要复制（包含部署手册等），使用 ! 排除忽略
+!docs
+!docs/**
 
 # 脚本文件（不需要在镜像中）
 *.sh

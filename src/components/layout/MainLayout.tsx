@@ -25,12 +25,12 @@ const { darkAlgorithm } = theme;
 // 菜单项已按您的要求更新
 const menuItems = [
   { label: '系统总览', key: '/management', icon: <PieChartOutlined /> },
-  { label: '可信验证', key: '/management/tee-verification', icon: <SafetyCertificateOutlined /> },
-  { label: '安全调度', key: '/management/scheduling', icon: <ThunderboltOutlined /> },
   { label: '响应监控', key: '/management/monitoring', icon: <MonitorOutlined /> },
+  { label: '安全调度', key: '/management/scheduling', icon: <ThunderboltOutlined /> },
+  { label: '隐私合约', key: '/management/contracts', icon: <FileProtectOutlined /> },
+  { label: '可信验证', key: '/management/tee-verification', icon: <SafetyCertificateOutlined /> },
   { label: '密钥管理', key: '/management/key-rotation', icon: <KeyOutlined /> },
   { label: '激励机制', key: '/management/incentives', icon: <TrophyOutlined /> },
-  { label: '隐私合约', key: '/management/contracts', icon: <FileProtectOutlined /> },
   { label: '开发接口', key: '/management/tools', icon: <CodeOutlined /> },
   { label: '系统帮助', key: '/management/docs', icon: <QuestionCircleOutlined /> },
 ];

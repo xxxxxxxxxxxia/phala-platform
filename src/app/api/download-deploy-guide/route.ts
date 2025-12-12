@@ -5,8 +5,24 @@ import { existsSync } from 'fs';
 
 export async function GET(request: NextRequest) {
   try {
+    // 从查询参数获取文件类型
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type') || 'sgx'; // 默认为sgx
+    
+    // 根据类型确定文件名
+    let fileName: string;
+    let displayName: string;
+    
+    if (type === 'csv') {
+      fileName = 'csv部署手册.md';
+      displayName = 'csv部署手册.md';
+    } else {
+      fileName = 'SGX部署手册.md';
+      displayName = 'SGX部署手册.md';
+    }
+    
     // 读取部署手册文件
-    const filePath = join(process.cwd(), 'docs', '部署手册.md');
+    const filePath = join(process.cwd(), 'docs', fileName);
     
     // 检查文件是否存在
     if (!existsSync(filePath)) {
@@ -21,7 +37,7 @@ export async function GET(request: NextRequest) {
     const fileContent = await readFile(filePath, 'utf-8');
     
     // 对文件名进行 URL 编码，解决中文文件名问题
-    const encodedFilename = encodeURIComponent('部署手册.md');
+    const encodedFilename = encodeURIComponent(displayName);
     
     // 返回文件内容，设置正确的响应头
     return new NextResponse(fileContent, {

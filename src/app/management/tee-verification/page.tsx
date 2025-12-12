@@ -10,6 +10,9 @@ import {
   SafetyCertificateOutlined, FileProtectOutlined, DatabaseOutlined,
   DownOutlined
 } from '@ant-design/icons';
+import { ApiPromise, WsProvider } from '@polkadot/api';
+import { decodeAddress } from '@polkadot/util-crypto';
+import { getNodeUrl } from '@/lib/config';
 import MainLayout from '@/components/layout/MainLayout';
 import AuthGuard from '@/components/AuthGuard';
 import { getWorkersInfo } from '@/lib/phalaApi';
@@ -96,6 +99,12 @@ const truncateId = (value?: string, prefix = 6, suffix = 4) => {
   return `${value.slice(0, prefix)}...${value.slice(-suffix)}`;
 };
 
+// CSV Worker 映射：公钥 -> 账户地址
+const CSV_WORKER_MAPPING: Record<string, string> = {
+  '0x42ccb38c3ed84007abed3e5b14de0dc766d1cb6f3ed6b91fe2cb0944616f155c': '428NizHpx2EKS4v3GhY2rk6nhJwPRZrK2LWPQ7P3xnu1MvrY',
+  '0x16ce45340f940e602bc1cb53a20d13e049120739bad1100dd579104daac96c1d': '418h5pUzNJhNezRTfVGvJCo5bJRkKReFEsmY5QDTPWmyR7Gj',
+};
+
 const formatMemorySize = (value: number) => {
   if (!value && value !== 0) return "--";
   if (value >= 1024) {
@@ -132,7 +141,7 @@ export default function TEEVerificationPage() {
     verificationFilename?: string;
     verificationFileData?: string; // JSON字符串用于下载
   }>>({});
-  
+
   // Modal状态
   const [csvParamsModalVisible, setCsvParamsModalVisible] = useState(false);
   const [sgxParamsModalVisible, setSgxParamsModalVisible] = useState(false);
@@ -142,30 +151,92 @@ export default function TEEVerificationPage() {
   const [csvReportSuccessWorker, setCsvReportSuccessWorker] = useState<CSVWorker | null>(null);
   const [csvVerifySuccessModalVisible, setCsvVerifySuccessModalVisible] = useState(false);
   const [csvVerifySuccessWorker, setCsvVerifySuccessWorker] = useState<CSVWorker | null>(null);
-  
+
   // SGX成功提示Modal状态
   const [sgxQuoteSuccessModalVisible, setSgxQuoteSuccessModalVisible] = useState(false);
   const [sgxCollateralSuccessModalVisible, setSgxCollateralSuccessModalVisible] = useState(false);
   const [sgxVerificationSuccessModalVisible, setSgxVerificationSuccessModalVisible] = useState(false);
   const [sgxSuccessWorker, setSgxSuccessWorker] = useState<SGXWorker | null>(null);
 
+  // 查询 hygonTeeDevices 的辅助函数
+  const queryHygonTeeDevices = async (): Promise<Set<string>> => {
+    try {
+      const wsUrl = getNodeUrl();
+      const provider = new WsProvider(wsUrl);
+      const apiPromise = ApiPromise.create({ provider, noInitWarn: true });
+      const api = await apiPromise;
+
+      if (api.query.phalaComputation?.hygonTeeDevices) {
+        const hygonDevicesData = await api.query.phalaComputation.hygonTeeDevices.entries();
+        const deviceAccounts = new Set<string>();
+        hygonDevicesData.forEach(([key]: [any, any]) => {
+          const accountId = key.args[0].toString();
+          deviceAccounts.add(accountId);
+        });
+        await api.disconnect();
+        return deviceAccounts;
+      }
+      await api.disconnect();
+      return new Set();
+    } catch (e) {
+      console.warn('⚠️ [TEE Verification] 查询 Hygon TEE Devices 失败:', e);
+      return new Set();
+    }
+  };
+
   // 加载SGX Worker列表
   const loadSGXWorkers = async () => {
     setLoading(true);
     try {
-      const workers = await getWorkersInfo();
-      const workerMonitors: SGXWorker[] = workers
+      const [workers, hygonTeeDevices] = await Promise.all([
+        getWorkersInfo(),
+        queryHygonTeeDevices()
+      ]);
+
+      // 构建公钥到账户地址的映射（用于判断 CSV Worker）
+      const pubkeyToAccountMap = new Map<string, string>();
+
+      // 1. 从 CSV_WORKER_MAPPING 添加已知映射
+      Object.entries(CSV_WORKER_MAPPING).forEach(([pubkey, account]) => {
+        pubkeyToAccountMap.set(pubkey, account);
+      });
+
+      // 2. 从 hygonTeeDevices 构建映射
+      hygonTeeDevices.forEach(accountAddress => {
+        // 先检查 CSV_WORKER_MAPPING 中是否已有
+        const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+          pk => CSV_WORKER_MAPPING[pk] === accountAddress
+        );
+
+        if (!knownPubkey) {
+          // 使用 decodeAddress 将账户地址转换为公钥
+          try {
+            const decoded = decodeAddress(accountAddress, false, 30); // ss58Format: 30 for Phala Network
+            // 将 Uint8Array 转换为十六进制字符串
+            const pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+            pubkeyToAccountMap.set(pubkey, accountAddress);
+          } catch (e) {
+            // 如果解码失败，跳过这个账户
+            console.warn(`Failed to decode address ${accountAddress}:`, e);
+          }
+        }
+      });
+
+      // 过滤掉 CSV Worker（公钥对应的账户在 hygonTeeDevices 中）
+      const sgxWorkersFiltered = workers
         .filter(w => w.teeType === 'Intel') // 只显示Intel SGX worker
-        .map((worker, index) => ({
-          id: `worker-${index + 1}`,
-          publicKey: worker.publicKey,
-          teeType: worker.teeType,
-          status: worker.status.toLowerCase() as 'online' | 'offline' | 'registered',
-          sessionId: worker.sessionId || undefined,
-          initialScore: worker.initialScore || undefined,
-        }));
+        .filter(w => !pubkeyToAccountMap.has(w.publicKey)); // 排除 CSV Worker
+
+      const workerMonitors: SGXWorker[] = sgxWorkersFiltered.map((worker, index) => ({
+        id: `worker-${index + 1}`,
+        publicKey: worker.publicKey,
+        teeType: worker.teeType,
+        status: worker.status.toLowerCase() as 'online' | 'offline' | 'registered',
+        sessionId: worker.sessionId || undefined,
+        initialScore: worker.initialScore || undefined,
+      }));
       setSgxWorkers(workerMonitors);
-        } catch (error) {
+    } catch (error) {
       console.error('加载SGX Worker失败:', error);
       message.error('加载SGX Worker失败');
     } finally {
@@ -215,8 +286,8 @@ export default function TEEVerificationPage() {
   const handleQueryCSVParams = async (worker: CSVWorker) => {
     if (worker.status !== 'running') {
       message.warning('请先确保虚拟机处于运行状态');
-            return;
-        }
+      return;
+    }
 
     setCsvLoading(prev => ({ ...prev, [worker.key]: true }));
     try {
@@ -269,7 +340,7 @@ export default function TEEVerificationPage() {
     try {
       const response = await axios.post(`${TEE_VERIFICATION_API}?endpoint=attestation/generate`);
       setCsvReportStatus(prev => ({ ...prev, [worker.key]: 'generated' }));
-      
+
       // 显示成功提示Modal
       setCsvReportSuccessWorker(worker);
       setCsvReportSuccessModalVisible(true);
@@ -283,13 +354,13 @@ export default function TEEVerificationPage() {
   const handleVerifyCSVReport = async (worker: CSVWorker) => {
     if (csvReportStatus[worker.key] !== 'generated') {
       message.warning('请先生成认证报告');
-            return;
-        }
+      return;
+    }
 
     setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'verifying' }));
     try {
       const response = await axios.post(`${TEE_VERIFICATION_API}?endpoint=attestation/verify`);
-      
+
       // 将验证结果保存
       const verifyReportData = {
         worker: worker.name,
@@ -298,10 +369,10 @@ export default function TEEVerificationPage() {
         message: response.data.message || '验证完成',
         content: response.data.content || response.data,
       };
-      
+
       setCsvVerifyReportData(prev => ({ ...prev, [worker.key]: verifyReportData }));
       setCsvVerifyStatus(prev => ({ ...prev, [worker.key]: 'verified' }));
-      
+
       // 显示验证成功Modal
       setCsvVerifySuccessWorker(worker);
       setCsvVerifySuccessModalVisible(true);
@@ -346,8 +417,8 @@ export default function TEEVerificationPage() {
   const handleDownloadCSVFile = async (worker: CSVWorker, filename: 'report.cert' | 'nonce.bin') => {
     if (csvReportStatus[worker.key] !== 'generated') {
       message.warning('请先生成认证报告');
-            return;
-        }
+      return;
+    }
 
     try {
       const response = await axios.get(
@@ -355,13 +426,13 @@ export default function TEEVerificationPage() {
         { responseType: 'blob' }
       );
 
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
       link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            link.parentNode?.removeChild(link);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
       window.URL.revokeObjectURL(url);
 
       message.success(`${filename} 下载成功`);
@@ -376,11 +447,11 @@ export default function TEEVerificationPage() {
     try {
       // 添加5秒延迟
       await new Promise(resolve => setTimeout(resolve, 5000));
-      
+
       // 根据worker ID判断使用哪组硬件信息
       // worker1 使用第一组信息，其他worker使用第二组信息
       let hardwareInfo: Partial<SGXWorkerParams> = {};
-      
+
       if (worker.id === 'worker-1') {
         // Worker 1 的硬件信息
         hardwareInfo = {
@@ -439,7 +510,7 @@ export default function TEEVerificationPage() {
   const handleGenerateSGXQuote = async (worker: SGXWorker) => {
     setSgxReportStatus(prev => ({
       ...prev,
-      [worker.id]: { 
+      [worker.id]: {
         quote: 'generating',
         collateral: prev[worker.id]?.collateral || 'idle',
         verification: prev[worker.id]?.verification || 'idle'
@@ -450,7 +521,7 @@ export default function TEEVerificationPage() {
       // 添加3-4秒延迟
       const delay = 3000 + Math.random() * 1000; // 3-4秒随机延迟
       await new Promise(resolve => setTimeout(resolve, delay));
-      
+
       const response = await axios.get(`${DCAP_ATTESTATION_API}?action=generate-quote`);
       if (response.data.success) {
         console.log('生成Quote - API返回数据:', {
@@ -460,16 +531,16 @@ export default function TEEVerificationPage() {
           hasData: !!response.data.quote?.data,
           fullResponse: response.data
         });
-        
+
         // 确保quoteBase64有值，优先使用base64，其次使用data
         const quoteBase64 = response.data.quote?.base64 || response.data.quote?.data;
         if (!quoteBase64) {
           console.error('生成Quote - 数据缺失，完整响应:', response.data);
           throw new Error('Quote数据缺失：API返回的数据中没有base64或data字段');
         }
-        
+
         console.log('生成Quote - 准备保存状态, quoteBase64长度:', quoteBase64.length);
-        
+
         setSgxReportStatus(prev => {
           const existingStatus = prev[worker.id] || {
             quote: 'idle',
@@ -502,7 +573,7 @@ export default function TEEVerificationPage() {
           });
           return updated;
         });
-        
+
         // 显示成功提示Modal
         setSgxSuccessWorker(worker);
         setSgxQuoteSuccessModalVisible(true);
@@ -541,7 +612,7 @@ export default function TEEVerificationPage() {
       });
       return {
         ...prev,
-        [worker.id]: { 
+        [worker.id]: {
           ...existingStatus, // 保留所有现有数据，包括 quoteBase64 和 quoteData
           collateral: 'fetching' as const
         }
@@ -552,7 +623,7 @@ export default function TEEVerificationPage() {
       // 添加3-4秒延迟
       const delay = 3000 + Math.random() * 1000; // 3-4秒随机延迟
       await new Promise(resolve => setTimeout(resolve, delay));
-      
+
       const response = await axios.get(`${DCAP_ATTESTATION_API}?action=get-collateral`);
       if (response.data.success) {
         setSgxReportStatus(prev => {
@@ -598,7 +669,7 @@ export default function TEEVerificationPage() {
   // SGX Worker: 生成验证报告
   const handleGenerateSGXVerification = async (worker: SGXWorker) => {
     console.log('生成验证报告 - 函数被调用, worker:', worker.id);
-    
+
     // 直接获取当前状态
     const currentStatus = sgxReportStatus[worker.id] || {
       quote: 'idle',
@@ -639,7 +710,7 @@ export default function TEEVerificationPage() {
     // 更新状态为生成中
     setSgxReportStatus(prev => ({
       ...prev,
-      [worker.id]: { 
+      [worker.id]: {
         ...prev[worker.id],
         verification: 'generating'
       }
@@ -649,13 +720,13 @@ export default function TEEVerificationPage() {
       // 添加3-4秒延迟
       const delay = 3000 + Math.random() * 1000; // 3-4秒随机延迟
       await new Promise(resolve => setTimeout(resolve, delay));
-      
+
       // 从状态中获取数据，优先使用quoteBase64，如果没有则使用quoteData
       const quoteBase64 = currentStatus.quoteBase64 || currentStatus.quoteData;
       const collateralData = currentStatus.collateralData;
-      
+
       console.log('生成验证报告 - 准备调用API, quote长度:', quoteBase64?.length, 'collateral类型:', typeof collateralData);
-      
+
       // 使用POST请求，避免URL过长的问题（quote和collateral数据很大）
       const response = await axios.post(
         DCAP_ATTESTATION_API,
@@ -671,13 +742,13 @@ export default function TEEVerificationPage() {
           }
         }
       );
-      
+
       console.log('生成验证报告 - API响应:', response.data.success, response.data);
-      
+
       if (response.data.success) {
         setSgxReportStatus(prev => ({
           ...prev,
-          [worker.id]: { 
+          [worker.id]: {
             ...prev[worker.id],
             verification: 'generated',
             verificationFilename: response.data.filename || `verification_report_${Date.now()}.json`,
@@ -791,7 +862,7 @@ export default function TEEVerificationPage() {
       render: (status: string) => (
         <Tag color={status === 'running' ? 'success' : 'default'}>
           {status === 'running' ? '运行中' : '已停止'}
-                                </Tag>
+        </Tag>
       ),
     },
     {
@@ -822,7 +893,7 @@ export default function TEEVerificationPage() {
         const verifyStatus = csvVerifyStatus[record.key] || 'idle';
         const params = csvParams[record.key];
 
-        const buttonStyle = { 
+        const buttonStyle = {
           width: '140px',
           minWidth: '140px',
           maxWidth: '140px'
@@ -841,7 +912,7 @@ export default function TEEVerificationPage() {
             >
               查询参数
             </Button>
-            
+
             {/* 生成认证报告 */}
             <Button
               size="small"
@@ -854,7 +925,7 @@ export default function TEEVerificationPage() {
             >
               生成认证报告
             </Button>
-            
+
             {/* 验证报告 */}
             <Button
               size="small"
@@ -933,7 +1004,7 @@ export default function TEEVerificationPage() {
           verification: 'idle',
         };
 
-        const buttonStyle = { 
+        const buttonStyle = {
           width: '140px',
           minWidth: '140px',
           maxWidth: '140px'
@@ -952,7 +1023,7 @@ export default function TEEVerificationPage() {
             >
               生成认证报告
             </Button>
-            
+
             {/* 获取Collateral */}
             <Button
               size="small"
@@ -964,7 +1035,7 @@ export default function TEEVerificationPage() {
             >
               获取Collateral
             </Button>
-            
+
             {/* 生成验证报告 */}
             <Button
               size="small"
@@ -995,7 +1066,7 @@ export default function TEEVerificationPage() {
           <Text type="secondary">
             对CSV和SGX Worker进行可信验证，包括参数查询、认证报告生成和验证报告生成。
           </Text>
-                            </div>
+        </div>
 
         {/* CSV Worker表格 */}
         <Card
@@ -1095,7 +1166,7 @@ export default function TEEVerificationPage() {
           ) : (
             <div style={{ padding: '16px', textAlign: 'center', color: '#999' }}>
               参数查询中...
-                                    </div>
+            </div>
           )}
         </Modal>
 
@@ -1135,8 +1206,8 @@ export default function TEEVerificationPage() {
           ) : (
             <div style={{ padding: '16px', textAlign: 'center', color: '#999' }}>
               参数查询中...
-                                    </div>
-                                )}
+            </div>
+          )}
         </Modal>
 
         {/* CSV Worker 生成认证报告成功提示Modal */}
@@ -1153,8 +1224,8 @@ export default function TEEVerificationPage() {
             <Button key="close" onClick={() => setCsvReportSuccessModalVisible(false)}>
               关闭
             </Button>,
-            <Button 
-              key="download-nonce" 
+            <Button
+              key="download-nonce"
               icon={<DownloadOutlined />}
               onClick={() => {
                 if (csvReportSuccessWorker) {
@@ -1164,8 +1235,8 @@ export default function TEEVerificationPage() {
             >
               下载 nonce.bin
             </Button>,
-            <Button 
-              key="download-report" 
+            <Button
+              key="download-report"
               type="primary"
               icon={<DownloadOutlined />}
               onClick={() => {
@@ -1177,17 +1248,89 @@ export default function TEEVerificationPage() {
               下载 report.cert
             </Button>,
           ]}
-          width={500}
+          width={700}
         >
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
-            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
-              {csvReportSuccessWorker?.name} 的认证报告已成功生成
-            </Typography.Title>
-            <Text type="secondary">
-              您现在可以下载 report.cert 和 nonce.bin 文件进行后续验证。
-            </Text>
-                            </div>
+          <div style={{ padding: '20px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+              <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+                认证报告已成功生成
+              </Typography.Title>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            <Descriptions
+              title="报告详情"
+              bordered
+              column={1}
+              size="small"
+              labelStyle={{
+                fontWeight: 600,
+                width: '140px'
+              }}
+            >
+              <Descriptions.Item label="Worker 名称">
+                <Text code>{csvReportSuccessWorker?.name || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="设备ID">
+                <Tooltip title={csvReportSuccessWorker?.deviceId || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {csvReportSuccessWorker?.deviceId ?
+                      `${csvReportSuccessWorker.deviceId.substring(0, 20)}...${csvReportSuccessWorker.deviceId.substring(csvReportSuccessWorker.deviceId.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="CVM ID">
+                <Tooltip title={csvReportSuccessWorker?.cvmId || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {csvReportSuccessWorker?.cvmId ?
+                      `${csvReportSuccessWorker.cvmId.substring(0, 20)}...${csvReportSuccessWorker.cvmId.substring(csvReportSuccessWorker.cvmId.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="Worker 状态">
+                <Tag color={csvReportSuccessWorker?.status === 'running' ? 'success' : 'default'}>
+                  {csvReportSuccessWorker?.status === 'running' ? '运行中' : '已停止'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="CPU 信息">
+                <Text>{csvReportSuccessWorker?.cpu || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="内存信息">
+                <Text>{csvReportSuccessWorker?.memory || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="报告类型">
+                <Tag color="purple">CSV 认证报告</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="生成时间">
+                <Text>{new Date().toLocaleString('zh-CN', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit'
+                })}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="生成文件">
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Text code style={{ fontSize: '11px' }}>report.cert</Text>
+                  <Text code style={{ fontSize: '11px' }}>nonce.bin</Text>
+                </Space>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              message="下一步操作"
+              description="认证报告已生成，您现在可以下载 report.cert 和 nonce.bin 文件进行后续验证。"
+              type="info"
+              showIcon
+              style={{ marginTop: '20px' }}
+            />
+          </div>
         </Modal>
 
         {/* CSV Worker 验证报告成功提示Modal */}
@@ -1204,8 +1347,8 @@ export default function TEEVerificationPage() {
             <Button key="close" onClick={() => setCsvVerifySuccessModalVisible(false)}>
               关闭
             </Button>,
-            <Button 
-              key="download-verify" 
+            <Button
+              key="download-verify"
               type="primary"
               icon={<DownloadOutlined />}
               onClick={() => {
@@ -1217,16 +1360,100 @@ export default function TEEVerificationPage() {
               下载验证报告
             </Button>,
           ]}
-          width={500}
+          width={700}
         >
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
-            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
-              {csvVerifySuccessWorker?.name} 的验证报告已成功生成
-            </Typography.Title>
-            <Text type="secondary">
-              您现在可以下载验证报告文件。
-            </Text>
+          <div style={{ padding: '20px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+              <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+                验证报告已成功生成
+              </Typography.Title>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            <Descriptions
+              title="验证报告详情"
+              bordered
+              column={1}
+              size="small"
+              labelStyle={{
+                fontWeight: 600,
+                width: '140px'
+              }}
+            >
+              <Descriptions.Item label="Worker 名称">
+                <Text code>{csvVerifySuccessWorker?.name || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="设备ID">
+                <Tooltip title={csvVerifySuccessWorker?.deviceId || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {csvVerifySuccessWorker?.deviceId ?
+                      `${csvVerifySuccessWorker.deviceId.substring(0, 20)}...${csvVerifySuccessWorker.deviceId.substring(csvVerifySuccessWorker.deviceId.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="CVM ID">
+                <Tooltip title={csvVerifySuccessWorker?.cvmId || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {csvVerifySuccessWorker?.cvmId ?
+                      `${csvVerifySuccessWorker.cvmId.substring(0, 20)}...${csvVerifySuccessWorker.cvmId.substring(csvVerifySuccessWorker.cvmId.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="验证状态">
+                <Tag color="success" style={{ fontSize: '13px' }}>
+                  <CheckCircleOutlined /> 验证通过
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="报告类型">
+                <Tag color="purple">CSV 验证报告</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="CPU 信息">
+                <Text>{csvVerifySuccessWorker?.cpu || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="内存信息">
+                <Text>{csvVerifySuccessWorker?.memory || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="生成时间">
+                <Text>
+                  {csvVerifySuccessWorker && csvVerifyReportData[csvVerifySuccessWorker.key]?.timestamp
+                    ? new Date(csvVerifyReportData[csvVerifySuccessWorker.key].timestamp).toLocaleString('zh-CN', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })
+                    : new Date().toLocaleString('zh-CN', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件名">
+                <Text code style={{ fontSize: '11px' }}>
+                  {csvVerifySuccessWorker
+                    ? `verification_report_${csvVerifySuccessWorker.name}_${Date.now()}.json`
+                    : '--'}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              message="验证完成"
+              description="验证报告已成功生成，包含完整的可信验证信息。您可以下载报告文件用于审计或存档。"
+              type="success"
+              showIcon
+              style={{ marginTop: '20px' }}
+            />
           </div>
         </Modal>
 
@@ -1244,8 +1471,8 @@ export default function TEEVerificationPage() {
             <Button key="close" onClick={() => setSgxQuoteSuccessModalVisible(false)}>
               关闭
             </Button>,
-            <Button 
-              key="download-quote" 
+            <Button
+              key="download-quote"
               type="primary"
               icon={<DownloadOutlined />}
               onClick={() => {
@@ -1257,16 +1484,83 @@ export default function TEEVerificationPage() {
               下载 Quote
             </Button>,
           ]}
-          width={500}
+          width={700}
         >
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
-            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
-              {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的认证报告（Quote）已成功生成
-            </Typography.Title>
-            <Text type="secondary">
-              您现在可以获取 Collateral 并进行后续验证。
-            </Text>
+          <div style={{ padding: '20px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+              <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+                认证报告（Quote）已成功生成
+              </Typography.Title>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            <Descriptions
+              title="报告详情"
+              bordered
+              column={1}
+              size="small"
+              labelStyle={{
+                fontWeight: 600,
+                width: '140px'
+              }}
+            >
+              <Descriptions.Item label="Worker ID">
+                <Text code>{sgxSuccessWorker?.id || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Worker 公钥">
+                <Tooltip title={sgxSuccessWorker?.publicKey || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {sgxSuccessWorker?.publicKey ?
+                      `${sgxSuccessWorker.publicKey.substring(0, 20)}...${sgxSuccessWorker.publicKey.substring(sgxSuccessWorker.publicKey.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="TEE 类型">
+                <Tag color="blue">{sgxSuccessWorker?.teeType || '--'}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Worker 状态">
+                <Tag color={sgxSuccessWorker?.status === 'online' ? 'success' : 'default'}>
+                  {sgxSuccessWorker?.status === 'online' ? '在线' :
+                    sgxSuccessWorker?.status === 'registered' ? '已注册' : '离线'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="报告类型">
+                <Tag color="purple">DCAP Quote</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件大小">
+                <Text>
+                  {sgxSuccessWorker && sgxReportStatus[sgxSuccessWorker.id]?.quoteData
+                    ? `${(sgxReportStatus[sgxSuccessWorker.id].quoteData.length * 3 / 4 / 1024).toFixed(2)} KB`
+                    : '--'}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="生成时间">
+                <Text>{new Date().toLocaleString('zh-CN', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit'
+                })}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件名">
+                <Text code style={{ fontSize: '11px' }}>
+                  {sgxSuccessWorker && sgxReportStatus[sgxSuccessWorker.id]?.quoteFilename || '--'}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              message="下一步操作"
+              description="认证报告（Quote）已生成，您现在可以获取 Collateral 并进行后续验证。"
+              type="info"
+              showIcon
+              style={{ marginTop: '20px' }}
+            />
           </div>
         </Modal>
 
@@ -1275,7 +1569,7 @@ export default function TEEVerificationPage() {
           title={
             <Space>
               <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '20px' }} />
-              <span>Collateral获取成功</span>
+              <span>Collateral 获取成功</span>
             </Space>
           }
           open={sgxCollateralSuccessModalVisible}
@@ -1284,8 +1578,8 @@ export default function TEEVerificationPage() {
             <Button key="close" onClick={() => setSgxCollateralSuccessModalVisible(false)}>
               关闭
             </Button>,
-            <Button 
-              key="download-collateral" 
+            <Button
+              key="download-collateral"
               type="primary"
               icon={<DownloadOutlined />}
               onClick={() => {
@@ -1297,16 +1591,71 @@ export default function TEEVerificationPage() {
               下载 Collateral
             </Button>,
           ]}
-          width={500}
+          width={700}
         >
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
-            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
-              {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的 Collateral 已成功获取
-            </Typography.Title>
-            <Text type="secondary">
-              您现在可以生成验证报告。
-            </Text>
+          <div style={{ padding: '20px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+              <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+                Collateral 已成功获取
+              </Typography.Title>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            <Descriptions
+              title="Collateral 详情"
+              bordered
+              column={1}
+              size="small"
+              labelStyle={{
+                fontWeight: 600,
+                width: '140px'
+              }}
+            >
+              <Descriptions.Item label="Worker ID">
+                <Text code>{sgxSuccessWorker?.id || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Worker 公钥">
+                <Tooltip title={sgxSuccessWorker?.publicKey || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {sgxSuccessWorker?.publicKey ?
+                      `${sgxSuccessWorker.publicKey.substring(0, 20)}...${sgxSuccessWorker.publicKey.substring(sgxSuccessWorker.publicKey.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件大小">
+                <Text>
+                  {sgxSuccessWorker && sgxReportStatus[sgxSuccessWorker.id]?.collateralFileData
+                    ? `${(sgxReportStatus[sgxSuccessWorker.id].collateralFileData.length / 1024).toFixed(2)} KB`
+                    : '--'}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="获取时间">
+                <Text>{new Date().toLocaleString('zh-CN', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit'
+                })}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件名">
+                <Text code style={{ fontSize: '11px' }}>
+                  {sgxSuccessWorker && sgxReportStatus[sgxSuccessWorker.id]?.collateralFilename || '--'}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              message="下一步操作"
+              description="Collateral 已成功获取，您现在可以生成验证报告以完成完整的可信验证流程。"
+              type="info"
+              showIcon
+              style={{ marginTop: '20px' }}
+            />
           </div>
         </Modal>
 
@@ -1324,8 +1673,8 @@ export default function TEEVerificationPage() {
             <Button key="close" onClick={() => setSgxVerificationSuccessModalVisible(false)}>
               关闭
             </Button>,
-            <Button 
-              key="download-verification" 
+            <Button
+              key="download-verification"
               type="primary"
               icon={<DownloadOutlined />}
               onClick={() => {
@@ -1337,19 +1686,82 @@ export default function TEEVerificationPage() {
               下载验证报告
             </Button>,
           ]}
-          width={500}
+          width={700}
         >
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
-            <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
-              {sgxSuccessWorker?.publicKey?.substring(0, 16)}... 的验证报告已成功生成
-            </Typography.Title>
-            <Text type="secondary">
-              您现在可以下载验证报告文件。
-            </Text>
+          <div style={{ padding: '20px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <CheckCircleOutlined style={{ fontSize: '48px', color: '#52c41a', marginBottom: '16px' }} />
+              <Typography.Title level={4} style={{ marginTop: '16px', marginBottom: '8px' }}>
+                验证报告已成功生成
+              </Typography.Title>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            <Descriptions
+              title="验证报告详情"
+              bordered
+              column={1}
+              size="small"
+              labelStyle={{
+                fontWeight: 600,
+                width: '140px'
+              }}
+            >
+              <Descriptions.Item label="Worker ID">
+                <Text code>{sgxSuccessWorker?.id || '--'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Worker 公钥">
+                <Tooltip title={sgxSuccessWorker?.publicKey || '--'}>
+                  <Text code style={{ fontSize: '11px' }}>
+                    {sgxSuccessWorker?.publicKey ?
+                      `${sgxSuccessWorker.publicKey.substring(0, 20)}...${sgxSuccessWorker.publicKey.substring(sgxSuccessWorker.publicKey.length - 8)}`
+                      : '--'}
+                  </Text>
+                </Tooltip>
+              </Descriptions.Item>
+              <Descriptions.Item label="验证状态">
+                <Tag color="success" style={{ fontSize: '13px' }}>
+                  <CheckCircleOutlined /> 验证通过
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="报告类型">
+                <Tag color="purple">DCAP 验证报告</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件大小">
+                <Text>
+                  {sgxSuccessWorker && sgxReportStatus[sgxSuccessWorker.id]?.verificationFileData
+                    ? `${(sgxReportStatus[sgxSuccessWorker.id].verificationFileData.length / 1024).toFixed(2)} KB`
+                    : '--'}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="生成时间">
+                <Text>{new Date().toLocaleString('zh-CN', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit'
+                })}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="文件名">
+                <Text code style={{ fontSize: '11px' }}>
+                  {sgxSuccessWorker && sgxReportStatus[sgxSuccessWorker.id]?.verificationFilename || '--'}
+                </Text>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <Alert
+              message="验证完成"
+              description="验证报告已成功生成，包含完整的可信验证信息。您可以下载报告文件用于审计或存档。"
+              type="success"
+              showIcon
+              style={{ marginTop: '20px' }}
+            />
           </div>
         </Modal>
-            </MainLayout>
-        </AuthGuard>
-    );
+      </MainLayout>
+    </AuthGuard>
+  );
 }

@@ -13,7 +13,9 @@ interface Props {
     registerV2Sender: string; setRegisterV2Sender: (value: string) => void;
     setOperatorForV2: boolean; setSetOperatorForV2: (value: boolean) => void;
     registerWorkerV2: () => void;
-    workers: IWorker[];
+    sgxWorkers: IWorker[];
+    csvWorkers: IWorker[];
+    pubkeyToAccountMap: Map<string, string>; // 公钥 -> 账户地址映射
     gatekeepers: string[];
     accounts: IAccount[];
     formatAddress: (address: string, length?: number) => string;
@@ -26,7 +28,7 @@ const WorkerDashboard: React.FC<Props> = (props) => {
         pruntimeUrl, setPruntimeUrl, getPruntimeInfo,
         pruntimeInfoForRegister, setPruntimeInfoForRegister, registerV2Sender,
         setRegisterV2Sender, setOperatorForV2, setSetOperatorForV2,
-        registerWorkerV2, workers, gatekeepers, accounts, formatAddress, isTxInProgress
+        registerWorkerV2, sgxWorkers, csvWorkers, pubkeyToAccountMap, gatekeepers, accounts, formatAddress, isTxInProgress
     } = props;
 
     const getWorkerStatus = (worker: IWorker): string => '已注册';
@@ -36,12 +38,60 @@ const WorkerDashboard: React.FC<Props> = (props) => {
         setPruntimeInfoForRegister({ ...pruntimeInfoForRegister, [field]: value });
     };
 
-    const columns = [
+    // SGX Worker 表格列（包含初始分数）
+    const sgxColumns = [
         {
             title: '公钥 (Pubkey)',
             dataIndex: 'pubkey',
             key: 'pubkey',
             render: (text: string) => <Tooltip title={text}><AntdText code>{formatAddress(text)}</AntdText></Tooltip>
+        },
+        {
+            title: '操作者 (Operator)',
+            dataIndex: 'operator',
+            key: 'operator',
+            render: (text: string) => text ? <Tooltip title={text}><AntdText code>{formatAddress(text)}</AntdText></Tooltip> : '-'
+        },
+        {
+            title: 'Gatekeeper',
+            dataIndex: 'pubkey',
+            key: 'gatekeeper',
+            render: (pubkey: string) => gatekeepers.includes(pubkey)
+                ? <Tag icon={<CheckCircleOutlined />} color="success">是</Tag>
+                : <Tag color="default">否</Tag>
+        },
+        {
+            title: '初始分数',
+            dataIndex: 'initialScore',
+            key: 'initialScore',
+            render: (score: any) => score?.toLocaleString() ?? 'N/A'
+        },
+        {
+            title: '最后更新区块',
+            dataIndex: 'lastUpdated',
+            key: 'lastUpdated',
+        },
+        {
+            title: '状态',
+            key: 'status',
+            render: () => <Tag color="processing">已注册</Tag>
+        },
+    ];
+
+    // CSV Worker 表格列（包含初始分数）
+    const csvColumns = [
+        {
+            title: '设备ID',
+            dataIndex: 'pubkey',
+            key: 'deviceId',
+            render: (pubkey: string) => {
+                const accountAddress = pubkeyToAccountMap.get(pubkey);
+                if (accountAddress) {
+                    return <Tooltip title={accountAddress}><AntdText code>{formatAddress(accountAddress)}</AntdText></Tooltip>;
+                }
+                // 如果找不到映射，显示公钥（理论上不应该发生）
+                return <Tooltip title={pubkey}><AntdText code>{formatAddress(pubkey)}</AntdText></Tooltip>;
+            }
         },
         {
             title: '操作者 (Operator)',
@@ -112,7 +162,7 @@ const WorkerDashboard: React.FC<Props> = (props) => {
                             ))}
                         </Select>
                     </Form.Item>
-                    
+
                     <Row gutter={16}>
                         <Col span={12}><Form.Item label="Version"><Input type="number" value={pruntimeInfoForRegister.version} onChange={e => handlePruntimeInfoChange('version', e.target.value)} /></Form.Item></Col>
                         <Col span={12}><Form.Item label="Machine ID"><Input value={pruntimeInfoForRegister.machineId} onChange={e => handlePruntimeInfoChange('machineId', e.target.value)} /></Form.Item></Col>
@@ -123,16 +173,16 @@ const WorkerDashboard: React.FC<Props> = (props) => {
                         <Col span={12}><Form.Item label="Para ID"><Input type="number" value={pruntimeInfoForRegister.paraId} onChange={e => handlePruntimeInfoChange('paraId', e.target.value)} /></Form.Item></Col>
                         <Col span={12}><Form.Item label="Max Consensus Version"><Input type="number" value={pruntimeInfoForRegister.maxConsensusVersion} onChange={e => handlePruntimeInfoChange('maxConsensusVersion', e.target.value)} /></Form.Item></Col>
                     </Row>
-                    
+
                     <Form.Item>
                         <Checkbox checked={setOperatorForV2} onChange={e => setSetOperatorForV2(e.target.checked)}>
                             设置操作者 (Operator)
                         </Checkbox>
                     </Form.Item>
-                    
+
                     {setOperatorForV2 && (
                         <Form.Item>
-                             <Select
+                            <Select
                                 value={pruntimeInfoForRegister.operator}
                                 onChange={value => handlePruntimeInfoChange('operator', value)}
                                 disabled={!accounts.length}
@@ -160,10 +210,21 @@ const WorkerDashboard: React.FC<Props> = (props) => {
                     </Form.Item>
                 </Card>
 
-                <Card type="inner" title="已注册的 Worker" style={{ marginTop: 16 }}>
+                <Card type="inner" title="SGX Worker" style={{ marginTop: 16 }}>
                     <Table
-                        columns={columns}
-                        dataSource={workers}
+                        columns={sgxColumns}
+                        dataSource={sgxWorkers}
+                        rowKey="pubkey"
+                        pagination={{ pageSize: 5, size: 'small' }}
+                        scroll={{ x: 1000 }}
+                        size="small"
+                    />
+                </Card>
+
+                <Card type="inner" title="CSV Worker" style={{ marginTop: 16 }}>
+                    <Table
+                        columns={csvColumns}
+                        dataSource={csvWorkers}
                         rowKey="pubkey"
                         pagination={{ pageSize: 5, size: 'small' }}
                         scroll={{ x: 1000 }}

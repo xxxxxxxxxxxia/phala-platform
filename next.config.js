@@ -95,7 +95,7 @@ const nextConfig = {
           '**/src/app/management/page.tsx', // 管理端首页
           // 忽略其他页面（已恢复大屏编译）
           // '**/src/app/polkadot-wall/**', // 已恢复，不再忽略
-          // '**/src/app/developers/**',
+          '**/src/app/developers/**',
           '**/src/app/providers/**',
           '**/src/app/scenarios/**',
           // 忽略图表库和polkadot模块，减少编译负担
