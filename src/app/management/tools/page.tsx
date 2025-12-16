@@ -342,35 +342,72 @@ const ToolsPage = () => {
           {/* 系统配置 */}
           <Col span={24}>
             <Card title="系统配置" extra={<SettingOutlined />}>
-              <Descriptions bordered column={1} size="small">
-                <Descriptions.Item label="区块链节点地址">
-                  <Text code>{getNodeUrl()}</Text>
-                  <Button
-                    size="small"
-                    icon={<CopyOutlined />}
-                    onClick={() => handleCopy(getNodeUrl())}
-                    style={{ marginLeft: '8px' }}
-                  />
-                </Descriptions.Item>
-                <Descriptions.Item label="中继器地址">
-                  <Text code>{getPruntimeUrl()}</Text>
-                  <Button
-                    size="small"
-                    icon={<CopyOutlined />}
-                    onClick={() => handleCopy(getPruntimeUrl())}
-                    style={{ marginLeft: '8px' }}
-                  />
-                </Descriptions.Item>
-                <Descriptions.Item label="前端服务地址">
-                  <Text code>http://8.147.107.221:3000</Text>
-                  <Button
-                    size="small"
-                    icon={<CopyOutlined />}
-                    onClick={() => handleCopy('http://8.147.107.221:3000')}
-                    style={{ marginLeft: '8px' }}
-                  />
-                </Descriptions.Item>
-              </Descriptions>
+              <style dangerouslySetInnerHTML={{
+                __html: `
+                  .config-descriptions table {
+                    table-layout: fixed;
+                    width: 100%;
+                  }
+                  .config-descriptions .ant-descriptions-item-label {
+                    width: 140px !important;
+                  }
+                  .config-descriptions .ant-descriptions-item-content {
+                    word-break: keep-all;
+                  }
+                  .config-descriptions tbody tr td:nth-child(1) {
+                    width: 75% !important;
+                  }
+                  .config-descriptions tbody tr td:nth-child(2) {
+                    width: 25% !important;
+                  }
+                `
+              }} />
+              <div className="config-descriptions">
+                <Descriptions bordered column={2} size="small">
+                  <Descriptions.Item label="区块链节点地址" span={1}>
+                    <Text code style={{ whiteSpace: 'nowrap' }}>{getNodeUrl()}</Text>
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy(getNodeUrl())}
+                      style={{ marginLeft: '8px' }}
+                    />
+                  </Descriptions.Item>
+                  <Descriptions.Item label="备注" span={1}>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      Substrate区块链网络的WebSocket连接地址，用于前端应用与区块链节点建立实时连接，支持查询链上数据、提交交易、监听区块事件等操作。
+                    </Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="中继器地址" span={1}>
+                    <Text code style={{ whiteSpace: 'nowrap' }}>{getPruntimeUrl()}</Text>
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy(getPruntimeUrl())}
+                      style={{ marginLeft: '8px' }}
+                    />
+                  </Descriptions.Item>
+                  <Descriptions.Item label="备注" span={1}>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      pRuntime（隐私运行时）中继服务地址，作为区块链与TEE（可信执行环境）设备之间的通信桥梁。负责转发隐私计算任务到TEE Worker节点，处理加密数据交互，并确保TEE设备与链上合约之间的安全通信。
+                    </Text>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="前端服务地址" span={1}>
+                    <Text code style={{ whiteSpace: 'nowrap' }}>http://8.147.107.221:3000</Text>
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => handleCopy('http://8.147.107.221:3000')}
+                      style={{ marginLeft: '8px' }}
+                    />
+                  </Descriptions.Item>
+                  <Descriptions.Item label="备注" span={1}>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      Web管理界面的HTTP访问地址，提供链计算平台的用户交互界面。用户可通过该地址访问系统管理、资源监控、合约部署、密钥管理等功能的可视化操作界面，该服务集成了前端应用和后端API代理。
+                    </Text>
+                  </Descriptions.Item>
+                </Descriptions>
+              </div>
             </Card>
           </Col>
 

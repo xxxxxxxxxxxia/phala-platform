@@ -68,7 +68,7 @@
 .topNav {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 32px;
 }
 
 .topNavLink {
@@ -584,7 +584,7 @@
     gap: 12px;
 }
 
-.dualTables > .tablePanel {
+.dualTables>.tablePanel {
     height: 100%;
 }
 

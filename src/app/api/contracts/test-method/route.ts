@@ -5,6 +5,22 @@ import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
 
 const execAsync = promisify(exec);
 
+// 验证合约地址格式（0x + 64位十六进制）
+function validateContractAddress(address: string): boolean {
+  if (!address || typeof address !== 'string') {
+    return false;
+  }
+  // 必须是 0x 开头，后面跟 64 位十六进制字符
+  const hexPattern = /^0x[a-fA-F0-9]{64}$/;
+  return hexPattern.test(address);
+}
+
+// 转义 shell 参数中的特殊字符
+function escapeShellArg(arg: string): string {
+  // 移除所有单引号并用转义的单引号替换
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { contractAddress } = await request.json();
@@ -16,19 +32,36 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // 【安全修复】验证合约地址格式，防止命令注入
+    if (!validateContractAddress(contractAddress)) {
+      return NextResponse.json({
+        success: false,
+        error: '无效的合约地址格式。合约地址必须是 0x 开头的 64 位十六进制字符串'
+      }, { status: 400 });
+    }
+
     console.log(`测试合约方法支持: ${contractAddress}`);
 
     // 使用脚本测试合约是否支持version方法
     const nodeUrl = getNodeUrl();
     const pruntimeUrl = getPruntimeUrl();
-    const testCommand = `cd /app/phala-blockchain-setup && NODE_URL=${nodeUrl} PRUNTIME_URL=${pruntimeUrl} node -e "
+    const setupPath = '/app/phala-blockchain-setup';
+    
+    // 【安全修复】使用环境变量传递参数，避免命令注入
+    // 转义所有参数，确保安全
+    const escapedNodeUrl = escapeShellArg(nodeUrl);
+    const escapedPruntimeUrl = escapeShellArg(pruntimeUrl);
+    const escapedContractAddress = escapeShellArg(contractAddress);
+    const escapedSetupPath = escapeShellArg(setupPath);
+    
+    const testCommand = `cd ${escapedSetupPath} && NODE_URL=${escapedNodeUrl} PRUNTIME_URL=${escapedPruntimeUrl} CONTRACT_ID=${escapedContractAddress} node -e "
 const { ApiPromise, WsProvider, Keyring } = require('@polkadot/api');
 const { options, OnChainRegistry, signCertificate, PinkContractPromise } = require('@phala/sdk');
 const fs = require('fs');
 
-const NODE_URL = '${nodeUrl}';
-const PRUNTIME_URL = '${pruntimeUrl}';
-const CONTRACT_ID = '${contractAddress}';
+const NODE_URL = process.env.NODE_URL;
+const PRUNTIME_URL = process.env.PRUNTIME_URL;
+const CONTRACT_ID = process.env.CONTRACT_ID;
 
 async function testContractMethod() {
   let api;
@@ -70,7 +103,16 @@ testContractMethod();
 
     const { stdout, stderr } = await execAsync(testCommand, {
       timeout: 10000, // 10秒超时
-      cwd: '/app/phala-blockchain-setup'
+      cwd: setupPath,
+      env: {
+        ...process.env,
+        PATH: process.env.PATH,
+        NODE_ENV: 'production',
+        // 【安全修复】通过环境变量传递参数，而不是字符串拼接
+        NODE_URL: nodeUrl,
+        PRUNTIME_URL: pruntimeUrl,
+        CONTRACT_ID: contractAddress
+      }
     });
 
     console.log('测试输出:', stdout);

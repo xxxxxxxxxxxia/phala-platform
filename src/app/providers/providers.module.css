@@ -2,7 +2,7 @@
 .providersContent {
     display: flex;
     flex-direction: column;
-    gap: 48px;
+    gap: 16px;
     padding-bottom: 48px;
     padding-top: 32px;
 }
@@ -33,7 +33,7 @@
     box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
     position: relative;
     overflow: hidden;
-    margin-bottom: 48px;
+    margin-bottom: 24px;
     border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
@@ -55,6 +55,17 @@
     font-weight: 700;
     margin-bottom: 16px;
     color: #1e3a8a;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+    text-align: center;
+}
+
+.heroHighlight {
+    color: #2563eb;
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .heroSubtitle {
@@ -63,6 +74,9 @@
     margin-bottom: 32px;
     max-width: 720px;
     line-height: 1.6;
+    text-align: center;
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .heroActions {
@@ -107,7 +121,7 @@
     padding: 48px;
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
     color: #1f2937;
-    margin-bottom: 48px;
+    margin-bottom: 24px;
 }
 
 .sectionTitle {

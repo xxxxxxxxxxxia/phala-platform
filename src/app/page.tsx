@@ -199,11 +199,8 @@ export default function PortalPage() {
         <PortalLayout>
             <div className={styles.portalContent}>
                 <section className={styles.hero}>
-                    <div className={styles.heroBadge}>
-                        链计算 · TEE
-                    </div>
                     <Title level={1} className={styles.heroTitle}>
-                        构建下一代 <span className={styles.heroHighlight}>分布式、高可信、多链接的先进计算平台</span>
+                        <span className={styles.heroHighlight}>构建下一代分布式、高可信、多资源的先进计算平台</span>
                     </Title>
                     <Paragraph className={styles.heroSubtitle}>
                         连接区块链、TEE 与多方应用生态，为管理员、资源提供方、应用开发者以及业务场景提供一站式入口，快速启用可信计算能力。
@@ -525,7 +522,7 @@ export default function PortalPage() {
                             <SettingOutlined style={{ fontSize: 24, color: '#2563eb', lineHeight: '1' }} />
                         </div>
                         <Title level={3} className={styles.sectionTitle} style={{ margin: 0, lineHeight: '1.2' }}>
-                            三大核心应用场景
+                            可扩展应用场景
                         </Title>
                     </div>
                     <Row gutter={[24, 24]}>

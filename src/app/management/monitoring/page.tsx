@@ -741,7 +741,7 @@ export default function MonitoringPage() {
           title={
             <Space>
               <DatabaseOutlined />
-              <span>Worker（CSV）监控 - Hygon TEE 设备</span>
+              <span>国产海光 TEE worker 监控</span>
             </Space>
           }
           extra={
@@ -807,7 +807,7 @@ export default function MonitoringPage() {
         <Card
           title={
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%' }}>
-              <span>Worker（SGX）监控</span>
+              <span>国际 Intel SGX worker 监控</span>
               <Space size="large" style={{ flex: 1, justifyContent: 'flex-end', alignItems: 'center' }}>
                 <Input
                   placeholder="搜索Worker ID或公钥"

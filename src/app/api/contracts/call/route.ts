@@ -6,6 +6,22 @@ import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
 
 const execAsync = promisify(exec);
 
+// 验证合约地址格式（0x + 64位十六进制）
+function validateContractAddress(address: string): boolean {
+  if (!address || typeof address !== 'string') {
+    return false;
+  }
+  // 必须是 0x 开头，后面跟 64 位十六进制字符
+  const hexPattern = /^0x[a-fA-F0-9]{64}$/;
+  return hexPattern.test(address);
+}
+
+// 转义 shell 参数中的特殊字符
+function escapeShellArg(arg: string): string {
+  // 移除所有单引号并用转义的单引号替换
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { contractAddress, method, params = [], contractName } = await request.json();
@@ -14,6 +30,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: '缺少必要参数：contractAddress 和 method'
+      }, { status: 400 });
+    }
+
+    // 【安全修复】验证合约地址格式，防止命令注入
+    if (!validateContractAddress(contractAddress)) {
+      return NextResponse.json({
+        success: false,
+        error: '无效的合约地址格式。合约地址必须是 0x 开头的 64 位十六进制字符串'
       }, { status: 400 });
     }
 
@@ -45,14 +69,22 @@ export async function POST(request: NextRequest) {
     // 直接使用脚本调用合约
     const nodeUrl = getNodeUrl();
     const pruntimeUrl = getPruntimeUrl();
-    const scriptCommand = `cd "${setupPath}" && NODE_URL=${nodeUrl} PRUNTIME_URL=${pruntimeUrl} node -e "
+    
+    // 【安全修复】使用环境变量传递参数，避免命令注入
+    // 转义所有参数，确保安全
+    const escapedNodeUrl = escapeShellArg(nodeUrl);
+    const escapedPruntimeUrl = escapeShellArg(pruntimeUrl);
+    const escapedContractAddress = escapeShellArg(contractAddress);
+    const escapedSetupPath = escapeShellArg(setupPath);
+    
+    const scriptCommand = `cd ${escapedSetupPath} && NODE_URL=${escapedNodeUrl} PRUNTIME_URL=${escapedPruntimeUrl} CONTRACT_ID=${escapedContractAddress} node -e "
 const { ApiPromise, WsProvider, Keyring } = require('@polkadot/api');
 const { options, OnChainRegistry, signCertificate, PinkContractPromise } = require('@phala/sdk');
 const fs = require('fs');
 
-const NODE_URL = '${nodeUrl}';
-const PRUNTIME_URL = '${pruntimeUrl}';
-const CONTRACT_ID = '${contractAddress}';
+const NODE_URL = process.env.NODE_URL;
+const PRUNTIME_URL = process.env.PRUNTIME_URL;
+const CONTRACT_ID = process.env.CONTRACT_ID;
 
 async function callContract() {
   let api;
@@ -105,7 +137,11 @@ callContract();
       env: {
         ...process.env,
         PATH: process.env.PATH,
-        NODE_ENV: 'production'
+        NODE_ENV: 'production',
+        // 【安全修复】通过环境变量传递参数，而不是字符串拼接
+        NODE_URL: nodeUrl,
+        PRUNTIME_URL: pruntimeUrl,
+        CONTRACT_ID: contractAddress
       }
     });
 

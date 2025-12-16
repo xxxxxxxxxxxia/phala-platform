@@ -2177,7 +2177,7 @@ fi`,
               {/* CSV Worker监控模块 */}
               <div style={{ marginBottom: 24 }}>
                 <DataCard
-                  title="CSV Worker 监控"
+                  title="国产海光 TEE worker 监控"
                   extra={
                     <Space>
                       <Button
@@ -2347,7 +2347,7 @@ fi`,
 
               {/* SGX Worker监控模块 */}
               <DataCard
-                title="SGX Worker 监控"
+                title="国际 Intel SGX Worker 监控"
                 extra={
                   <Space>
                     <Button

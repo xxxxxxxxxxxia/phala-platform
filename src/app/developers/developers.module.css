@@ -69,6 +69,27 @@
     margin-top: 0 !important;
 }
 
+/* 确保 Row 和 Col 支持高度统一 */
+.resourcesQuickStartCard :global(.ant-row) {
+    display: flex !important;
+    align-items: stretch !important;
+}
+
+.resourcesQuickStartCard :global(.ant-col) {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.resourcesQuickStartCard :global(.ant-col) > :global(.ant-typography) {
+    flex-shrink: 0 !important;
+}
+
+.resourcesQuickStartCard :global(.ant-col) > :global(.ant-card) {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
 .resourcesQuickStartCard :global(.ant-card-body) {
     padding: 0 !important;
     background: transparent !important;
@@ -92,7 +113,11 @@
     border-radius: 12px !important;
     transition: all 0.3s ease !important;
     backdrop-filter: blur(10px) !important;
-    border-left: 4px solid !important;
+    border-left: 4px solid #2564ebbe !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(37, 99, 235, 0.12) !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
 }
 
 /* 第一个资源项 - 蓝色主题 */
@@ -105,8 +130,8 @@
 .resourceItemCard[data-resource-index="0"]:hover {
     background: linear-gradient(135deg, rgba(239, 246, 255, 1) 0%, rgba(219, 234, 254, 1) 100%) !important;
     border-color: rgba(37, 99, 235, 0.5) !important;
-    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2) !important;
-    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25), 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    transform: translateY(-4px) !important;
 }
 
 /* 第二个资源项 - 紫色主题（深紫色） */
@@ -119,8 +144,8 @@
 .resourceItemCard[data-resource-index="1"]:hover {
     background: linear-gradient(135deg, rgba(243, 232, 255, 1) 0%, rgba(233, 213, 255, 1) 100%) !important;
     border-color: rgba(168, 85, 247, 0.5) !important;
-    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2) !important;
-    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25), 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    transform: translateY(-4px) !important;
 }
 
 /* 第三个资源项 - 紫色主题 */
@@ -133,17 +158,187 @@
 .resourceItemCard[data-resource-index="2"]:hover {
     background: linear-gradient(135deg, rgba(250, 245, 255, 1) 0%, rgba(243, 232, 255, 1) 100%) !important;
     border-color: rgba(168, 85, 247, 0.5) !important;
-    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.2) !important;
-    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 24px rgba(168, 85, 247, 0.25), 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    transform: translateY(-4px) !important;
 }
 
 .resourceItemCard :global(.ant-card-body) {
     padding: 20px !important;
     background: transparent !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
 }
 
 .resourceItemCard :global(.ant-card) {
     background: transparent !important;
+    height: 100% !important;
+}
+
+/* 快速入门卡片样式 - 与资源配置卡片统一 */
+.quickStartCard {
+    border-radius: 12px !important;
+    transition: all 0.3s ease !important;
+    backdrop-filter: blur(10px) !important;
+    border-left: 4px solid #2564ebbe !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 4px 16px rgba(37, 99, 235, 0.12) !important;
+    background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(219, 234, 254, 0.95) 100%) !important;
+    border-color: rgba(37, 99, 235, 0.3) !important;
+    border-left-color: #2563eb !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.quickStartCard:hover {
+    background: linear-gradient(135deg, rgba(239, 246, 255, 1) 0%, rgba(219, 234, 254, 1) 100%) !important;
+    border-color: rgba(37, 99, 235, 0.5) !important;
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.25), 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    transform: translateY(-4px) !important;
+}
+
+.quickStartCard :global(.ant-card-body) {
+    padding: 20px !important;
+    background: transparent !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.quickStartCard :global(.ant-card) {
+    background: transparent !important;
+    height: 100% !important;
+}
+
+/* 快速入门步骤行的样式 */
+.quickStartStepsRow {
+    height: 100% !important;
+    display: flex !important;
+    align-items: stretch !important;
+}
+
+.quickStartStepsRow :global(.ant-col) {
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+/* 优化 Steps 组件在快速入门卡片中的样式 */
+.quickStartCard .developersSteps {
+    flex: 1 !important;
+    padding: 4px 0 !important;
+    width: 100% !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps) {
+    height: 100% !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-vertical) {
+    height: 100% !important;
+}
+
+/* 两列布局时的样式优化 */
+.quickStartCard :global(.ant-row) {
+    height: 100% !important;
+}
+
+.quickStartCard :global(.ant-col) {
+    height: 100% !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item) {
+    margin-bottom: 16px !important;
+    padding-bottom: 0 !important;
+    position: relative !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item:last-child) {
+    margin-bottom: 0 !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-tail) {
+    left: 14px !important;
+    top: 36px !important;
+    padding: 0 !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-tail::after) {
+    background: linear-gradient(180deg, rgba(37, 99, 235, 0.3) 0%, rgba(37, 99, 235, 0.1) 100%) !important;
+    height: 100% !important;
+    width: 2px !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-content) {
+    margin-left: 10px !important;
+    min-height: 28px !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-title) {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: #1f2937 !important;
+    margin-bottom: 6px !important;
+    line-height: 1.3 !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-description) {
+    font-size: 13px !important;
+    color: #6b7280 !important;
+    line-height: 1.5 !important;
+    margin-top: 0 !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-icon) {
+    width: 28px !important;
+    height: 28px !important;
+    line-height: 26px !important;
+    border-width: 2px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15) !important;
+    transition: all 0.3s ease !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-icon span) {
+    display: inline-block !important;
+    width: 100% !important;
+    height: 100% !important;
+    line-height: 26px !important;
+    text-align: center !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-process .ant-steps-item-icon) {
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3), 0 2px 4px rgba(37, 99, 235, 0.2) !important;
+    transform: scale(1.05) !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-process .ant-steps-item-icon .ant-steps-icon) {
+    color: #ffffff !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-finish .ant-steps-item-icon) {
+    background: rgba(255, 255, 255, 0.9) !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2) !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-finish .ant-steps-item-icon .ant-steps-icon) {
+    color: #2563eb !important;
+    font-weight: 600 !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-wait .ant-steps-item-icon) {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(37, 99, 235, 0.3) !important;
+    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.1) !important;
+}
+
+.quickStartCard .developersSteps :global(.ant-steps-item-wait .ant-steps-item-icon .ant-steps-icon) {
+    color: rgba(37, 99, 235, 0.5) !important;
 }
 
 .featureList {

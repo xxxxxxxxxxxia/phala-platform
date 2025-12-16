@@ -2,7 +2,7 @@ version: '3.8'
 services:
   app:
     container_name: privacy-protection
-    image: registry.cn-hangzhou.aliyuncs.com/panxf/cmc-privacy:1.1.1
+    image: registry.cn-hangzhou.aliyuncs.com/panxf/cmc-privacy:1.3.1
     ports:
       - "3001:3000"
     volumes:
@@ -13,5 +13,6 @@ services:
       - AWS_ACCESS_KEY_ID=81KECAWHJA0L5QPMEU65
       - AWS_SECRET_ACCESS_KEY=CuGnTZk2izqy9nmc+nJBl6MJpT8do+Wlv3hA84Rr
       - S3_BUCKET=newbridge1
+      - KMS_ENDPOINT=https://43.132.154.142:13001
       # - DSTACK_SIMULATOR_ENDPOINT=http://10.207.20.56:8090
     restart: always

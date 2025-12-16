@@ -1212,7 +1212,7 @@ export default function KeyRotationPage() {
           <Card
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>SGX-密钥管理列表</span>
+                <span>国际 Intel SGX-密钥管理列表</span>
                 <Text style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>
                   密钥总数: {rotationState.totalKeys}
                 </Text>
@@ -1237,7 +1237,7 @@ export default function KeyRotationPage() {
         <Card
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>SGX-密钥管理列表</span>
+              <span>国际 Intel SGX-密钥管理列表</span>
               <Space size="middle">
                 <Text type="secondary" style={{ fontSize: '14px' }}>
                   轮换间隔: <Text strong style={{ color: '#1890ff' }}>{contractRotationInterval}分钟</Text>
@@ -1420,7 +1420,7 @@ export default function KeyRotationPage() {
         >
           <Space>
             <RotateLeftOutlined style={{ color: 'white' }} />
-            <Text style={{ color: 'white' }}>海光CSV主密钥轮换</Text>
+            <Text style={{ color: 'white' }}>国产海光 CSV 主密钥轮换</Text>
             <Divider type="vertical" style={{ borderColor: '#666' }} />
             <Text type="secondary" style={{ color: '#ccc' }}>
               轮换间隔:
@@ -1466,7 +1466,7 @@ export default function KeyRotationPage() {
           style={{ marginTop: 24 }}
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>海光CSV-密钥管理列表 </span>
+              <span>国产海光 CSV-密钥管理列表 </span>
             </div>
           }
           extra={

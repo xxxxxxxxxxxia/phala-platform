@@ -792,7 +792,7 @@ export default function VmDetailPage() {
         {
             key: 'overview',
             icon: <DashboardOutlined />,
-            label: '概览',
+            label: '系统概览',
         },
         {
             key: 'logs',
@@ -827,7 +827,7 @@ export default function VmDetailPage() {
         {
             key: 'settings',
             icon: <SettingOutlined />,
-            label: '设置',
+            label: '应用设置',
         },
     ];
 

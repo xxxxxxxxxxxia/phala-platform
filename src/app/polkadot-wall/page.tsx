@@ -1627,7 +1627,7 @@ export default function PolkadotWallPage() {
                         disabled={searchPage === 1 || searchLoading}
                         onClick={() => handleAccountPageChange('prev')}
                     >
-                        上一页
+                        上一条
                     </Button>
                     <span>第 {detail.transactions.page} 页</span>
                     <Button
@@ -1638,7 +1638,7 @@ export default function PolkadotWallPage() {
                         loading={searchLoading && detail.transactions.hasMore}
                         onClick={() => handleAccountPageChange('next')}
                     >
-                        下一页
+                        下一条
                     </Button>
                 </div>
             </div>
@@ -1657,7 +1657,7 @@ export default function PolkadotWallPage() {
                         <span className={styles.titleLogo}>
                             <Image src="/whitelogo.png" alt="平台 Logo" width={180} height={55} priority />
                         </span>
-                        链计算业务数据大屏
+                        链计算数据大屏
                     </Title>
                     {/* <Text className={styles.subtitle}>实时展示链上链下关键指标、拓扑态势与激励状态</Text> */}
                 </div>
@@ -1685,10 +1685,10 @@ export default function PolkadotWallPage() {
                             手动刷新
                         </Button>
                     </div>
-                    <div className={styles.timeBadge}>
+                    {/* <div className={styles.timeBadge}>
                         <ClockCircleOutlined style={{ color: '#00e5ff' }} />
                         <Text className={styles.timeText}>{isHydrated ? formatTime(currentTime) : '-- -- --'}</Text>
-                    </div>
+                    </div> */}
                 </div>
             </div>
 
@@ -1756,7 +1756,7 @@ export default function PolkadotWallPage() {
                                             disabled={workerPage === 1}
                                             onClick={() => setWorkerPage((prev) => Math.max(1, prev - 1))}
                                         >
-                                            上一页
+                                            上一条
                                         </Button>
                                         <span>第 {workerPage} / {workerTotalPages} 页</span>
                                         <Button
@@ -1766,7 +1766,7 @@ export default function PolkadotWallPage() {
                                             disabled={workerPage === workerTotalPages}
                                             onClick={() => setWorkerPage((prev) => Math.min(workerTotalPages, prev + 1))}
                                         >
-                                            下一页
+                                            下一条
                                         </Button>
                                     </div>
                                 )}
@@ -1865,7 +1865,7 @@ export default function PolkadotWallPage() {
                                     disabled={incentiveAccountPage === 1}
                                     onClick={() => setIncentiveAccountPage((prev) => Math.max(1, prev - 1))}
                                 >
-                                    上一页
+                                    上一条
                                 </Button>
                                 <span>第 {incentiveAccountPage} / {incentiveAccountTotalPages} 页</span>
                                 <Button
@@ -1875,7 +1875,7 @@ export default function PolkadotWallPage() {
                                     disabled={incentiveAccountPage === incentiveAccountTotalPages}
                                     onClick={() => setIncentiveAccountPage((prev) => Math.min(incentiveAccountTotalPages, prev + 1))}
                                 >
-                                    下一页
+                                    下一条
                                 </Button>
                             </div>
                         )}
@@ -1968,7 +1968,7 @@ export default function PolkadotWallPage() {
                                             disabled={keySamplePage === 1}
                                             onClick={() => setKeySamplePage((prev) => Math.max(1, prev - 1))}
                                         >
-                                            上一页
+                                            上一条
                                         </Button>
                                         <span>第 {keySamplePage} / {keySampleTotalPages} 页</span>
                                         <Button
@@ -1978,7 +1978,7 @@ export default function PolkadotWallPage() {
                                             disabled={keySamplePage === keySampleTotalPages}
                                             onClick={() => setKeySamplePage((prev) => Math.min(keySampleTotalPages, prev + 1))}
                                         >
-                                            下一页
+                                            下一条
                                         </Button>
                                     </div>
                                 )}
@@ -2010,7 +2010,7 @@ export default function PolkadotWallPage() {
                             <Col span={6}>
                                 <div className={styles.statisticBox}>
                                     <Statistic
-                                        title="出块间隔"
+                                        title="平均出块间隔"
                                         value={dashboardData?.blockchain.avgBlockTime || 0}
                                         precision={2}
                                         suffix="秒"

@@ -781,7 +781,7 @@ export default function ContractsPage() {
 
         {/* 当前服务列表 */}
         <Card
-          title="CSV合约列表"
+          title="国产海光 TEE 合约列表"
           extra={
             <Space>
               <Button
@@ -861,7 +861,7 @@ export default function ContractsPage() {
 
         {/* 合约列表 */}
         <Card
-          title="SGX合约列表"
+          title="国际 Intel SGX 合约列表"
           extra={
             <Space>
               <Button

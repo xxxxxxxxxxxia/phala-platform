@@ -44,6 +44,7 @@ import {
   UploadOutlined,
   PlusOutlined,
   MinusCircleOutlined,
+  SyncOutlined,
 } from "@ant-design/icons";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -1278,7 +1279,7 @@ fi`,
       });
     }
 
-    // 关闭 - 只在运行状态显示（橙色，电源图标）
+    // 关闭 - 只在运行状态显示（蓝色，电源图标）
     if (isRunning) {
       items.push({
         key: "shutdown",
@@ -1322,97 +1323,104 @@ fi`,
       });
     }
 
-    // // 停止（Kill）- 只在运行状态显示（紫色，暂停图标）
-    // if (isRunning) {
-    //   items.push({
-    //     key: "stop",
-    //     label: (
-    //       <div
-    //         style={{
-    //           display: "flex",
-    //           alignItems: "center",
-    //           gap: "10px",
-    //           padding: "8px 12px",
-    //           color: "#fff",
-    //           width: "100%",
-    //           boxSizing: "border-box",
-    //           maxWidth: "100%",
-    //           overflow: "hidden",
-    //           fontWeight: 500,
-    //           textShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
-    //         }}
-    //       >
-    //         <StopOutlined
-    //           style={{
-    //             fontSize: "16px",
-    //             color: "#fff",
-    //             flexShrink: 0,
-    //             filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))",
-    //           }}
-    //         />
-    //         <span
-    //           style={{
-    //             whiteSpace: "nowrap",
-    //             overflow: "hidden",
-    //             textOverflow: "ellipsis",
-    //             fontSize: "14px",
-    //           }}
-    //         >
-    //           停止
-    //         </span>
-    //       </div>
-    //     ),
-    //     className: "menu-item-kill",
-    //   });
-    // }
-
-    // 删除（Remove）- 始终显示（橙色，垃圾桶图标）
-    items.push({
-      key: "delete",
-      label: (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "8px 12px",
-            color: "#fff",
-            width: "100%",
-            boxSizing: "border-box",
-            maxWidth: "100%",
-            overflow: "hidden",
-            fontWeight: 500,
-            textShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
-          }}
-        >
-          <DeleteOutlined
+    // 重启 - 只在运行状态显示（橙色，同步图标）
+    if (isRunning) {
+      items.push({
+        key: "restart",
+        label: (
+          <div
             style={{
-              fontSize: "16px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "8px 12px",
               color: "#fff",
-              flexShrink: 0,
-              filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))",
-            }}
-          />
-          <span
-            style={{
-              whiteSpace: "nowrap",
+              width: "100%",
+              boxSizing: "border-box",
+              maxWidth: "100%",
               overflow: "hidden",
-              textOverflow: "ellipsis",
-              fontSize: "14px",
+              fontWeight: 500,
+              textShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
             }}
           >
-            删除
-          </span>
-        </div>
-      ),
-      className: "menu-item-remove",
-    });
+            <SyncOutlined
+              style={{
+                fontSize: "16px",
+                color: "#fff",
+                flexShrink: 0,
+                filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))",
+              }}
+            />
+            <span
+              style={{
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontSize: "14px",
+              }}
+            >
+              重启
+            </span>
+          </div>
+        ),
+        className: "menu-item-restart",
+      });
+    }
+
+    // 删除（Remove）- 只在停止状态显示（红色，垃圾桶图标）
+    if (isStopped) {
+      items.push({
+        key: "delete",
+        label: (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "8px 12px",
+              color: "#fff",
+              width: "100%",
+              boxSizing: "border-box",
+              maxWidth: "100%",
+              overflow: "hidden",
+              fontWeight: 500,
+              textShadow: "0 1px 2px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <DeleteOutlined
+              style={{
+                fontSize: "16px",
+                color: "#fff",
+                flexShrink: 0,
+                filter: "drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))",
+              }}
+            />
+            <span
+              style={{
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontSize: "14px",
+              }}
+            >
+              删除
+            </span>
+          </div>
+        ),
+        className: "menu-item-remove",
+      });
+    }
 
     return items;
   };
 
   // 处理菜单项点击
-  const handleMenuClick = (vm: VMData, key: string) => {
+  const handleMenuClick = (vm: VMData, key: string, event?: any) => {
+    // 阻止事件冒泡到 Card 的 onClick
+    if (event) {
+      event.domEvent?.stopPropagation();
+    }
+    
     switch (key) {
       case "start":
         startVm(vm.id);
@@ -1504,6 +1512,17 @@ fi`,
                 transform: translateY(-2px) scale(1.02) !important;
                 box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3) !important;
                 border-color: #1d4ed8 !important;
+            }
+            .custom-dropdown-menu .menu-item-restart {
+                background: #f97316 !important;
+                border: 1px solid #ea580c !important;
+                box-shadow: 0 4px 12px rgba(249, 115, 22, 0.25) !important;
+            }
+            .custom-dropdown-menu .menu-item-restart:hover {
+                background: #ea580c !important;
+                transform: translateY(-2px) scale(1.02) !important;
+                box-shadow: 0 8px 20px rgba(249, 115, 22, 0.3) !important;
+                border-color: #c2410c !important;
             }
             .custom-dropdown-menu .menu-item-kill {
                 background: #8b5cf6 !important;
@@ -2625,8 +2644,9 @@ fi`,
                           <Dropdown
                             menu={{
                               items: getMoreMenuItems(vm),
-                              onClick: ({ key }) =>
-                                handleMenuClick(vm, key as string),
+                              onClick: (menuInfo) => {
+                                handleMenuClick(vm, menuInfo.key as string, menuInfo);
+                              },
                               style: {
                                 padding: "8px",
                                 minWidth: "160px",

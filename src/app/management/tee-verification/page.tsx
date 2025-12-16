@@ -1073,7 +1073,7 @@ export default function TEEVerificationPage() {
           title={
             <Space>
               <SafetyCertificateOutlined />
-              <span>CSV Worker 可信验证</span>
+              <span>国产海光 TEE Worker 可信验证</span>
             </Space>
           }
           style={{ marginBottom: '24px' }}
@@ -1112,7 +1112,7 @@ export default function TEEVerificationPage() {
           title={
             <Space>
               <FileProtectOutlined />
-              <span>SGX Worker 可信验证</span>
+              <span>国际 Intel SGX Worker 可信验证</span>
             </Space>
           }
           extra={

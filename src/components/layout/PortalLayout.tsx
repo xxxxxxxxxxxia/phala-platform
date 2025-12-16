@@ -10,7 +10,7 @@ interface PortalLayoutProps {
 }
 
 const navLinks = [
-    { label: '门户首页', href: '/' },
+    { label: '平台首页', href: '/' },
     { label: '资源提供方', href: '/providers' },
     { label: '应用开发者', href: '/developers' },
     { label: '系统管理端', href: '/management/login' },
@@ -98,7 +98,7 @@ const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
             <div className={styles.portalBackdrop} />
             <header className={styles.header}>
                 <Link href="/" className={styles.logo}>
-                    <span>中国移动 · 链计算门户</span>
+                    <span>中国移动 · 链计算平台</span>
                 </Link>
                 <nav className={styles.nav}>
                     {navLinks.map((link) => (

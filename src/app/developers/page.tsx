@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Card, Col, Row, Steps, Typography, message } from 'antd';
+import { Button, Card, Col, Row, Steps, Typography, message, Tag, Badge, Modal, Descriptions } from 'antd';
 import {
     CodeOutlined,
     ApiOutlined,
@@ -10,6 +10,9 @@ import {
     CloudServerOutlined,
     SafetyCertificateOutlined,
     ThunderboltOutlined,
+    CheckCircleOutlined,
+    InfoCircleOutlined,
+    CloseCircleOutlined,
 } from '@ant-design/icons';
 import PortalLayout from '@/components/layout/PortalLayout';
 import styles from '../portal.module.css';
@@ -20,41 +23,63 @@ const { Title, Paragraph } = Typography;
 // API 基础地址配置 - 可根据需要修改
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://8.147.106.136:8888';
 
-const sdkList = [
-    { name: 'Phala JS SDK', version: 'v0.5.x', desc: '在浏览器或 Node.js 中快速调度 TEE 任务。' },
-    { name: 'Rust Worker Toolkit', version: 'v1.2.x', desc: '面向链上合约与 Worker 扩展的工具集。' },
-    // { name: 'REST OpenAPI', version: '2025.04', desc: '通过 HTTP / WebSocket 访问调度中间件。' },
-];
+// 只显示一个主卡片
+const mainCard = {
+    name: 'Hygon C86-4G TEE',
+    version: 'CSV 1.3',
+    desc: '海光 C86 处理器，支持硬件级机密计算。',
+    specs: [
+        { label: 'CPU 型号', value: 'Hygon C86-4G (OPN:7490)' },
+        { label: 'CSV 支持', value: 'enabled', status: 'success' },
+        { label: 'SME 支持', value: 'active', status: 'success' },
+        { label: 'TDM 支持', value: 'enabled', status: 'success' },
+    ],
+};
 
 const quickStartSteps = [
-    '连接测试网，完成账户绑定与 API Key 申请',
-    '部署示例 Worker 或绑定已存在的计算资源',
-    '通过 SDK 发送计算任务并订阅事件',
-    '在门户查看日志、度量与奖励',
+    '下载部署示例文件，包含Docker Compose配置',
+    '开始构建任务，系统自动调度最佳机密计算节点',
+    '导入Docker Compose配置文件，一键部署可信应用',
+    '进入部署示例详情页面，查看机密环境信息与日志',
+    '点击网络信息，进入Dashboard查看应用运行内容',
+    '点击可信证明，查看应用可信证明信息',
+    '点击应用配置，查看环境加密公钥与盐值等信息',
+    '点击应用设置，修改CVM配置信息与应用配置信息',
 ];
 
 const capabilityColumns = [
     {
-        title: '开发集成路径',
-        desc: 'SDK 与 API 组合拉起 TEE 任务与上链登记，全链路自动化。',
+        title: '快速开始',
+        desc: '通过简单的步骤快速部署您的第一个机密计算应用。',
         icon: <ThunderboltOutlined />,
         items: [
-            '使用 JS SDK 触发 Worker 任务，自动签名与事件监听',
-            'Rust Toolkit 适配机密容器，覆盖镜像构建与证明写入',
-            '官方 docker-compose 示例可直接起服，快速完成联调',
+            '下载部署示例文件，获取 Docker Compose 配置',
+            '点击"开始构建"按钮，系统自动调度最佳资源',
+            '导入配置文件，一键部署您的应用',
+            '查看应用详情，监控运行状态和日志',
         ],
     },
     {
-        title: '安全交付保障',
-        desc: '从任务发起到结果返回的可信链路，满足审计与合规诉求。',
-        icon: <SafetyCertificateOutlined />,
-        items: ['TEE 远程证明与镜像度量校验', '密钥与机密卷由调度器托管分发', '算力与证明记录上链，留存可查'],
+        title: '应用管理',
+        desc: '管理您的应用配置、网络设置和运行环境。',
+        icon: <CloudServerOutlined />,
+        items: [
+            '查看和修改应用配置信息',
+            '配置网络访问和端口映射',
+            '查看可信证明和环境加密信息',
+            '管理应用生命周期和资源',
+        ],
     },
     {
-        title: '运维与观测',
-        desc: '门户与事件订阅双通道，帮助 SRE 低成本运营。',
-        icon: <CloudServerOutlined />,
-        items: ['最佳主机调度避免手动筛资源', '门户实时查看任务日志与状态', 'Webhook / 事件订阅支持接入 CI 或报警'],
+        title: '安全与证明',
+        desc: '了解应用的机密计算能力和安全特性。',
+        icon: <SafetyCertificateOutlined />,
+        items: [
+            '查看 TEE 远程证明信息',
+            '验证镜像度量和完整性',
+            '查看环境加密公钥和盐值',
+            '了解密钥管理和安全机制',
+        ],
     },
 ];
 
@@ -67,6 +92,8 @@ const capabilityColumns = [
 export default function DevelopersPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(false);
+    const [detailModalVisible, setDetailModalVisible] = useState(false);
+
 
     const handleStartBuild = async () => {
         try {
@@ -111,20 +138,120 @@ export default function DevelopersPage() {
         message.success('开始下载部署示例文件');
     };
 
+    const handleShowDetail = () => {
+        setDetailModalVisible(true);
+    };
+
+    const renderDetailContent = () => {
+        const detailSections = [
+            {
+                title: 'TEE 固件支持',
+                items: [
+                    { label: 'firewalld', value: 'inactive', status: 'warning' },
+                    { label: 'kernel version', value: '5.10.134-csv', status: 'success' },
+                    { label: 'model name', value: 'Hygon C86-4G (OPN:7490)', status: 'success' },
+                    { label: 'is Hygon CPU', value: 'YES', status: 'success' },
+                    { label: 'HW SME', value: 'supported', status: 'success' },
+                    { label: 'SMEE(HW SME control)', value: 'enabled', status: 'success' },
+                    { label: 'SME(Host Linux)', value: 'supported', status: 'success' },
+                    { label: 'SME(Host Linux control)', value: 'active', status: 'success' },
+                    { label: '/dev/sev', value: 'exist', status: 'success' },
+                    { label: 'psp bl version', value: '3.5.3.64', status: 'success' },
+                    { label: 'csv api version', value: '1.3', status: 'success' },
+                    { label: 'firmware version', value: '2136', status: 'success' },
+                    { label: 'is HGSC imported', value: 'YES', status: 'success' },
+                    { label: 'chip id', value: 'TNCG560008041501', status: 'info' },
+                ]
+            },
+            {
+                title: 'CSV 详细状态',
+                items: [
+                    { label: 'CSV', value: 'enabled', status: 'success' },
+                    { label: 'HW', value: 'supported', status: 'success' },
+                    { label: 'FW', value: 'supported', status: 'success' },
+                    { label: 'Hypervisor', value: 'supported', status: 'success' },
+                    { label: 'Hypervisor control', value: 'enabled', status: 'success' },
+                ]
+            },
+            {
+                title: 'TDM 与设备状态',
+                items: [
+                    { label: '/dev/tdm', value: 'exist', status: 'success' },
+                    { label: 'TDM', value: 'enabled', status: 'success' },
+                    { label: 'tdm api version', value: '1.4', status: 'success' },
+                    { label: '/dev/tpm0', value: 'nonexist', status: 'error' },
+                    { label: 'tpm_acpi', value: 'HYGT0101', status: 'info' },
+                    { label: '/dev/tcm0', value: 'nonexist', status: 'error' },
+                    { label: 'tcm_acpi', value: 'nonexist', status: 'error' },
+                ]
+            },
+        ];
+
+        return (
+            <div style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+                {detailSections.map((section, sectionIdx) => (
+                    <div key={section.title} style={{ marginBottom: sectionIdx < detailSections.length - 1 ? '24px' : 0 }}>
+                        <Title level={5} style={{ marginBottom: '12px', color: '#1f2937' }}>
+                            {section.title}
+                        </Title>
+                        <Descriptions
+                            bordered
+                            column={1}
+                            size="small"
+                            labelStyle={{ fontWeight: 500, background: '#fafafa', width: '40%' }}
+                        >
+                            {section.items.map((item, idx) => (
+                                <Descriptions.Item
+                                    key={idx}
+                                    label={item.label}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {item.status === 'success' && (
+                                            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '16px' }} />
+                                        )}
+                                        {item.status === 'error' && (
+                                            <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: '16px' }} />
+                                        )}
+                                        {item.status === 'warning' && (
+                                            <InfoCircleOutlined style={{ color: '#faad14', fontSize: '16px' }} />
+                                        )}
+                                        <span style={{ 
+                                            fontWeight: 500,
+                                            color: item.status === 'error' ? '#ff4d4f' : item.status === 'warning' ? '#faad14' : '#1f2937'
+                                        }}>
+                                            {item.value}
+                                        </span>
+                                    </div>
+                                </Descriptions.Item>
+                            ))}
+                        </Descriptions>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     return (
         <PortalLayout>
             <div className={styles.portalContent}>
                 <section className={styles.hero}>
-                    <div className={styles.heroBadge}>
+                    {/* <div className={styles.heroBadge}>
                         <CodeOutlined /> 应用开发者中心
-                    </div>
+                    </div> */}
                     <Title level={2} className={styles.heroTitle}>
-                        国产TEE · 机密虚拟机 · 容器化应用程序一键部署
+                        支持国产TEE机密计算的容器化应用一键部署
+                        {/* 国产TEE · 机密虚拟机 · 容器化应用程序一键部署 */}
                     </Title>
                     <Paragraph className={styles.heroSubtitle}>
                         通过安全调度算法选择最佳资源地址，一键部署属于自己的应用程序，获得定制化的安全计算服务体验。
                     </Paragraph>
                     <div className={styles.heroActions}>
+                        <Button
+                            size="large"
+                            onClick={handleDownloadExample}
+                        >
+                            部署示例
+                        </Button>
                         <Button
                             type="primary"
                             size="large"
@@ -132,12 +259,6 @@ export default function DevelopersPage() {
                             onClick={handleStartBuild}
                         >
                             开始构建{/* 调度最佳资源 */}
-                        </Button>
-                        <Button
-                            size="large"
-                            onClick={handleDownloadExample}
-                        >
-                            部署示例
                         </Button>
                     </div>
                 </section>
@@ -147,37 +268,100 @@ export default function DevelopersPage() {
                         <Row gutter={[32, 32]}>
                             <Col xs={24} lg={12}>
                                 <Title level={3} className={developersStyles.resourcesQuickStartTitle}>
-                                    资源列表
+                                    资源配置
                                 </Title>
-                                <Row gutter={[16, 16]}>
-                                    {sdkList.map((sdk, index) => (
-                                        <Col xs={24} key={sdk.name}>
-                                            <Card className={developersStyles.resourceItemCard} data-resource-index={index}>
-                                                <Title level={4} className={developersStyles.developersCardTitle}>
-                                                    {sdk.name}
-                                                </Title>
-                                                <Paragraph className={developersStyles.developersCardVersion}>{sdk.version}</Paragraph>
-                                                <Paragraph className={developersStyles.developersCardDesc}>{sdk.desc}</Paragraph>
-                                                <Button type="link" className={developersStyles.developersCardLink}>
-                                                    资源监控
-                                                </Button>
-                                            </Card>
-                                        </Col>
-                                    ))}
-                                </Row>
+                                <Card className={developersStyles.resourceItemCard}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                                        <div>
+                                            <Title level={4} className={developersStyles.developersCardTitle}>
+                                                {mainCard.name}
+                                            </Title>
+                                            <Paragraph className={developersStyles.developersCardVersion}>
+                                                {mainCard.version}
+                                            </Paragraph>
+                                        </div>
+                                        <Badge status="success" text="运行中" style={{ color: '#52c41a', fontWeight: 500 }} />
+                                    </div>
+                                    <Paragraph className={developersStyles.developersCardDesc}>
+                                        {mainCard.desc}
+                                    </Paragraph>
+                                    <div style={{ marginTop: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        {mainCard.specs.map((spec) => (
+                                            <div key={spec.label} style={{ 
+                                                display: 'flex', 
+                                                flexDirection: 'column',
+                                                padding: '10px 12px',
+                                                background: 'rgba(255, 255, 255, 0.6)',
+                                                borderRadius: '8px',
+                                                border: '1px solid rgba(37, 99, 235, 0.1)',
+                                                boxShadow: '0 1px 4px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(37, 99, 235, 0.08)',
+                                                transition: 'all 0.3s ease',
+                                                cursor: 'default'
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.15), 0 2px 6px rgba(0, 0, 0, 0.1)';
+                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.85)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                e.currentTarget.style.boxShadow = '0 1px 4px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(37, 99, 235, 0.08)';
+                                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.6)';
+                                            }}
+                                            >
+                                                <span style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                                                    {spec.label}
+                                                </span>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    {spec.status === 'success' && (
+                                                        <CheckCircleOutlined style={{ color: '#52c41a', fontSize: '14px' }} />
+                                                    )}
+                                                    <span style={{ fontSize: '14px', color: '#1f2937', fontWeight: 500 }}>
+                                                        {spec.value}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <Button 
+                                        type="link" 
+                                        className={developersStyles.developersCardLink}
+                                        style={{ marginTop: '16px', paddingLeft: '0' }}
+                                        onClick={handleShowDetail}
+                                    >
+                                        查看详细信息
+                                    </Button>
+                                </Card>
                             </Col>
                             <Col xs={24} lg={12}>
                                 <Title level={3} className={developersStyles.resourcesQuickStartTitle}>
                                     快速入门
                                 </Title>
-                                <Steps
-                                    className={developersStyles.developersSteps}
-                                    direction="vertical"
-                                    items={quickStartSteps.map((s, index) => ({
-                                        title: `Step ${index + 1}`,
-                                        description: s,
-                                    }))}
-                                />
+                                <Card className={developersStyles.quickStartCard}>
+                                    <Row gutter={[16, 16]} className={developersStyles.quickStartStepsRow}>
+                                        <Col xs={24} sm={12}>
+                                            <Steps
+                                                className={developersStyles.developersSteps}
+                                                direction="vertical"
+                                                items={quickStartSteps.slice(0, 4).map((s, index) => ({
+                                                    title: `Step ${index + 1}`,
+                                                    description: s,
+                                                }))}
+                                            />
+                                        </Col>
+                                        <Col xs={24} sm={12}>
+                                            <Steps
+                                                className={developersStyles.developersSteps}
+                                                direction="vertical"
+                                                items={quickStartSteps.slice(4, 8).map((s, index) => ({
+                                                    title: `Step ${index + 5}`,
+                                                    description: s,
+                                                    icon: <span>{index + 5}</span>,
+                                                }))}
+                                            />
+                                        </Col>
+                                    </Row>
+                                </Card>
                             </Col>
                         </Row>
                     </Card>
@@ -185,10 +369,10 @@ export default function DevelopersPage() {
 
                 <section className={styles.section}>
                     <Title level={3} className={styles.sectionTitle}>
-                        开发与交付指南
+                        核心功能
                     </Title>
                     <Paragraph className={styles.sectionDescription}>
-                        梳理从 SDK 联调到上线运维的关键动作，帮助团队在一处完成集成、验收与观测。
+                        了解平台的核心能力，快速掌握应用部署、管理和安全特性。
                     </Paragraph>
                     <Row gutter={[24, 24]}>
                         {capabilityColumns.map((item) => (
@@ -233,6 +417,24 @@ export default function DevelopersPage() {
                     </Row>
                 </section> */}
             </div>
+
+            <Modal
+                title={
+                    <div style={{ fontSize: '18px', fontWeight: 600 }}>
+                        {mainCard.name} - 详细系统信息
+                    </div>
+                }
+                open={detailModalVisible}
+                onCancel={() => setDetailModalVisible(false)}
+                footer={[
+                    <Button key="close" type="primary" onClick={() => setDetailModalVisible(false)}>
+                        关闭
+                    </Button>
+                ]}
+                width={900}
+            >
+                {renderDetailContent()}
+            </Modal>
         </PortalLayout>
     );
 }
