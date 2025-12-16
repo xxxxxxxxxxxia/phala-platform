@@ -2757,7 +2757,7 @@ fi`,
                       >
                         日志
                       </Button>
-                      {dashboardAvailable(vm) && (
+                      {/* {dashboardAvailable(vm) && (
                         <Button
                           type="text"
                           icon={<DashboardOutlined />}
@@ -2790,7 +2790,7 @@ fi`,
                         >
                           Dashboard
                         </Button>
-                      )}
+                      )} */}
                     </div>
                   </Card>
                 </Col>
@@ -3408,7 +3408,7 @@ fi`,
                     <Checkbox>KMS</Checkbox>
                   </Form.Item>
                 </Col>
-                <Col span={8}>
+                {/* <Col span={8}>
                   <Form.Item
                     name="local_key_provider_enabled"
                     valuePropName="checked"
@@ -3416,7 +3416,7 @@ fi`,
                   >
                     <Checkbox>本地密钥提供者</Checkbox>
                   </Form.Item>
-                </Col>
+                </Col> */}
                 <Col span={8}>
                   <Form.Item
                     name="gateway_enabled"
@@ -3449,7 +3449,7 @@ fi`,
                     <Checkbox>公开 TCB 信息</Checkbox>
                   </Form.Item>
                 </Col>
-                <Col span={8}>
+                {/* <Col span={8}>
                   <Form.Item name="pin_numa" valuePropName="checked" noStyle>
                     <Checkbox>NUMA 绑定</Checkbox>
                   </Form.Item>
@@ -3458,7 +3458,7 @@ fi`,
                   <Form.Item name="hugepages" valuePropName="checked" noStyle>
                     <Checkbox>Hugepages</Checkbox>
                   </Form.Item>
-                </Col>
+                </Col> */}
               </Row>
             </Form.Item>
           </div>
@@ -3521,13 +3521,13 @@ fi`,
                     >
                       <Input placeholder="如果要绑定到特定的密钥提供者，请输入密钥提供者 ID" />
                     </Form.Item>
-                    <Form.Item
+                    {/* <Form.Item
                       name={["docker_config", "enabled"]}
                       valuePropName="checked"
                       style={{ marginBottom: 16 }}
                     >
                       <Checkbox>Docker 镜像仓库登录</Checkbox>
-                    </Form.Item>
+                    </Form.Item> */}
                     {dockerConfigEnabled && (
                       <Row gutter={16}>
                         <Col span={12}>

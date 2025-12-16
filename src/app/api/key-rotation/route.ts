@@ -78,6 +78,36 @@ function saveContractRotationHistoryToFile(history: any[]) {
   }
 }
 
+// 更新所有旧历史记录的 endTime（将所有 endTime 为 null 的记录更新为 startTime + 30天）
+function updateAllOldHistoryEndTime(): void {
+  try {
+    const history = loadContractRotationHistoryFromFile();
+    let updated = false;
+    
+    const updatedHistory = history.map((record: any) => {
+      // 找到所有 endTime 为 null 的记录
+      if (record.endTime === null || record.endTime === undefined) {
+        updated = true;
+        // 计算 startTime + 30天
+        const startDate = new Date(record.startTime);
+        const endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+        return {
+          ...record,
+          endTime: endDate.toISOString()
+        };
+      }
+      return record;
+    });
+    
+    if (updated) {
+      saveContractRotationHistoryToFile(updatedHistory);
+      console.log('Updated endTime for all old records with null endTime');
+    }
+  } catch (error) {
+    console.error('Failed to update all old history endTime:', error);
+  }
+}
+
 // 从文件加载历史记录
 function loadRotationHistoryFromFile(): any[] {
   try {
@@ -1391,6 +1421,10 @@ export async function POST(request: NextRequest) {
         // 保存合约轮换历史
         const record = body.record;
         if (record) {
+          // 先更新所有旧记录的 endTime（不限于当前 contractId）
+          updateAllOldHistoryEndTime();
+          
+          // 然后保存新记录
           const history = loadContractRotationHistoryFromFile();
           history.push(record);
           saveContractRotationHistoryToFile(history);
@@ -1401,6 +1435,10 @@ export async function POST(request: NextRequest) {
         // 批量保存合约轮换历史
         const records = body.records;
         if (Array.isArray(records) && records.length > 0) {
+          // 先更新所有旧记录的 endTime（不限于当前要保存的 contractId）
+          updateAllOldHistoryEndTime();
+          
+          // 然后保存新记录
           const history = loadContractRotationHistoryFromFile();
           history.push(...records);
           saveContractRotationHistoryToFile(history);

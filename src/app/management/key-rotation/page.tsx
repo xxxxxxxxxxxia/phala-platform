@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Statistic, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Badge, Switch, Button, Modal, Input, Form, TimePicker, Flex, Collapse, Tooltip } from 'antd';
+import { Card, Row, Col, Statistic, Table, Tag, Progress, Alert, Spin, Typography, Space, Divider, Badge, Switch, Button, Modal, Input, Form, TimePicker, Flex, Collapse, Tooltip, message } from 'antd';
 import { KeyOutlined, LockOutlined, SecurityScanOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, SettingOutlined, HistoryOutlined, RotateLeftOutlined, DatabaseOutlined, FileTextOutlined, InfoCircleOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import MainLayout from '../../../components/layout/MainLayout';
 import AuthGuard from '../../../components/AuthGuard';
@@ -97,12 +97,29 @@ interface ContractInfo {
   hasKey: boolean;
 }
 
-interface KmsMetaInfo {
-  ip: string;
-  port: number;
-  caPubkey: string;
-  k256Pubkey: string;
+
+interface VMData {
+  id: string;
+  name: string;
+  status: string;
+  uptime?: string;
+  app_id?: string;
+  instance_id?: string;
+  configuration?: any;
+  appCompose?: any;
+  boot_progress?: string;
+  shutdown_progress?: boolean;
+  image_version?: string;
+  app_url?: string;
 }
+
+interface VMListResponse {
+  vms: VMData[];
+  total?: number;
+  port_mapping_enabled?: boolean;
+}
+
+type VMListItem = VMData & { displayName?: string };
 
 const initialRotationState: RotationState = {
   keys: [],
@@ -133,8 +150,7 @@ export default function KeyRotationPage() {
   const [form] = Form.useForm();
   const [clusterInfo, setClusterInfo] = useState<ClusterInfo[]>([]);
   const [clusterLoading, setClusterLoading] = useState(false);
-  const [kmsMeta, setKmsMeta] = useState<KmsMetaInfo | null>(null);
-  const [kmsMetaLoading, setKmsMetaLoading] = useState(false);
+
   const [kmsRotating, setKmsRotating] = useState(false);
   const [kmsRotationConfig, setKmsRotationConfig] = useState<KmsRotationConfig>(defaultKmsRotationConfig);
   const [rootKeyHistoryRaw, setRootKeyHistoryRaw] = useState<RootKeyHistoryResponse[]>([]);
@@ -160,6 +176,25 @@ export default function KeyRotationPage() {
     activeVersion?: number;
   } | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
+  // 系统密钥查询状态（独立的）
+  const [systemKeyModalVisible, setSystemKeyModalVisible] = useState(false);
+  const [systemKeyAppId, setSystemKeyAppId] = useState('');
+  const [systemKeyResult, setSystemKeyResult] = useState<{ 
+    contractKey?: string | null; 
+    hasKey: boolean; 
+    error?: string; 
+    data?: any; 
+    k256Pubkey?: string; 
+    caCert?: string;
+    current_key?: string | null;
+    currentKey?: string | null;
+    next_key?: string | null;
+    nextKey?: string | null;
+    currentVersion?: number;
+    nextVersion?: number;
+    activeVersion?: number;
+  } | null>(null);
+  const [systemKeyLoading, setSystemKeyLoading] = useState(false);
   const [rotatingContractId, setRotatingContractId] = useState<string | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedContractDetail, setSelectedContractDetail] = useState<{ contractId: string; clusterId: string; clusterKey: string | null } | null>(null);
@@ -171,28 +206,18 @@ export default function KeyRotationPage() {
   const [contractRotationHistoryModalVisible, setContractRotationHistoryModalVisible] = useState(false);
   const [contractRotationHistory, setContractRotationHistory] = useState<any[]>([]);
   const [contractRotationTimer, setContractRotationTimer] = useState<NodeJS.Timeout | null>(null);
+  
+  // VM 列表相关状态
+  const [vms, setVms] = useState<VMListItem[]>([]);
+  const [totalVMs, setTotalVMs] = useState(0);
+  const [vmLoading, setVmLoading] = useState(false);
+  const [bestHostIp, setBestHostIp] = useState<string>('');
+  
+  // VM 详情弹窗状态
+  const [vmDetailModalVisible, setVmDetailModalVisible] = useState(false);
+  const [selectedVM, setSelectedVM] = useState<VMListItem | null>(null);
 
-  const kmsAddress = kmsMeta ? `${kmsMeta.ip}:${kmsMeta.port}` : '';
-  const kmsKeyRows = kmsMeta
-    ? [
-        {
-          key: 'ca_pubkey',
-          name: 'CA Root',
-          value: kmsMeta.caPubkey,
-          keyType: '主密钥',
-          owner: kmsAddress,
-          algorithm: 'ECDSA P-256',
-        },
-        {
-          key: 'k256_pubkey',
-          name: 'K256 Root',
-          value: kmsMeta.k256Pubkey,
-          keyType: '主密钥',
-          owner: kmsAddress,
-          algorithm: 'secp256k1',
-        },
-      ]
-    : [];
+
 
   // 通知队列管理
   let notificationCount = 0;
@@ -342,31 +367,7 @@ export default function KeyRotationPage() {
     }
   };
 
-  const loadKmsMeta = async (showLoading = true) => {
-    if (showLoading) setKmsMetaLoading(true);
-    try {
-      const response = await fetch(`${KMS_API_BASE_URL}/api/kms/get-meta`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const result = await response.json();
-      if (result.success) {
-        setKmsMeta({
-          ip: result.ip,
-          port: result.port,
-          caPubkey: result.data?.ca_pubkey || '',
-          k256Pubkey: result.data?.k256_pubkey || '',
-        });
-      } else {
-        setKmsMeta(null);
-      }
-    } catch (error) {
-      console.error('Failed to load KMS meta info:', error);
-      setKmsMeta(null);
-    } finally {
-      if (showLoading) setKmsMetaLoading(false);
-    }
-  };
+
 
   const formatRootKeyHistory = useCallback((rawData: RootKeyHistoryResponse[]) => {
     if (!Array.isArray(rawData) || rawData.length === 0) {
@@ -446,7 +447,6 @@ export default function KeyRotationPage() {
     loadRotationState();
     loadRotationConfig();
     loadClusterKeys();
-    loadKmsMeta();
     loadKmsLocalData();
     loadRootKeyHistory();
     loadContractRotationHistory();
@@ -456,7 +456,6 @@ export default function KeyRotationPage() {
       loadRotationState(false); // 刷新密钥状态，不显示加载状态
       loadRotationConfig(); // 刷新历史记录
       loadClusterKeys(false); // 刷新集群密钥，不显示加载状态
-      loadKmsMeta(false); // 刷新KMS元信息
       loadRootKeyHistory(); // 刷新根密钥历史
       loadContractRotationHistory(); // 刷新合约轮换历史
     }, 60000); // 每60秒检查一次
@@ -621,7 +620,7 @@ export default function KeyRotationPage() {
       const result = await response.json().catch(() => ({}));
       if (response.ok && result.success !== false) {
         showCustomNotification('✅ 海光CSV主密钥轮换成功', 'success', 4000);
-        await loadKmsMeta();
+
         const now = Date.now();
         const updatedConfig = {
           ...kmsRotationConfig,
@@ -741,6 +740,202 @@ export default function KeyRotationPage() {
     }
   };
 
+  // 轮换所有密钥（系统密钥 + 合约密钥）
+  const handleRotateAllKeys = async (showNotification: boolean = true) => {
+    if (rotatingContractId) {
+      return; // 防止重复点击
+    }
+
+    setRotatingContractId('all-keys'); // 使用特殊标识
+    const operationStartTime = new Date().toISOString();
+    
+    try {
+      if (showNotification) {
+        showCustomNotification('正在轮换所有密钥（系统密钥 + 合约密钥）...', 'loading', 3000);
+      }
+
+      // 1. 收集所有需要轮换的密钥
+      const allContracts = clusterInfo.flatMap(cluster => cluster.contracts);
+      const allSystemKeys = vms.filter(vm => vm.app_id).map(vm => vm.app_id!);
+      
+      // 2. 获取所有旧密钥
+      const oldContractKeysMap = new Map<string, string>();
+      const oldSystemKeysMap = new Map<string, string>();
+      
+      // 获取合约旧密钥
+      for (const contract of allContracts) {
+        if (contract.contractId) {
+          try {
+            const queryResponse = await fetch('/api/key-rotation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'query-contract-key',
+                contractId: contract.contractId
+              })
+            });
+            const queryData = await queryResponse.json();
+            if (queryData.success && queryData.k256Pubkey) {
+              oldContractKeysMap.set(contract.contractId, queryData.k256Pubkey);
+            }
+          } catch (e) {
+            console.warn(`Failed to get old key for contract ${contract.contractId}:`, e);
+          }
+        }
+      }
+      
+      // 获取系统密钥旧密钥
+      for (const appId of allSystemKeys) {
+        try {
+          const queryResponse = await fetch('/api/key-rotation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'query-contract-key',
+              contractId: appId
+            })
+          });
+          const queryData = await queryResponse.json();
+          if (queryData.success && queryData.k256Pubkey) {
+            oldSystemKeysMap.set(appId, queryData.k256Pubkey);
+          }
+        } catch (e) {
+          console.warn(`Failed to get old key for system ${appId}:`, e);
+        }
+      }
+
+      // 3. 轮换根密钥（这会影响所有派生密钥）
+      const firstContractId = allContracts[0]?.contractId || allSystemKeys[0];
+      if (!firstContractId) {
+        throw new Error('No keys found to rotate');
+      }
+
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rotate-kms-root-key',
+          contractId: firstContractId
+        })
+      });
+
+      const data = await response.json();
+      // 成功时间：轮换成功完成的时间，作为新密钥的开始时间
+      const successTime = new Date().toISOString();
+      
+      if (data.success) {
+        const historyRecords: any[] = [];
+        
+        // 4. 获取所有合约的新密钥并保存历史
+        for (const contract of allContracts) {
+          if (contract.contractId) {
+            try {
+              const queryResponse = await fetch('/api/key-rotation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'query-contract-key',
+                  contractId: contract.contractId
+                })
+              });
+              const queryData = await queryResponse.json();
+              
+              if (queryData.success && queryData.k256Pubkey) {
+                const oldKey = oldContractKeysMap.get(contract.contractId) || '';
+                const newKey = queryData.k256Pubkey;
+                
+                // 只保存一条历史记录
+                historyRecords.push({
+                  contractId: contract.contractId,
+                  oldKey: oldKey,
+                  newKey: newKey,
+                  startTime: successTime,
+                  endTime: null, // 新密钥的结束时间为 null，显示为 "-"
+                  keyType: 'contract'
+                });
+              }
+            } catch (e) {
+              console.error(`Failed to get new key for contract ${contract.contractId}:`, e);
+            }
+          }
+        }
+        
+        // 5. 获取所有系统密钥的新密钥并保存历史
+        for (const appId of allSystemKeys) {
+          try {
+            const queryResponse = await fetch('/api/key-rotation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'query-contract-key',
+                contractId: appId
+              })
+            });
+            const queryData = await queryResponse.json();
+            
+            if (queryData.success && queryData.k256Pubkey) {
+              const oldKey = oldSystemKeysMap.get(appId) || '';
+              const newKey = queryData.k256Pubkey;
+              
+              // 只保存一条历史记录
+              historyRecords.push({
+                contractId: appId,
+                oldKey: oldKey,
+                newKey: newKey,
+                startTime: successTime,
+                endTime: null, // 新密钥的结束时间为 null，显示为 "-"
+                keyType: 'system'
+              });
+            }
+          } catch (e) {
+            console.error(`Failed to get new key for system ${appId}:`, e);
+          }
+        }
+
+        // 6. 批量保存历史记录
+        if (historyRecords.length > 0) {
+          try {
+            await fetch('/api/key-rotation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'save-batch-contract-rotation-history',
+                records: historyRecords
+              })
+            });
+            await loadContractRotationHistory();
+          } catch (e) {
+            console.error('Failed to save rotation history:', e);
+          }
+        }
+
+        if (showNotification) {
+          const contractCount = allContracts.length;
+          const systemCount = allSystemKeys.length;
+          showCustomNotification(
+            `✅ 密钥轮换成功！\n合约密钥: ${contractCount}个\n系统密钥: ${systemCount}个`, 
+            'success', 
+            5000
+          );
+        }
+        
+        // 刷新数据
+        await loadClusterKeys(false);
+        await loadVMList();
+      } else {
+        if (showNotification) {
+          showCustomNotification(`❌ 轮换失败: ${data.error || '未知错误'}`, 'error', 5000);
+        }
+      }
+    } catch (error: any) {
+      if (showNotification) {
+        showCustomNotification(`❌ 轮换异常: ${error.message}`, 'error', 5000);
+      }
+    } finally {
+      setRotatingContractId(null);
+    }
+  };
+
   // 轮换所有合约的密钥（轮换根密钥）
   const handleRotateAllContracts = async (showNotification: boolean = true) => {
     if (rotatingContractId) {
@@ -757,7 +952,7 @@ export default function KeyRotationPage() {
     }
 
     setRotatingContractId('all'); // 使用特殊标识表示正在轮换所有合约
-    const startTime = new Date().toISOString();
+    const operationStartTime = new Date().toISOString();
     
     try {
       if (showNotification) {
@@ -803,7 +998,7 @@ export default function KeyRotationPage() {
       });
 
       const data = await response.json();
-      const endTime = new Date().toISOString();
+      const successTime = new Date().toISOString();
       
       if (data.success) {
         // 为每个合约获取新密钥并保存历史
@@ -827,12 +1022,14 @@ export default function KeyRotationPage() {
                 const oldKey = oldKeysMap.get(contract.contractId) || '';
                 const newKey = queryData.k256Pubkey;
                 
+                // 只保存一条历史记录
                 historyRecords.push({
                   contractId: contract.contractId,
                   oldKey: oldKey,
                   newKey: newKey,
-                  startTime: startTime,
-                  endTime: endTime
+                  startTime: successTime,
+                  endTime: null, // 新密钥的结束时间为 null，显示为 "-"
+                  keyType: 'contract' // 标记为合约密钥
                 });
               }
             } catch (e) {
@@ -886,7 +1083,7 @@ export default function KeyRotationPage() {
     }
 
     setRotatingContractId(contractId);
-    const startTime = new Date().toISOString();
+    const operationStartTime = new Date().toISOString();
     let oldKey = '';
     
     try {
@@ -922,13 +1119,14 @@ export default function KeyRotationPage() {
       });
 
       const data = await response.json();
-      const endTime = new Date().toISOString();
+      const successTime = new Date().toISOString();
       
       if (data.success) {
         const newKey = data.k256Pubkey || '';
         
         // 保存轮换历史
         try {
+          // 只保存一条历史记录
           await fetch('/api/key-rotation', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -938,8 +1136,9 @@ export default function KeyRotationPage() {
                 contractId: contractId,
                 oldKey: oldKey,
                 newKey: newKey,
-                startTime: startTime,
-                endTime: endTime
+                startTime: successTime,
+                endTime: null, // 新密钥的结束时间为 null，显示为 "-"
+                keyType: 'contract' // 标记为合约密钥
               }
             })
           });
@@ -970,13 +1169,164 @@ export default function KeyRotationPage() {
     }
   };
 
-  // 打开查询Modal并自动查询
+  // 打开查询Modal并自动查询（合约密钥）
   const openQueryModal = (contractId: string) => {
     setQueryContractId(contractId);
     setQueryResult(null);
     setQueryModalVisible(true);
     // 自动执行查询
     handleQueryContractKey(contractId);
+  };
+
+  // 为应用ID打开查询Modal并自动查询（系统密钥）
+  const openQueryModalForApp = async (appId: string) => {
+    setSystemKeyAppId(appId);
+    setSystemKeyResult(null);
+    setSystemKeyModalVisible(true);
+    // 自动执行查询
+    setSystemKeyLoading(true);
+    try {
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'query-contract-key',
+          contractId: appId
+        })
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setSystemKeyResult({
+          contractKey: data.current_key || data.currentKey || data.contractKey || data.k256Pubkey || null,
+          hasKey: data.hasKey || !!data.current_key,
+          k256Pubkey: data.current_key || data.k256Pubkey,
+          caCert: data.caCert,
+          data: data.data,
+          current_key: data.current_key || data.currentKey || null,
+          currentKey: data.current_key || data.currentKey || null,
+          next_key: data.next_key || data.nextKey || null,
+          nextKey: data.next_key || data.nextKey || null,
+          currentVersion: data.currentVersion,
+          nextVersion: data.nextVersion,
+          activeVersion: data.activeVersion
+        });
+        if (data.hasKey || data.current_key) {
+          showCustomNotification('查询成功', 'success', 3000);
+        } else {
+          showCustomNotification(data.message || '未找到密钥信息', 'warning', 3000);
+        }
+      } else {
+        setSystemKeyResult({
+          contractKey: null,
+          hasKey: false,
+          error: data.error || '查询失败'
+        });
+        showCustomNotification(`查询失败: ${data.error || '未知错误'}`, 'error', 4000);
+      }
+    } catch (error: any) {
+      setSystemKeyResult({
+        contractKey: null,
+        hasKey: false,
+        error: error.message || '查询异常'
+      });
+      showCustomNotification(`查询异常: ${error.message}`, 'error', 4000);
+    } finally {
+      setSystemKeyLoading(false);
+    }
+  };
+
+  // 轮换系统密钥（应用密钥）
+  const handleRotateSystemKey = async (appId: string, showNotification: boolean = true) => {
+    if (rotatingContractId) {
+      return; // 防止重复点击
+    }
+
+    setRotatingContractId(appId);
+    const operationStartTime = new Date().toISOString();
+    
+    try {
+      // 先获取旧密钥
+      let oldKey = '';
+      try {
+        const queryResponse = await fetch('/api/key-rotation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'query-contract-key',
+            contractId: appId
+          })
+        });
+        const queryData = await queryResponse.json();
+        if (queryData.success && queryData.k256Pubkey) {
+          oldKey = queryData.k256Pubkey;
+        }
+      } catch (e) {
+        console.warn('Failed to get old key before rotation:', e);
+      }
+
+      if (showNotification) {
+        showCustomNotification('正在轮换系统密钥...', 'loading', 2000);
+      }
+      
+      const response = await fetch('/api/key-rotation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'rotate-kms-root-key',
+          contractId: appId
+        })
+      });
+
+      const data = await response.json();
+      const successTime = new Date().toISOString();
+      
+      if (data.success) {
+        const newKey = data.k256Pubkey || '';
+        
+        // 保存系统密钥轮换历史
+        try {
+          // 只保存一条历史记录
+          await fetch('/api/key-rotation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'save-contract-rotation-history',
+              record: {
+                contractId: appId,
+                oldKey: oldKey,
+                newKey: newKey,
+                startTime: successTime,
+                endTime: null, // 新密钥的结束时间为 null，显示为 "-"
+                keyType: 'system' // 标记为系统密钥
+              }
+            })
+          });
+          // 刷新历史记录
+          await loadContractRotationHistory();
+        } catch (e) {
+          console.error('Failed to save system key rotation history:', e);
+        }
+
+        if (showNotification) {
+          showCustomNotification('✅ 系统密钥轮换成功', 'success', 4000);
+        }
+        // 轮换成功后，自动刷新查询结果
+        if (systemKeyModalVisible && systemKeyAppId === appId) {
+          await openQueryModalForApp(appId);
+        }
+      } else {
+        if (showNotification) {
+          showCustomNotification(`❌ 轮换失败: ${data.error || '未知错误'}`, 'error', 5000);
+        }
+      }
+    } catch (error: any) {
+      if (showNotification) {
+        showCustomNotification(`❌ 轮换异常: ${error.message}`, 'error', 5000);
+      }
+    } finally {
+      setRotatingContractId(null);
+    }
   };
 
   // 更新单个密钥的详细信息
@@ -996,6 +1346,135 @@ export default function KeyRotationPage() {
     if (!key) return '-';
     if (key.length <= 32) return key;
     return `${key.slice(0, 16)}...${key.slice(-8)}`;
+  };
+
+  // 加载 VM 列表
+  const loadVMList = useCallback(async () => {
+    if (!bestHostIp) {
+      console.log('没有 bestHostIp，跳过加载 VM 列表');
+      return;
+    }
+    
+    console.log('开始加载 VM 列表，bestHostIp:', bestHostIp);
+    setVmLoading(true);
+    try {
+      const port = "9210";
+      const proxyUrl = `/api/vm-rpc?host=${encodeURIComponent(
+        bestHostIp
+      )}&method=${encodeURIComponent('Status')}&port=${encodeURIComponent(port)}`;
+
+      const response = await fetch(proxyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          brief: false,
+          keyword: "",
+          page: 1,
+          page_size: 50,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error);
+      }
+
+      const data: VMListResponse = await response.json();
+      console.log('获取到 VM 数据:', data);
+      
+      const enrichedVms =
+        data.vms?.map((vm) => {
+          // 获取 Compose 显示名称
+          let displayName = vm.name;
+          const composeSource = vm.configuration?.compose_file;
+          if (composeSource) {
+            try {
+              if (typeof composeSource === "string") {
+                const parsed = JSON.parse(composeSource);
+                displayName = parsed?.name || vm.name;
+              } else if (typeof composeSource === "object") {
+                displayName = (composeSource as any)?.name || vm.name;
+              }
+            } catch (error) {
+              console.error("Failed to parse compose_file for VM:", vm.id, error);
+            }
+          }
+          
+          return {
+            ...vm,
+            displayName,
+          };
+        }) || [];
+      
+      setVms(enrichedVms);
+      setTotalVMs(data.total || data.vms?.length || 0);
+      console.log('设置 VM 数据成功，总数:', data.total || data.vms?.length || 0);
+    } catch (error) {
+      console.error("Error loading VM list:", error);
+    } finally {
+      setVmLoading(false);
+    }
+  }, [bestHostIp]);
+
+
+
+  // 从 localStorage 读取 bestHostIp
+  useEffect(() => {
+    const storedBestHostIp = localStorage.getItem("bestHostIp");
+    if (storedBestHostIp) {
+      setBestHostIp(storedBestHostIp);
+    }
+  }, []);
+
+  // 当 bestHostIp 变化时，加载 VM 列表
+  useEffect(() => {
+    if (bestHostIp) {
+      loadVMList(); // 只要有 bestHostIp 就自动加载
+    }
+  }, [bestHostIp, loadVMList]);
+
+  // 获取 VM 状态
+  const getVMStatus = (vm: VMData): string => {
+    const status = vm.status?.toLowerCase() || "";
+    if (status !== "running") {
+      return status;
+    }
+    if (vm.shutdown_progress) {
+      return "shutting down";
+    }
+    if (vm.boot_progress === "running") {
+      return "running";
+    }
+    if (vm.boot_progress && vm.boot_progress !== "done") {
+      return "booting";
+    }
+    return "running";
+  };
+
+  // 获取状态标签颜色
+  const getStatusTagColor = (status: string) => {
+    const normalizedStatus = status.toLowerCase();
+    switch (normalizedStatus) {
+      case "running":
+        return "success";
+      case "booting":
+        return "processing";
+      case "shutting down":
+        return "warning";
+      case "stopped":
+      case "exited":
+        return "default";
+      default:
+        return "default";
+    }
+  };
+
+  // 打开 VM 详情弹窗
+  const showVMDetail = (vm: VMListItem) => {
+    setSelectedVM(vm);
+    setVmDetailModalVisible(true);
   };
 
   const renderKeyDetails = (keyData: RootKeyInfo | null) => {
@@ -1179,16 +1658,16 @@ export default function KeyRotationPage() {
                 <SyncOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
                 <Title level={5} style={{ marginTop: '8px' }}>自动轮换</Title>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  当达到配置的时间间隔或手动触发时，会轮换根密钥，然后为每个合约重新派生密钥
+                  当达到配置的时间间隔或手动触发时，会轮换根密钥，然后为每个合约或系统重新派生密钥
                 </Text>
               </div>
             </Col>
             <Col xs={24} md={8}>
               <div style={{ textAlign: 'center' }}>
                 <SecurityScanOutlined style={{ fontSize: '24px', color: '#52c41a' }} />
-                <Title level={5} style={{ marginTop: '8px' }}>前向安全</Title>
+                <Title level={5} style={{ marginTop: '8px' }}>迁移保护</Title>
                 <Text type="secondary" style={{ fontSize: '12px' }}>
-                  新的派生密钥激活后，旧密钥即停止使用，保证历史数据不会被新密钥解密
+                  新的派生密钥激活后，旧密钥有30天的宽限期，使用户有充足的时间完成数据迁移
                 </Text>
               </div>
             </Col>
@@ -1259,7 +1738,7 @@ export default function KeyRotationPage() {
             <Button
               type="primary"
               icon={<RotateLeftOutlined />}
-              onClick={() => handleRotateAllContracts(true)}
+              onClick={() => handleRotateAllKeys(true)}
               loading={rotatingContractId !== null}
               disabled={rotatingContractId !== null || contractAutoRotation}
             >
@@ -1301,84 +1780,480 @@ export default function KeyRotationPage() {
           style={{ marginTop: '24px', marginBottom: '24px' }}
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>国产海光 CSV-密钥管理列表 </span>
+              <span>国产海光 CSV-密钥管理列表</span>
             </div>
           }
           extra={
             <Space size="middle">
-              <Button type="link" onClick={() => loadKmsMeta()} style={{ padding: 0 }}>
+              <Button 
+                type="link" 
+                icon={<SyncOutlined />}
+                onClick={loadVMList}
+                loading={vmLoading}
+                style={{ padding: 0 }}
+              >
                 刷新
               </Button>
             </Space>
           }
         >
-          <Spin spinning={kmsMetaLoading}>
-            {kmsMeta ? (
-              <Table
-                dataSource={kmsKeyRows}
-                rowKey="key"
-                pagination={false}
-                size="small"
-                columns={[
-                  {
-                    title: '密钥名称',
-                    dataIndex: 'name',
-                    key: 'name',
-                    width: 100,
-                    render: (text: string) => <Text style={{ fontSize: '11px' }}>{text}</Text>,
-                  },
-                  {
-                    title: '公钥',
-                    dataIndex: 'value',
-                    key: 'value',
-                    width: 100,
-                    render: (text: string) => (
-                      <Text
-                        copyable={{ text }}
-                        ellipsis={{ tooltip: text }}
-                        style={{ fontSize: '11px', fontFamily: 'monospace', display: 'inline-block', maxWidth: '100%' }}
-                      >
-                        {text}
-                      </Text>
-                    ),
-                  },
-                  {
-                    title: '密钥类型',
-                    dataIndex: 'keyType',
-                    key: 'keyType',
-                    width: 120,
-                    render: (text: string) => <Tag color="blue" style={{ fontSize: '11px' }}>{text}</Tag>,
-                  },
-                  {
-                    title: '所有者',
-                    dataIndex: 'owner',
-                    key: 'owner',
-                    width: 160,
-                    render: (text: string) => (
-                      <Text copyable={{ text }} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-                        {text}
-                      </Text>
-                    ),
-                  },
-                  {
-                    title: '算法',
-                    dataIndex: 'algorithm',
-                    key: 'algorithm',
-                    width: 120,
-                    render: (text: string) => <Text style={{ fontSize: '11px' }}>{text}</Text>,
-                  },
-                ]}
-              />
-            ) : (
-              <Alert
-                message="暂未获取到 KMS 元信息"
-                description="请检查 KMS 服务是否可用，或稍后重试。"
-                type="warning"
-                showIcon
-              />
-            )}
+          <Spin spinning={vmLoading}>
+            {
+              // VM 列表
+              vms.length > 0 ? (
+                <>
+                  <Table
+                    dataSource={vms}
+                    rowKey="id"
+                    pagination={{ 
+                      pageSize: 10, 
+                      showSizeChanger: true,
+                      showTotal: (total) => `总计 ${total} 条`,
+                    }}
+                    size="small"
+                    columns={[
+                      {
+                        title: '序号',
+                        key: 'index',
+                        width: 60,
+                        // align: 'center',
+                        render: (text: string, record: VMListItem, index: number) => (
+                          <Text strong style={{ fontSize: '12px', color: '#dadbdd' }}>
+                            #{index + 1}
+                          </Text>
+                        ),
+                      },
+                      {
+                        title: '应用名称',
+                        dataIndex: 'displayName',
+                        key: 'displayName',
+                        width: 180,
+                        render: (text: string, record: VMListItem) => (
+                          <Text strong style={{ fontSize: '12px' }}>
+                            {text || record.name || '虚拟机'}
+                          </Text>
+                        ),
+                      },
+                      {
+                        title: '状态',
+                        dataIndex: 'status',
+                        key: 'status',
+                        width: 120,
+                        render: (text: string, record: VMListItem) => {
+                          const status = getVMStatus(record);
+                          return (
+                            <Tag color={getStatusTagColor(status)} style={{ fontSize: '11px' }}>
+                              {status.toUpperCase()}
+                            </Tag>
+                          );
+                        },
+                      },
+                      {
+                        title: '虚拟机 ID',
+                        dataIndex: 'id',
+                        key: 'id',
+                        width: 200,
+                        render: (text: string) => (
+                          <Text 
+                            copyable={{ text }}
+                            ellipsis={{ tooltip: text }}
+                            style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                          >
+                            {text}
+                          </Text>
+                        ),
+                      },
+                      {
+                        title: '应用 ID',
+                        dataIndex: 'app_id',
+                        key: 'app_id',
+                        width: 180,
+                        render: (text: string) => (
+                          text ? (
+                            <Text 
+                              copyable={{ text }}
+                              ellipsis={{ tooltip: text }}
+                              style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                            >
+                              {text}
+                            </Text>
+                          ) : (
+                            <Text type="secondary" style={{ fontSize: '11px' }}>-</Text>
+                          )
+                        ),
+                      },
+                      {
+                        title: '系统密钥',
+                        key: 'system_key',
+                        width: 200,
+                        align: 'center',
+                        render: (text: string, record: VMListItem) => (
+                          <Space size="small">
+                            {record.app_id ? (
+                              <Button 
+                                type="link" 
+                                size="small"
+                                icon={<EyeOutlined />}
+                                onClick={() => openQueryModalForApp(record.app_id!)}
+                                style={{ fontSize: '13px' }}
+                              >
+                                查看密钥
+                              </Button>
+                            ) : (
+                              <Text type="secondary" style={{ fontSize: '11px' }}>无应用ID</Text>
+                            )}
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: '更多信息',
+                        key: 'more_info',
+                        width: 100,
+                        align: 'center',
+                        render: (text: string, record: VMListItem) => (
+                          <Button 
+                            type="link" 
+                            size="small"
+                            icon={<InfoCircleOutlined />}
+                            onClick={() => showVMDetail(record)}
+                            style={{ fontSize: '13px' }}
+                          >
+                            详情
+                          </Button>
+                        ),
+                      },
+                    ]}
+                  />
+                </>
+              ) : (
+                <Alert
+                  message="暂无可信应用数据"
+                  description={bestHostIp ? '当前没有找到可信应用实例。' : '请先设置最佳主机 IP（从 localStorage 读取 bestHostIp）。'}
+                  type="info"
+                  showIcon
+                />
+              )
+            }
           </Spin>
         </Card>
+
+        {/* VM 详情弹窗 */}
+        <Modal
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <InfoCircleOutlined style={{ color: '#1890ff', fontSize: '20px' }} />
+              <span style={{ fontSize: '16px', fontWeight: 600 }}>详细信息</span>
+            </div>
+          }
+          open={vmDetailModalVisible}
+          onCancel={() => setVmDetailModalVisible(false)}
+          footer={[
+            <Button 
+              key="close" 
+              type="primary" 
+              onClick={() => setVmDetailModalVisible(false)}
+              style={{ borderRadius: '6px' }}
+            >
+              关闭
+            </Button>,
+          ]}
+          width={800}
+          style={{ top: 40 }}
+          bodyStyle={{ padding: '24px' }}
+        >
+          {selectedVM && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* 基本信息卡片 */}
+              <div style={{ 
+                background: '#1d3557', 
+                borderRadius: '12px', 
+                padding: '20px',
+                boxShadow: '0 4px 12px rgba(29, 53, 87, 0.3)'
+              }}>
+                <div style={{ 
+                  fontSize: '13px', 
+                  color: 'rgba(255, 255, 255, 0.9)', 
+                  marginBottom: '12px',
+                  fontWeight: 500,
+                  letterSpacing: '0.5px'
+                }}>
+                  基本信息
+                </div>
+                <Row gutter={[24, 16]}>
+                  <Col span={12}>
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.15)', 
+                      backdropFilter: 'blur(10px)',
+                      padding: '12px 16px', 
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.2)'
+                    }}>
+                      <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.85)', marginBottom: '6px' }}>
+                        应用名称
+                      </div>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: 600 }}>
+                        {selectedVM.displayName || selectedVM.name || '虚拟机'}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.15)', 
+                      backdropFilter: 'blur(10px)',
+                      padding: '12px 16px', 
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.2)'
+                    }}>
+                      <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.85)', marginBottom: '6px' }}>
+                        状态
+                      </div>
+                      <Tag 
+                        color={getStatusTagColor(getVMStatus(selectedVM))} 
+                        style={{ 
+                          fontSize: '12px',
+                          padding: '4px 12px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          fontWeight: 600
+                        }}
+                      >
+                        {getVMStatus(selectedVM).toUpperCase()}
+                      </Tag>
+                    </div>
+                  </Col>
+                </Row>
+              </div>
+              
+              {/* 识别信息卡片 */}
+              <div style={{ 
+                background: '#1a1f2e', 
+                borderRadius: '12px', 
+                padding: '20px',
+                border: '1px solid #2d3748'
+              }}>
+                <div style={{ 
+                  fontSize: '13px', 
+                  color: '#e0e7ff', 
+                  marginBottom: '16px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span style={{ 
+                    width: '4px', 
+                    height: '14px', 
+                    background: '#457b9d',
+                    borderRadius: '2px'
+                  }} />
+                  识别信息
+                </div>
+                <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                  <div style={{ 
+                    background: '#2d3748',
+                    padding: '14px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #4a5568',
+                    transition: 'all 0.3s ease'
+                  }}>
+                    <div style={{ fontSize: '12px', color: '#a0aec0', marginBottom: '8px', fontWeight: 500 }}>
+                      VM ID
+                    </div>
+                    <Text 
+                      copyable={{ 
+                        text: selectedVM.id,
+                        tooltips: ['复制', '已复制!'],
+                      }}
+                      style={{ 
+                        fontSize: '13px', 
+                        fontFamily: 'Monaco, Consolas, monospace', 
+                        color: '#e2e8f0',
+                        wordBreak: 'break-all',
+                        lineHeight: '1.6'
+                      }}
+                    >
+                      {selectedVM.id}
+                    </Text>
+                  </div>
+                  
+                  {selectedVM.app_id && (
+                    <div style={{ 
+                      background: '#2d3748',
+                      padding: '14px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid #4a5568',
+                      transition: 'all 0.3s ease'
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#a0aec0', marginBottom: '8px', fontWeight: 500 }}>
+                        App ID
+                      </div>
+                      <Text 
+                        copyable={{ 
+                          text: selectedVM.app_id,
+                          tooltips: ['复制', '已复制!'],
+                        }}
+                        style={{ 
+                          fontSize: '13px', 
+                          fontFamily: 'Monaco, Consolas, monospace', 
+                          color: '#e2e8f0',
+                          wordBreak: 'break-all',
+                          lineHeight: '1.6'
+                        }}
+                      >
+                        {selectedVM.app_id}
+                      </Text>
+                    </div>
+                  )}
+                  
+                  {selectedVM.instance_id && (
+                    <div style={{ 
+                      background: '#2d3748',
+                      padding: '14px 16px',
+                      borderRadius: '8px',
+                      border: '1px solid #4a5568',
+                      transition: 'all 0.3s ease'
+                    }}>
+                      <div style={{ fontSize: '12px', color: '#a0aec0', marginBottom: '8px', fontWeight: 500 }}>
+                        Instance ID
+                      </div>
+                      <Text 
+                        copyable={{ 
+                          text: selectedVM.instance_id,
+                          tooltips: ['复制', '已复制!'],
+                        }}
+                        style={{ 
+                          fontSize: '13px', 
+                          fontFamily: 'Monaco, Consolas, monospace', 
+                          color: '#e2e8f0',
+                          wordBreak: 'break-all',
+                          lineHeight: '1.6'
+                        }}
+                      >
+                        {selectedVM.instance_id}
+                      </Text>
+                    </div>
+                  )}
+                </Space>
+              </div>
+              
+              {/* 运行信息卡片 */}
+              <div style={{ 
+                background: '#2f4f4f', 
+                borderRadius: '12px', 
+                padding: '20px',
+                boxShadow: '0 4px 12px rgba(47, 79, 79, 0.3)'
+              }}>
+                <div style={{ 
+                  fontSize: '13px', 
+                  color: 'rgba(255, 255, 255, 0.9)', 
+                  marginBottom: '12px',
+                  fontWeight: 500,
+                  letterSpacing: '0.5px'
+                }}>
+                  运行信息
+                </div>
+                <Row gutter={[24, 16]}>
+                  <Col span={12}>
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.15)', 
+                      backdropFilter: 'blur(10px)',
+                      padding: '12px 16px', 
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.2)'
+                    }}>
+                      <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.85)', marginBottom: '6px' }}>
+                        运行时长
+                      </div>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: 600 }}>
+                        {selectedVM.uptime || '-'}
+                      </div>
+                    </div>
+                  </Col>
+                  <Col span={12}>
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.15)', 
+                      backdropFilter: 'blur(10px)',
+                      padding: '12px 16px', 
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.2)'
+                    }}>
+                      <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.85)', marginBottom: '6px' }}>
+                        镜像版本
+                      </div>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: 600 }}>
+                        {selectedVM.image_version || '-'}
+                      </div>
+                    </div>
+                  </Col>
+                </Row>
+              </div>
+              
+              {/* 访问地址卡片 */}
+              {selectedVM.app_url && (
+                <div style={{ 
+                  background: '#1a1f2e', 
+                  borderRadius: '12px', 
+                  padding: '20px',
+                  border: '1px solid #2d3748'
+                }}>
+                  <div style={{ 
+                    fontSize: '13px', 
+                    color: '#e0e7ff', 
+                    marginBottom: '12px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <span style={{ 
+                      width: '4px', 
+                      height: '14px', 
+                      background: '#457b9d',
+                      borderRadius: '2px'
+                    }} />
+                    访问地址
+                  </div>
+                  <div style={{ 
+                    background: '#2d3748',
+                    padding: '14px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #4a5568'
+                  }}>
+                    <div style={{ fontSize: '12px', color: '#a0aec0', marginBottom: '8px', fontWeight: 500 }}>
+                      Dashboard URL
+                    </div>
+                    <a 
+                      href={selectedVM.app_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ 
+                        color: '#60a5fa', 
+                        fontSize: '13px',
+                        textDecoration: 'none',
+                        wordBreak: 'break-all',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = '#93c5fd';
+                        e.currentTarget.style.textDecoration = 'underline';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = '#60a5fa';
+                        e.currentTarget.style.textDecoration = 'none';
+                      }}
+                    >
+                      {selectedVM.app_url}
+                      <span style={{ fontSize: '12px' }}>↗</span>
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
 
         {/* 密钥列表 - Worker密钥（可隐藏） */}
         {showWorkerKeys && (
@@ -1787,7 +2662,7 @@ export default function KeyRotationPage() {
 
         {/* 查询合约密钥模态框 */}
         <Modal
-          title="合约密钥查询结果"
+          title="查询结果 - 合约密钥"
           open={queryModalVisible}
           onCancel={() => {
             setQueryModalVisible(false);
@@ -1804,13 +2679,11 @@ export default function KeyRotationPage() {
             </div>
           ) : queryResult ? (
             <div style={{ 
-              padding: '20px', 
-              background: '#001529',
-              borderRadius: '8px',
-              border: '1px solid #434343',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+              padding: '16px', 
+              background: '#0a1929',
+              borderRadius: '6px',
+              border: '1px solid #1e3a5f'
             }}>
-              <Title level={5} style={{ marginBottom: '16px', color: 'rgba(255, 255, 255, 0.85)' }}>查询结果</Title>
               {queryResult.error ? (
                 <Alert
                   message="查询失败"
@@ -1819,33 +2692,42 @@ export default function KeyRotationPage() {
                   showIcon
                 />
               ) : queryResult.hasKey && (queryResult.current_key || queryResult.contractKey) ? (
-                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <Space direction="vertical" style={{ width: '100%' }} size="large">
                   <div>
-                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                    <Text type="secondary" style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)', fontWeight: 500 }}>
                       合约地址
                     </Text>
-                    <Text copyable={{ text: queryContractId }} style={{ fontSize: '12px', fontFamily: 'monospace', color: 'rgba(255, 255, 255, 0.85)' }}>
+                    <Text 
+                      copyable={{ text: queryContractId }} 
+                      style={{ 
+                        fontSize: '13px', 
+                        fontFamily: 'monospace', 
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        wordBreak: 'break-all'
+                      }}
+                    >
                       {queryContractId}
                     </Text>
                   </div>
 
                   {/* 当前合约公钥 */}
                   <div>
-                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                    <Text type="secondary" style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)', fontWeight: 500 }}>
                       当前合约公钥
                     </Text>
                     <Text 
                       copyable={{ text: queryResult.current_key || queryResult.currentKey || queryResult.contractKey || queryResult.k256Pubkey || '' }} 
                       style={{ 
-                        fontSize: '12px', 
+                        fontSize: '13px', 
                         fontFamily: 'monospace', 
                         color: '#52c41a',
                         wordBreak: 'break-all',
                         display: 'block',
-                        padding: '8px 12px',
-                        background: 'rgba(82, 196, 26, 0.1)',
-                        borderRadius: '4px',
-                        border: '1px solid rgba(82, 196, 26, 0.3)'
+                        padding: '10px 14px',
+                        background: 'rgba(82, 196, 26, 0.08)',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(82, 196, 26, 0.25)',
+                        lineHeight: '1.6'
                       }}
                     >
                       {queryResult.current_key || queryResult.currentKey || queryResult.contractKey || queryResult.k256Pubkey || '未找到'}
@@ -1854,22 +2736,23 @@ export default function KeyRotationPage() {
 
                   {/* 下一次轮换的合约公钥 */}
                   <div>
-                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                    <Text type="secondary" style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)', fontWeight: 500 }}>
                       下一次轮换的合约公钥
                     </Text>
                     {queryResult.next_key || queryResult.nextKey ? (
                       <Text 
                         copyable={{ text: queryResult.next_key || queryResult.nextKey || '' }} 
                         style={{ 
-                          fontSize: '12px', 
+                          fontSize: '13px', 
                           fontFamily: 'monospace', 
                           color: '#1890ff',
                           wordBreak: 'break-all',
                           display: 'block',
-                          padding: '8px 12px',
-                          background: 'rgba(24, 144, 255, 0.1)',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(24, 144, 255, 0.3)'
+                          padding: '10px 14px',
+                          background: 'rgba(24, 144, 255, 0.08)',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(24, 144, 255, 0.25)',
+                          lineHeight: '1.6'
                         }}
                       >
                         {queryResult.next_key || queryResult.nextKey || ''}
@@ -1889,6 +2772,137 @@ export default function KeyRotationPage() {
                 <Alert
                   message="未找到密钥"
                   description="该合约地址对应的密钥尚未生成或不存在"
+                  type="warning"
+                  showIcon
+                />
+              )}
+            </div>
+          ) : null}
+        </Modal>
+
+        {/* 查询系统密钥模态框 */}
+        <Modal
+          title="查询结果 - 系统密钥"
+          open={systemKeyModalVisible}
+          onCancel={() => {
+            setSystemKeyModalVisible(false);
+            setSystemKeyAppId('');
+            setSystemKeyResult(null);
+          }}
+          footer={[
+            <Button
+              key="close"
+              onClick={() => {
+                setSystemKeyModalVisible(false);
+                setSystemKeyAppId('');
+                setSystemKeyResult(null);
+              }}
+            >
+              关闭
+            </Button>
+          ]}
+          width={600}
+        >
+          {systemKeyLoading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Spin size="large" />
+              <div style={{ marginTop: '16px', color: 'rgba(255, 255, 255, 0.65)' }}>正在查询...</div>
+            </div>
+          ) : systemKeyResult ? (
+            <div style={{ 
+              padding: '16px', 
+              background: '#0a1929',
+              borderRadius: '6px',
+              border: '1px solid #1e3a5f'
+            }}>
+              {systemKeyResult.error ? (
+                <Alert
+                  message="查询失败"
+                  description={systemKeyResult.error}
+                  type="error"
+                  showIcon
+                />
+              ) : systemKeyResult.hasKey && (systemKeyResult.current_key || systemKeyResult.contractKey) ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="large">
+                  <div>
+                    <Text type="secondary" style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)', fontWeight: 500 }}>
+                      应用ID
+                    </Text>
+                    <Text 
+                      copyable={{ text: systemKeyAppId }} 
+                      style={{ 
+                        fontSize: '13px', 
+                        fontFamily: 'monospace', 
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        wordBreak: 'break-all'
+                      }}
+                    >
+                      {systemKeyAppId}
+                    </Text>
+                  </div>
+
+                  {/* 当前系统公钥 */}
+                  <div>
+                    <Text type="secondary" style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)', fontWeight: 500 }}>
+                      当前系统公钥
+                    </Text>
+                    <Text 
+                      copyable={{ text: systemKeyResult.current_key || systemKeyResult.currentKey || systemKeyResult.contractKey || systemKeyResult.k256Pubkey || '' }} 
+                      style={{ 
+                        fontSize: '13px', 
+                        fontFamily: 'monospace', 
+                        color: '#52c41a',
+                        wordBreak: 'break-all',
+                        display: 'block',
+                        padding: '10px 14px',
+                        background: 'rgba(82, 196, 26, 0.08)',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(82, 196, 26, 0.25)',
+                        lineHeight: '1.6'
+                      }}
+                    >
+                      {systemKeyResult.current_key || systemKeyResult.currentKey || systemKeyResult.contractKey || systemKeyResult.k256Pubkey || '未找到'}
+                    </Text>
+                  </div>
+
+                  {/* 下一次轮换的系统公钥 */}
+                  <div>
+                    <Text type="secondary" style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)', fontWeight: 500 }}>
+                      下一次轮换的系统公钥
+                    </Text>
+                    {systemKeyResult.next_key || systemKeyResult.nextKey ? (
+                      <Text 
+                        copyable={{ text: systemKeyResult.next_key || systemKeyResult.nextKey || '' }} 
+                        style={{ 
+                          fontSize: '13px', 
+                          fontFamily: 'monospace', 
+                          color: '#1890ff',
+                          wordBreak: 'break-all',
+                          display: 'block',
+                          padding: '10px 14px',
+                          background: 'rgba(24, 144, 255, 0.08)',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(24, 144, 255, 0.25)',
+                          lineHeight: '1.6'
+                        }}
+                      >
+                        {systemKeyResult.next_key || systemKeyResult.nextKey || ''}
+                      </Text>
+                    ) : (
+                      <Alert
+                        message="未生成"
+                        description="下一次轮换后的密钥尚未生成"
+                        type="info"
+                        showIcon
+                        style={{ fontSize: '12px' }}
+                      />
+                    )}
+                  </div>
+                </Space>
+              ) : (
+                <Alert
+                  message="未找到密钥"
+                  description="该应用ID对应的密钥尚未生成或不存在"
                   type="warning"
                   showIcon
                 />
@@ -1955,11 +2969,11 @@ export default function KeyRotationPage() {
 
         {/* 合约轮换历史Modal */}
         <Modal
-          title="合约密钥轮换历史"
+          title="密钥轮换历史"
           open={contractRotationHistoryModalVisible}
           onCancel={() => setContractRotationHistoryModalVisible(false)}
           footer={null}
-          width={1000}
+          width={1200}
         >
           <Table
             dataSource={contractRotationHistory}
@@ -1968,7 +2982,23 @@ export default function KeyRotationPage() {
             size="small"
             columns={[
               {
-                title: '合约地址',
+                title: '密钥类型',
+                dataIndex: 'keyType',
+                key: 'keyType',
+                width: 100,
+                render: (type: string) => {
+                  // 如果没有类型字段，默认为合约密钥（兼容旧数据）
+                  const isSystemKey = type === 'system';
+                  const isUnknown = !type;
+                  return (
+                    <Tag color={isSystemKey ? 'blue' : isUnknown ? 'default' : 'green'} style={{ fontSize: '11px' }}>
+                      {isSystemKey ? '系统密钥' : isUnknown ? '合约密钥' : '合约密钥'}
+                    </Tag>
+                  );
+                },
+              },
+              {
+                title: '合约地址/应用ID',
                 dataIndex: 'contractId',
                 key: 'contractId',
                 width: 200,
@@ -2023,11 +3053,18 @@ export default function KeyRotationPage() {
                 dataIndex: 'endTime',
                 key: 'endTime',
                 width: 180,
-                render: (time: string) => (
-                  <Text style={{ fontSize: '12px' }}>
-                    {time ? new Date(time).toLocaleString('zh-CN') : '-'}
-                  </Text>
-                ),
+                render: (time: string | null, record: any) => {
+                  // 如果 endTime 为 null，表示是新密钥，显示 "-"
+                  if (!time) {
+                    return <Text style={{ fontSize: '12px' }}>-</Text>;
+                  }
+                  // 如果有 endTime，显示该时间
+                  return (
+                    <Text style={{ fontSize: '12px' }}>
+                      {new Date(time).toLocaleString('zh-CN')}
+                    </Text>
+                  );
+                },
               },
             ]}
           />

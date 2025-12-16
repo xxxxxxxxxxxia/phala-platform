@@ -1311,7 +1311,7 @@ export default function VmDetailPage() {
                                 </Col>
                             ))}
                         </Row>
-                        <div>
+                        {/* <div>
                             <Text type="secondary">Dashboard URL</Text>
                             <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                                 <Input
@@ -1335,7 +1335,7 @@ export default function VmDetailPage() {
                                     打开
                                 </Button>
                             </div>
-                        </div>
+                        </div> */}
                         <div>
                             <Text type="secondary">Endpoint URL</Text>
                             <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
