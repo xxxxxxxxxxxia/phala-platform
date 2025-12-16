@@ -1113,8 +1113,6 @@ export default function KeyRotationPage() {
         </Text>
         <Divider />
 
-
-
         {/* 密钥详细信息展示 */}
         <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
           <Col xs={24} lg={12}>
@@ -1206,6 +1204,181 @@ export default function KeyRotationPage() {
           </Row>
         </Card>
 
+        {/* 海光CSV轮换控制 */}
+        <Flex
+          justify="space-between"
+          align="middle"
+          style={{
+            marginTop: '24px',
+            marginBottom: '16px',
+            padding: '16px 24px',
+            background: '#000c17',
+            borderRadius: '8px',
+            border: '1px solid #434343',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+          }}
+        >
+          <Space>
+            <RotateLeftOutlined style={{ color: 'white' }} />
+            <Text style={{ color: 'white', fontSize: '16px' }}>密钥轮换</Text>
+            <Divider type="vertical" style={{ borderColor: '#666' }} />
+            {/* <Text type="secondary" style={{ color: '#ccc' }}>
+              轮换间隔:
+              <Text style={{ color: '#1890ff', fontWeight: 'bold' }}>
+                {Math.round(kmsRotationConfig.interval / (60 * 1000))}分钟
+              </Text>
+            </Text> */}
+            <Text type="secondary" style={{ fontSize: '14px' }}>
+              轮换间隔: <Text strong style={{ color: '#1890ff' }}>{contractRotationInterval}分钟</Text>
+            </Text>
+          </Space>
+          <Space>
+            <Switch
+              checked={contractAutoRotation}
+              onChange={(checked) => setContractAutoRotation(checked)}
+              checkedChildren="自动"
+              unCheckedChildren="手动"
+            />
+            <Button
+              type="default"
+              icon={<SettingOutlined />}
+              onClick={() => setContractRotationIntervalModalVisible(true)}
+            >
+              设置
+            </Button>
+            <Button
+              type="default"
+              icon={<HistoryOutlined />}
+              onClick={async () => {
+                await loadContractRotationHistory();
+                setContractRotationHistoryModalVisible(true);
+              }}
+            >
+              历史
+            </Button>
+            <Button
+              type="primary"
+              icon={<RotateLeftOutlined />}
+              onClick={() => handleRotateAllContracts(true)}
+              loading={rotatingContractId !== null}
+              disabled={rotatingContractId !== null || contractAutoRotation}
+            >
+              立即轮换
+            </Button>
+            {/* <Switch
+              checked={kmsRotationConfig.autoRotation}
+              onChange={handleToggleKmsAutoRotation}
+              checkedChildren="自动"
+              unCheckedChildren="手动"
+              style={{ backgroundColor: kmsRotationConfig.autoRotation ? '#52c41a' : '#d9d9d9' }}
+            />
+            <Button
+              icon={<SettingOutlined />}
+              onClick={() => setKmsConfigModalVisible(true)}
+            >
+              设置
+            </Button>
+            <Button
+              icon={<HistoryOutlined />}
+              onClick={() => setKmsHistoryModalVisible(true)}
+            >
+              历史
+            </Button>
+            <Button
+              type="primary"
+              icon={<RotateLeftOutlined />}
+              loading={kmsRotating}
+              onClick={handleRotateKmsRootKey}
+              disabled={kmsRotating || kmsRotationConfig.autoRotation}
+            >
+              {kmsRotating ? '轮换中...' : kmsRotationConfig.autoRotation ? '自动模式' : '立即轮换'}
+            </Button> */}
+          </Space>
+        </Flex>
+
+        {/* 海光CSV密钥展示 */}
+        <Card
+          style={{ marginTop: '24px', marginBottom: '24px' }}
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>国产海光 CSV-密钥管理列表 </span>
+            </div>
+          }
+          extra={
+            <Space size="middle">
+              <Button type="link" onClick={() => loadKmsMeta()} style={{ padding: 0 }}>
+                刷新
+              </Button>
+            </Space>
+          }
+        >
+          <Spin spinning={kmsMetaLoading}>
+            {kmsMeta ? (
+              <Table
+                dataSource={kmsKeyRows}
+                rowKey="key"
+                pagination={false}
+                size="small"
+                columns={[
+                  {
+                    title: '密钥名称',
+                    dataIndex: 'name',
+                    key: 'name',
+                    width: 100,
+                    render: (text: string) => <Text style={{ fontSize: '11px' }}>{text}</Text>,
+                  },
+                  {
+                    title: '公钥',
+                    dataIndex: 'value',
+                    key: 'value',
+                    width: 100,
+                    render: (text: string) => (
+                      <Text
+                        copyable={{ text }}
+                        ellipsis={{ tooltip: text }}
+                        style={{ fontSize: '11px', fontFamily: 'monospace', display: 'inline-block', maxWidth: '100%' }}
+                      >
+                        {text}
+                      </Text>
+                    ),
+                  },
+                  {
+                    title: '密钥类型',
+                    dataIndex: 'keyType',
+                    key: 'keyType',
+                    width: 120,
+                    render: (text: string) => <Tag color="blue" style={{ fontSize: '11px' }}>{text}</Tag>,
+                  },
+                  {
+                    title: '所有者',
+                    dataIndex: 'owner',
+                    key: 'owner',
+                    width: 160,
+                    render: (text: string) => (
+                      <Text copyable={{ text }} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
+                        {text}
+                      </Text>
+                    ),
+                  },
+                  {
+                    title: '算法',
+                    dataIndex: 'algorithm',
+                    key: 'algorithm',
+                    width: 120,
+                    render: (text: string) => <Text style={{ fontSize: '11px' }}>{text}</Text>,
+                  },
+                ]}
+              />
+            ) : (
+              <Alert
+                message="暂未获取到 KMS 元信息"
+                description="请检查 KMS 服务是否可用，或稍后重试。"
+                type="warning"
+                showIcon
+              />
+            )}
+          </Spin>
+        </Card>
 
         {/* 密钥列表 - Worker密钥（可隐藏） */}
         {showWorkerKeys && (
@@ -1239,7 +1412,7 @@ export default function KeyRotationPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
               <span>国际 Intel SGX-密钥管理列表</span>
               <Space size="middle">
-                <Text type="secondary" style={{ fontSize: '14px' }}>
+                {/* <Text type="secondary" style={{ fontSize: '14px' }}>
                   轮换间隔: <Text strong style={{ color: '#1890ff' }}>{contractRotationInterval}分钟</Text>
                 </Text>
                 <Switch
@@ -1276,7 +1449,7 @@ export default function KeyRotationPage() {
                   size="small"
                 >
                   立即轮换
-                </Button>
+                </Button> */}
                 <Tooltip title={showWorkerKeys ? '隐藏Worker密钥' : '显示Worker密钥'}>
                   <Button
                     type="text"
@@ -1401,147 +1574,6 @@ export default function KeyRotationPage() {
                 />
               );
             })()}
-          </Spin>
-        </Card>
-
-        {/* 海光CSV轮换控制 */}
-        <Flex
-          justify="space-between"
-          align="middle"
-          style={{
-            marginTop: '24px',
-            marginBottom: '16px',
-            padding: '16px 24px',
-            background: '#000c17',
-            borderRadius: '8px',
-            border: '1px solid #434343',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
-          }}
-        >
-          <Space>
-            <RotateLeftOutlined style={{ color: 'white' }} />
-            <Text style={{ color: 'white' }}>国产海光 CSV 主密钥轮换</Text>
-            <Divider type="vertical" style={{ borderColor: '#666' }} />
-            <Text type="secondary" style={{ color: '#ccc' }}>
-              轮换间隔:
-              <Text style={{ color: '#1890ff', fontWeight: 'bold' }}>
-                {Math.round(kmsRotationConfig.interval / (60 * 1000))}分钟
-              </Text>
-            </Text>
-          </Space>
-          <Space>
-            <Switch
-              checked={kmsRotationConfig.autoRotation}
-              onChange={handleToggleKmsAutoRotation}
-              checkedChildren="自动"
-              unCheckedChildren="手动"
-              style={{ backgroundColor: kmsRotationConfig.autoRotation ? '#52c41a' : '#d9d9d9' }}
-            />
-            <Button
-              icon={<SettingOutlined />}
-              onClick={() => setKmsConfigModalVisible(true)}
-            >
-              设置
-            </Button>
-            <Button
-              icon={<HistoryOutlined />}
-              onClick={() => setKmsHistoryModalVisible(true)}
-            >
-              历史
-            </Button>
-            <Button
-              type="primary"
-              icon={<RotateLeftOutlined />}
-              loading={kmsRotating}
-              onClick={handleRotateKmsRootKey}
-              disabled={kmsRotating || kmsRotationConfig.autoRotation}
-            >
-              {kmsRotating ? '轮换中...' : kmsRotationConfig.autoRotation ? '自动模式' : '立即轮换'}
-            </Button>
-          </Space>
-        </Flex>
-
-        {/* 海光CSV密钥展示 */}
-        <Card
-          style={{ marginTop: 24 }}
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>国产海光 CSV-密钥管理列表 </span>
-            </div>
-          }
-          extra={
-            <Space size="middle">
-              <Button type="link" onClick={() => loadKmsMeta()} style={{ padding: 0 }}>
-                刷新
-              </Button>
-            </Space>
-          }
-        >
-          <Spin spinning={kmsMetaLoading}>
-            {kmsMeta ? (
-              <Table
-                dataSource={kmsKeyRows}
-                rowKey="key"
-                pagination={false}
-                size="small"
-                columns={[
-                  {
-                    title: '密钥名称',
-                    dataIndex: 'name',
-                    key: 'name',
-                    width: 100,
-                    render: (text: string) => <Text style={{ fontSize: '11px' }}>{text}</Text>,
-                  },
-                  {
-                    title: '公钥',
-                    dataIndex: 'value',
-                    key: 'value',
-                    width: 100,
-                    render: (text: string) => (
-                      <Text
-                        copyable={{ text }}
-                        ellipsis={{ tooltip: text }}
-                        style={{ fontSize: '11px', fontFamily: 'monospace', display: 'inline-block', maxWidth: '100%' }}
-                      >
-                        {text}
-                      </Text>
-                    ),
-                  },
-                  {
-                    title: '密钥类型',
-                    dataIndex: 'keyType',
-                    key: 'keyType',
-                    width: 120,
-                    render: (text: string) => <Tag color="blue" style={{ fontSize: '11px' }}>{text}</Tag>,
-                  },
-                  {
-                    title: '所有者',
-                    dataIndex: 'owner',
-                    key: 'owner',
-                    width: 160,
-                    render: (text: string) => (
-                      <Text copyable={{ text }} style={{ fontSize: '11px', fontFamily: 'monospace' }}>
-                        {text}
-                      </Text>
-                    ),
-                  },
-                  {
-                    title: '算法',
-                    dataIndex: 'algorithm',
-                    key: 'algorithm',
-                    width: 120,
-                    render: (text: string) => <Text style={{ fontSize: '11px' }}>{text}</Text>,
-                  },
-                ]}
-              />
-            ) : (
-              <Alert
-                message="暂未获取到 KMS 元信息"
-                description="请检查 KMS 服务是否可用，或稍后重试。"
-                type="warning"
-                showIcon
-              />
-            )}
           </Spin>
         </Card>
 

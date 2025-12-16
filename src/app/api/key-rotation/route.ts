@@ -1476,14 +1476,14 @@ async function callKmsApi(endpoint: string, requestBody: any, useHttps: boolean 
 
 // 获取密钥版本信息
 async function getKeyVersion(): Promise<{ current_version: number; active_version: number; rotation_in_progress: boolean; rotation_deadline: number }> {
-  const httpUrl = 'http://43.132.154.142:13001/prpc/KMS.GetKeyVersion?json';
+  const httpUrl = 'http://43.132.154.142:13002/prpc/KMS.GetKeyVersion?json';
   try {
     const response = await callKmsApi(httpUrl, {}, false);
     return response;
   } catch (httpError: any) {
     console.warn('HTTP request failed, trying HTTPS:', httpError?.message || httpError);
     try {
-      const httpsUrl = 'https://43.132.154.142:13001/prpc/KMS.GetKeyVersion?json';
+      const httpsUrl = 'http://43.132.154.142:13002/prpc/KMS.GetKeyVersion?json';
       const response = await callKmsApi(httpsUrl, {}, true);
       return response;
     } catch (httpsError: any) {
@@ -1494,7 +1494,7 @@ async function getKeyVersion(): Promise<{ current_version: number; active_versio
 
 // 派生密钥
 async function deriveKey(contractId: string, keyVersion: number): Promise<any> {
-  const url = 'http://43.132.154.142:13001/prpc/KMS.DeriveK256Key?json';
+  const url = 'http://43.132.154.142:13002/prpc/KMS.DeriveK256Key?json';
   const requestBody = {
     path: `contract/${contractId}`,
     purpose: 'encryption',
@@ -1618,7 +1618,7 @@ async function handleRotateContractDerivedKey(contractId: string) {
     });
 
     // 第二步：轮换根密钥后，重新派生该合约的密钥
-    const deriveUrl = new URL('http://43.132.154.142:13001/prpc/KMS.DeriveK256Key?json');
+    const deriveUrl = new URL('http://43.132.154.142:13002/prpc/KMS.DeriveK256Key?json');
     const requestBody = {
       path: `contract/${contractId}`,
       purpose: 'encryption',
@@ -1690,4 +1690,4 @@ async function handleRotateContractDerivedKey(contractId: string) {
 
 
     // 第一步：轮换根密钥
-    const rotateUrl = new URL('http://43.132.154.142:13001/prpc/KMS.RotateRootKey?json');
+    const rotateUrl = new URL('http://43.132.154.142:13002/prpc/KMS.RotateRootKey?json');
