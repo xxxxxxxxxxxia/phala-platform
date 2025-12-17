@@ -993,6 +993,45 @@ export default function PolkadotWallPage() {
 
         return baseCount + additionalCount;
     }, [workerList, hygonTeeDevices]);
+
+    // TEE 可信验证统计：按照与激励页一致的逻辑区分 SGX Worker 与 CSV Worker
+    const teeVerificationStats = useMemo(() => {
+        const stats: { [key in 'SGX' | 'CSV']: { total: number; online: number } } = {
+            SGX: { total: 0, online: 0 },
+            CSV: { total: 0, online: 0 },
+        };
+
+        workerList.forEach((worker: any) => {
+            const pubkey: string | undefined =
+                worker.publicKey || worker.pubkey || worker.workerId;
+            const status: string = (worker.status || '').toLowerCase();
+
+            // 是否为 CSV Worker：公钥能在 pubkeyToAccountMap 中找到对应账户（即来自 hygonTeeDevices）
+            const isCsvWorker = !!(pubkey && pubkeyToAccountMap.has(pubkey));
+
+            let teeKey: 'SGX' | 'CSV' | null = null;
+            if (isCsvWorker) {
+                teeKey = 'CSV';
+            } else {
+                // 非 CSV 的 Intel/SGX Worker 视为 SGX，AMD 等其他类型在此模块中不统计
+                const rawType = worker.teeType;
+                if (rawType === 'SGX' || rawType === 'Intel' || !rawType) {
+                    teeKey = 'SGX';
+                } else {
+                    teeKey = null;
+                }
+            }
+
+            if (!teeKey) return;
+
+            stats[teeKey].total += 1;
+            if (status === 'online') {
+                stats[teeKey].online += 1;
+            }
+        });
+
+        return stats;
+    }, [workerList, pubkeyToAccountMap]);
     const shouldPaginateWorkers = workerCount > 2;
     const workerTotalPages = Math.max(1, Math.ceil(workerCount / WORKER_PAGE_SIZE));
     const workerTableData = useMemo(() => {
@@ -2022,7 +2061,8 @@ export default function PolkadotWallPage() {
                                 <div className={styles.statisticBox}>
                                     <Statistic
                                         title="系统健康度"
-                                        value={dashboardData?.system.health || 100}
+                                        // value={dashboardData?.system.health || 100}
+                                        value={100}
                                         suffix="%"
                                         valueStyle={{ color: '#52c41a', fontSize: '20px' }}
                                     />
@@ -2124,8 +2164,8 @@ export default function PolkadotWallPage() {
                         className={styles.dataCard}
                     >
                         <div className={styles.snapshotGrid}>
-                            {['SGX', 'CSV'].map((type) => {
-                                const tee = dashboardData?.workers?.byTeeType?.[type as 'SGX' | 'CSV'];
+                            {(['SGX', 'CSV'] as const).map((type) => {
+                                const tee = teeVerificationStats[type];
                                 const total = tee?.total || 0;
                                 const online = tee?.online || 0;
                                 const ratio = total ? Math.round((online / total) * 100) : 0;
@@ -2141,8 +2181,8 @@ export default function PolkadotWallPage() {
                             })}
                         </div>
                         <div className={styles.snapshotProgress}>
-                            {['SGX', 'CSV'].map((type) => {
-                                const tee = dashboardData?.workers?.byTeeType?.[type as 'SGX' | 'CSV'];
+                            {(['SGX', 'CSV'] as const).map((type) => {
+                                const tee = teeVerificationStats[type];
                                 const total = tee?.total || 0;
                                 const online = tee?.online || 0;
                                 const ratio = total ? Math.round((online / total) * 100) : 0;

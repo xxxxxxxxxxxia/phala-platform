@@ -72,7 +72,7 @@ const heroHighlights = [
 const introChecklist = [
   "一键导入 Docker Compose，自动生成 App ID 与哈希校验",
   "支持 KMS 密钥提供者，保护敏感环境变量",
-  "支持查看 Dashboard 与日志",
+  "支持查看日志信息",
 ];
 
 interface CVMData {

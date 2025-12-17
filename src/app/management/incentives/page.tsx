@@ -947,38 +947,52 @@ const IncentiveFlow = (): React.ReactElement => {
                             )}
 
                             {api && (() => {
-                                // 分离 SGX Workers 和 CSV Workers
-                                const csvWorkerAccounts = new Set(Object.values(CSV_WORKER_MAPPING));
-                                const csvWorkerPubkeys = new Set(Object.keys(CSV_WORKER_MAPPING));
+                                // 1. 先根据 hygonTeeDevices 计算出所有 CSV Worker 对应的公钥集合
+                                const csvWorkerPubkeysFromHygon = new Set<string>();
 
-                                // 检查哪些CSV Worker账户在hygonTeeDevices中
-                                const csvWorkerAccountsInHygon = Array.from(csvWorkerAccounts).filter(account =>
-                                    hygonTeeDevices.has(account)
-                                );
+                                hygonTeeDevices.forEach(accountAddress => {
+                                    let pubkey: string | null = null;
 
-                                // 如果CSV Worker账户在hygonTeeDevices中，则从SGX Workers中排除
-                                const sgxWorkers = workers.filter(worker => {
-                                    // 如果worker的pubkey是CSV Worker的pubkey，且对应的账户在hygonTeeDevices中，则排除
-                                    if (csvWorkerPubkeys.has(worker.pubkey)) {
-                                        const account = CSV_WORKER_MAPPING[worker.pubkey];
-                                        return !hygonTeeDevices.has(account);
+                                    // 先检查 CSV_WORKER_MAPPING 中是否有已知映射
+                                    const knownPubkey = Object.keys(CSV_WORKER_MAPPING).find(
+                                        key => CSV_WORKER_MAPPING[key] === accountAddress
+                                    );
+
+                                    if (knownPubkey) {
+                                        pubkey = knownPubkey;
+                                    } else {
+                                        // 使用 decodeAddress 将账户地址转换为公钥
+                                        try {
+                                            const decoded = decodeAddress(accountAddress, false, 30); // Phala Network ss58 = 30
+                                            pubkey = '0x' + Array.from(decoded).map(b => b.toString(16).padStart(2, '0')).join('');
+                                        } catch (e) {
+                                            console.warn(`Failed to decode address ${accountAddress}:`, e);
+                                            return;
+                                        }
                                     }
-                                    return true;
+
+                                    if (pubkey) {
+                                        csvWorkerPubkeysFromHygon.add(pubkey);
+                                    }
                                 });
 
-                                // CSV Workers：只包含在hygonTeeDevices中的CSV Worker
-                                const csvWorkers = csvWorkerAccountsInHygon.map(account => {
-                                    const pubkey = Object.keys(CSV_WORKER_MAPPING).find(
-                                        key => CSV_WORKER_MAPPING[key] === account
-                                    ) || '';
-                                    // 尝试从workers中找到对应的worker信息，如果找不到则创建基本结构
+                                // 2. SGX Workers：排除所有在 csvWorkerPubkeysFromHygon 中的 worker
+                                const sgxWorkers = workers.filter(worker => !csvWorkerPubkeysFromHygon.has(worker.pubkey));
+
+                                // 3. CSV Workers：对每个 CSV 公钥，优先复用已注册 worker 信息，否则创建占位
+                                const csvWorkers: IWorker[] = [];
+                                csvWorkerPubkeysFromHygon.forEach(pubkey => {
                                     const existingWorker = workers.find(w => w.pubkey === pubkey);
-                                    return existingWorker || {
-                                        pubkey,
-                                        operator: null,
-                                        initialScore: { toLocaleString: () => '0' },
-                                        lastUpdated: 0
-                                    };
+                                    if (existingWorker) {
+                                        csvWorkers.push(existingWorker);
+                                    } else {
+                                        csvWorkers.push({
+                                            pubkey,
+                                            operator: null,
+                                            initialScore: { toLocaleString: () => '0' },
+                                            lastUpdated: 0
+                                        });
+                                    }
                                 });
 
                                 return (
