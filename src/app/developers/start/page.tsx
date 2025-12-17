@@ -823,7 +823,7 @@ function StartPageContent() {
       name: formData.name,
       runner: "docker-compose",
       docker_compose_file: formData.dockerComposeFile,
-      docker_config: formData.docker_config.enabled
+      docker_config: formData.docker_config?.enabled
         ? {
             username: formData.docker_config.username,
             token_key: formData.docker_config.token_key,
@@ -1110,6 +1110,15 @@ fi`,
       const formData: VMFormData = {
         ...values,
         memory,
+        // 确保这些字段有默认值，防止 undefined
+        docker_config: values.docker_config || {
+          enabled: false,
+          username: "",
+          token_key: "",
+        },
+        encryptedEnvs: values.encryptedEnvs || [],
+        ports: values.ports || [],
+        selectedGpus: values.selectedGpus || [],
       };
 
       // 创建 App Compose 文件
