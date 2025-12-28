@@ -456,9 +456,9 @@ const makeAppComposeFile = async (
     docker_compose_file: formData.dockerComposeFile,
     docker_config: formData.docker_config?.enabled
       ? {
-          username: formData.docker_config.username,
-          token_key: formData.docker_config.token_key,
-        }
+        username: formData.docker_config.username,
+        token_key: formData.docker_config.token_key,
+      }
       : {},
     kms_enabled: formData.kms_enabled,
     gateway_enabled: formData.gateway_enabled,
@@ -2054,13 +2054,13 @@ fi`,
         ...(gpuConfig && { gpus: gpuConfig }),
         ...(portMappingEnabled &&
           formData.ports?.length > 0 && {
-            ports: formData.ports.map((port: PortMapping) => ({
-              host_address: port.host_address,
-              protocol: port.protocol,
-              host_port: port.host_port,
-              vm_port: port.vm_port,
-            })),
-          }),
+          ports: formData.ports.map((port: PortMapping) => ({
+            host_address: port.host_address,
+            protocol: port.protocol,
+            host_port: port.host_port,
+            vm_port: port.vm_port,
+          })),
+        }),
         ...(formData.app_id && { app_id: formData.app_id }),
       };
 
@@ -2186,7 +2186,7 @@ fi`,
               {/* CSV Worker监控模块 */}
               <div style={{ marginBottom: 24 }}>
                 <DataCard
-                  title="国产海光 TEE worker 监控"
+                  title="国产海光 TEE Worker 调度"
                   extra={
                     <Space>
                       <Button
@@ -2356,7 +2356,7 @@ fi`,
 
               {/* SGX Worker监控模块 */}
               <DataCard
-                title="国际 Intel SGX Worker 监控"
+                title="国际 Intel SGX Worker 调度"
                 extra={
                   <Space>
                     <Button
@@ -3188,7 +3188,7 @@ fi`,
                   shouldUpdate={(prevValues, currentValues) =>
                     prevValues.kms_enabled !== currentValues.kms_enabled ||
                     prevValues.docker_config?.enabled !==
-                      currentValues.docker_config?.enabled
+                    currentValues.docker_config?.enabled
                   }
                 >
                   {({ getFieldValue }) => {

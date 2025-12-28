@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiPromise, WsProvider } from '@polkadot/api';
 import { Keyring } from '@polkadot/keyring';
 import { encodeAddress, decodeAddress } from '@polkadot/util-crypto';
 import { hexToU8a } from '@polkadot/util';
 import { getWorkersInfo, WorkerInfo } from '../../../lib/phalaApi';
-import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
+import { getPruntimeUrl } from '@/lib/config';
+import { getApi } from '@/lib/polkadotApiManager';
 import * as fs from 'fs';
 import * as path from 'path';
 import https from 'https';
 import http from 'http';
-const WS_ENDPOINT = getNodeUrl();
 const PRUNTIME_ENDPOINT = getPruntimeUrl();
-let api: ApiPromise | null = null;
 
 // 历史记录文件路径
 // 在 standalone 模式下，需要从项目根目录查找 data 目录
@@ -147,14 +145,7 @@ function clearRotationHistoryFile() {
   }
 }
 
-async function getApi(): Promise<ApiPromise> {
-  if (api && api.isConnected) {
-    return api;
-  }
-  const wsProvider = new WsProvider(WS_ENDPOINT);
-  api = await ApiPromise.create({ provider: wsProvider });
-  return api;
-}
+// 使用全局连接管理器，无需本地getApi函数
 
 // 获取Pruntime的真实密钥信息
 async function getPruntimeKeyInfo() {

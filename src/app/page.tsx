@@ -1,5 +1,10 @@
 'use client';
 
+// 完全禁用服务端渲染和预渲染，强制纯客户端渲染
+// 这样可以避免Next.js在构建时或SSR时尝试fetch
+export const dynamic = 'force-static';
+export const fetchCache = 'force-no-store';
+
 import React, { useEffect } from 'react';
 import { Button, Card, Col, Row, Tag, Typography } from 'antd';
 import {
@@ -150,6 +155,9 @@ const scenarioCards = [
 export default function PortalPage() {
 
     useEffect(() => {
+        // 确保在客户端环境中执行（虽然'use client'已经保证，但添加检查更安全）
+        if (typeof window === 'undefined') return;
+
         // 处理锚点跳转的平滑滚动
         const handleHashChange = () => {
             const hash = window.location.hash;

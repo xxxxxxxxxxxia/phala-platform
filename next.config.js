@@ -25,7 +25,16 @@ const nextConfig = {
     ],
     // 启用 SWC 编译器优化（Next.js 15+默认启用）
     webpackBuildWorker: true, // 启用webpack构建工作进程
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+    // 优化CSS加载：启用CSS代码分割
+    cssChunking: 'strict',
   },
+  
+  // 关键修复：将大型包标记为外部包，避免服务端处理（Next.js 15新位置）
+  // 注意：serverComponentsExternalPackages 已移动到 serverExternalPackages
+  serverExternalPackages: ['@polkadot/api', '@phala/sdk'],
   
   // 外部化大型包 - Next.js 15+ 已移除此配置
   // serverComponentsExternalPackages: ['antd', '@ant-design/icons'],
@@ -50,11 +59,8 @@ const nextConfig = {
     position: 'bottom-right',
   },
   
-  // 开发模式优化 - 减少页面缓冲，降低内存和CPU占用
-  onDemandEntries: {
-    maxInactiveAge: 60 * 1000, // 增加到60秒
-    pagesBufferLength: 1, // 减少到1个页面，降低内存占用
-  },
+  // 注意：onDemandEntries 配置已移到下面，统一管理生产模式和开发模式
+  // 开发模式和生产模式使用相同的缓存配置，确保缓存持久性
   
   // 强制刷新配置
   // 注意：esmExternals 已移除，Next.js 不推荐修改此选项
@@ -193,6 +199,9 @@ const nextConfig = {
   // 启用压缩
   compress: true,
   
+  // 优化静态文件生成ETag（Next.js默认启用，这里确保开启）
+  generateEtags: true,
+  
   // 优化图片
   images: {
     formats: ['image/webp', 'image/avif'],
@@ -200,10 +209,12 @@ const nextConfig = {
     qualities: [75, 100], // 添加质量配置
   },
   
-  // 减少开发时的构建时间
+  // 优化页面缓存，减少跳转延迟
+  // 关键：设置非常大的缓存时间，确保页面编译后一直保留在内存中，不被自动清除
+  // 这样第一个用户编译后，后续所有用户都能毫秒级访问
   onDemandEntries: {
-    maxInactiveAge: 25 * 1000,
-    pagesBufferLength: 2,
+    maxInactiveAge: 60 * 1000 * 60 * 24,  // 24小时（86400000ms），确保页面在内存中保留一整天
+    pagesBufferLength: 100,                // 增加到100个页面，保持更多页面在内存
   },
   
   // 启用standalone模式用于Docker部署

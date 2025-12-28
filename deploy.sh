@@ -54,10 +54,17 @@ fi
 echo "🏗️ 构建应用镜像 phala-platform-frontend..."
 docker build -t phala-platform-frontend .
 
-# 6. 启动容器
+# 6. 启动容器（优化：添加资源限制和性能优化）
 echo "🚀 启动容器..."
+# 优化资源配置：增加CPU和内存，提升性能
+# CPU: 3核心（服务器有4核心，留1核心给其他服务）
+# 内存: 4GB（服务器有30GB，充足）
 docker run -d --name phala-platform-frontend \
   --network host \
+  --memory="4g" \
+  --cpus="3" \
+  --restart=unless-stopped \
+  -e NODE_OPTIONS="--max-old-space-size=3072 --dns-result-order=ipv4first" \
   -v /root/tmp/phala-blockchain-setup:/app/phala-blockchain-setup:ro \
   phala-platform-frontend
 

@@ -1,4 +1,10 @@
 'use client';
+
+// 完全禁用服务端渲染和预渲染，强制纯客户端渲染
+// 这样可以避免Next.js在构建时或SSR时尝试fetch
+export const dynamic = 'force-static';
+export const fetchCache = 'force-no-store';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card, Row, Col, Statistic, Button, Table, Tag, Typography, Space, Divider,

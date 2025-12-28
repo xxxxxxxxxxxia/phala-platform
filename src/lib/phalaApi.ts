@@ -1,9 +1,5 @@
 // src/lib/phalaApi.ts
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { getNodeUrl } from '@/lib/config';
-
-// 本地节点的 WebSocket RPC 地址
-const TEE_NODE_URL = getNodeUrl();
+// 注意：此文件现在使用全局连接管理器，不再维护本地连接
 
 // 添加实时数据获取函数
 export const getRealTimeWorkerData = async () => {
@@ -38,7 +34,7 @@ export const getMonitoringData = async () => {
   }
 };
 
-let api: ApiPromise | null = null;
+// api变量已移除，现在使用全局连接管理器
 
 // 数据类型定义
 export interface WorkerInfo {
@@ -114,40 +110,13 @@ export interface KeyRotationData {
   rotationInterval: number;
 }
 
-// 获取 API 实例的函数
+// 使用全局连接管理器（向后兼容）
+// 注意：前端代码可能还在使用这个函数，所以保留它作为全局管理器的包装
+import { getApi as getApiFromManager } from './polkadotApiManager';
+
+// 获取 API 实例的函数（使用全局连接管理器）
 export const getApi = async (): Promise<ApiPromise> => {
-  // 如果已经连接，直接返回现有实例
-  if (api && api.isConnected) {
-    return api;
-  }
-
-  const provider = new WsProvider(TEE_NODE_URL);
-
-  console.log(`[Phala API] 正在连接至 ${TEE_NODE_URL}...`);
-
-  try {
-    // 添加连接超时机制
-    const connectionPromise = ApiPromise.create({ provider });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('连接超时，请检查后端服务是否启动')), 300000) // 300秒超时
-    );
-
-    // 创建新的 API 实例，带超时控制
-    api = await Promise.race([connectionPromise, timeoutPromise]) as ApiPromise;
-
-    // 添加一些日志，方便在浏览器控制台里调试
-    api.on('connected', () => console.log('[Phala API] 节点连接成功.'));
-    api.on('disconnected', () => {
-      console.warn('[Phala API] 节点已断开连接.');
-      api = null; // 清理实例以便下次可以重新连接
-    });
-    api.on('error', (error: Error) => console.error('[Phala API] 出现错误:', error.message));
-
-    return api;
-  } catch (error) {
-    console.error("连接到节点失败:", error);
-    throw error; // 抛出错误，让调用方可以捕获
-  }
+  return getApiFromManager();
 };
 
 // 获取详细的 Worker 信息

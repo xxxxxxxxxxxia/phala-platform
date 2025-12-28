@@ -1425,6 +1425,8 @@ export default function KeyRotationPage() {
     const storedBestHostIp = localStorage.getItem("bestHostIp");
     if (storedBestHostIp) {
       setBestHostIp(storedBestHostIp);
+    } else {
+      setBestHostIp("43.132.154.142");
     }
   }, []);
 

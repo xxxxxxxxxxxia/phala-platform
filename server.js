@@ -1,17 +1,79 @@
 const path = require('path')
+const fs = require('fs')
 
 const dir = path.join(__dirname)
 
 process.env.NODE_ENV = 'production'
+// 强制使用IPv4，避免IPv6连接失败导致超时
+if (!process.env.NODE_OPTIONS || !process.env.NODE_OPTIONS.includes('dns-result-order')) {
+  process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first'
+}
 process.chdir(__dirname)
 
 const currentPort = parseInt(process.env.PORT, 10) || 3000
 const hostname = process.env.HOSTNAME || '0.0.0.0'
 
-let keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT, 10)
-const nextConfig = {"env":{},"eslint":{"ignoreDuringBuilds":true},"typescript":{"ignoreBuildErrors":true,"tsconfigPath":"tsconfig.json"},"typedRoutes":false,"distDir":"./.next","cleanDistDir":true,"assetPrefix":"","cacheMaxMemorySize":52428800,"configOrigin":"next.config.js","useFileSystemPublicRoutes":true,"generateEtags":true,"pageExtensions":["tsx","ts","jsx","js"],"poweredByHeader":true,"compress":true,"images":{"deviceSizes":[640,750,828,1080,1200,1920,2048,3840],"imageSizes":[16,32,48,64,96,128,256,384],"path":"/_next/image","loader":"default","loaderFile":"","domains":[],"disableStaticImages":false,"minimumCacheTTL":60,"formats":["image/webp","image/avif"],"dangerouslyAllowSVG":false,"contentSecurityPolicy":"script-src 'none'; frame-src 'none'; sandbox;","contentDispositionType":"attachment","remotePatterns":[],"qualities":[75,100],"unoptimized":false},"devIndicators":{"position":"bottom-right"},"onDemandEntries":{"maxInactiveAge":25000,"pagesBufferLength":2},"amp":{"canonicalBase":""},"basePath":"","sassOptions":{},"trailingSlash":false,"i18n":null,"productionBrowserSourceMaps":false,"excludeDefaultMomentLocales":true,"serverRuntimeConfig":{},"publicRuntimeConfig":{},"reactProductionProfiling":false,"reactStrictMode":false,"reactMaxHeadersLength":6000,"httpAgentOptions":{"keepAlive":true},"logging":{},"compiler":{"removeConsole":true},"expireTime":31536000,"staticPageGenerationTimeout":60,"output":"standalone","modularizeImports":{"@mui/icons-material":{"transform":"@mui/icons-material/{{member}}"},"lodash":{"transform":"lodash/{{member}}"}},"outputFileTracingRoot":"/home/user1/Desktop/tmp/phala-blockchain/my-phala-platform","experimental":{"useSkewCookie":false,"cacheLife":{"default":{"stale":300,"revalidate":900,"expire":4294967294},"seconds":{"stale":30,"revalidate":1,"expire":60},"minutes":{"stale":300,"revalidate":60,"expire":3600},"hours":{"stale":300,"revalidate":3600,"expire":86400},"days":{"stale":300,"revalidate":86400,"expire":604800},"weeks":{"stale":300,"revalidate":604800,"expire":2592000},"max":{"stale":300,"revalidate":2592000,"expire":4294967294}},"cacheHandlers":{},"cssChunking":true,"multiZoneDraftMode":false,"appNavFailHandling":false,"prerenderEarlyExit":true,"serverMinification":true,"serverSourceMaps":false,"linkNoTouchStart":false,"caseSensitiveRoutes":false,"clientSegmentCache":false,"clientParamParsing":false,"dynamicOnHover":false,"preloadEntriesOnStart":true,"clientRouterFilter":true,"clientRouterFilterRedirects":false,"fetchCacheKeyPrefix":"","middlewarePrefetch":"flexible","optimisticClientCache":true,"manualClientBasePath":false,"cpus":3,"memoryBasedWorkersCount":false,"imgOptConcurrency":null,"imgOptTimeoutInSeconds":7,"imgOptMaxInputPixels":268402689,"imgOptSequentialRead":null,"imgOptSkipMetadata":null,"isrFlushToDisk":true,"workerThreads":false,"optimizeCss":false,"nextScriptWorkers":false,"scrollRestoration":false,"externalDir":false,"disableOptimizedLoading":false,"gzipSize":true,"craCompat":false,"esmExternals":false,"fullySpecified":false,"swcTraceProfiling":false,"forceSwcTransforms":false,"largePageDataBytes":128000,"typedEnv":false,"parallelServerCompiles":false,"parallelServerBuildTraces":false,"ppr":false,"authInterrupts":false,"webpackMemoryOptimizations":false,"optimizeServerReact":true,"viewTransition":false,"routerBFCache":false,"removeUncaughtErrorAndRejectionListeners":false,"validateRSCRequestHeaders":false,"staleTimes":{"dynamic":0,"static":300},"serverComponentsHmrCache":true,"staticGenerationMaxConcurrency":8,"staticGenerationMinPagesPerWorker":25,"cacheComponents":false,"inlineCss":false,"useCache":false,"globalNotFound":false,"devtoolSegmentExplorer":true,"browserDebugInfoInTerminal":false,"optimizeRouterScrolling":false,"optimizePackageImports":["lucide-react","date-fns","lodash-es","ramda","antd","react-bootstrap","ahooks","@ant-design/icons","@headlessui/react","@headlessui-float/react","@heroicons/react/20/solid","@heroicons/react/24/solid","@heroicons/react/24/outline","@visx/visx","@tremor/react","rxjs","@mui/material","@mui/icons-material","recharts","react-use","effect","@effect/schema","@effect/platform","@effect/platform-node","@effect/platform-browser","@effect/platform-bun","@effect/sql","@effect/sql-mssql","@effect/sql-mysql2","@effect/sql-pg","@effect/sql-sqlite-node","@effect/sql-sqlite-bun","@effect/sql-sqlite-wasm","@effect/sql-sqlite-react-native","@effect/rpc","@effect/rpc-http","@effect/typeclass","@effect/experimental","@effect/opentelemetry","@material-ui/core","@material-ui/icons","@tabler/icons-react","mui-core","react-icons/ai","react-icons/bi","react-icons/bs","react-icons/cg","react-icons/ci","react-icons/di","react-icons/fa","react-icons/fa6","react-icons/fc","react-icons/fi","react-icons/gi","react-icons/go","react-icons/gr","react-icons/hi","react-icons/hi2","react-icons/im","react-icons/io","react-icons/io5","react-icons/lia","react-icons/lib","react-icons/lu","react-icons/md","react-icons/pi","react-icons/ri","react-icons/rx","react-icons/si","react-icons/sl","react-icons/tb","react-icons/tfi","react-icons/ti","react-icons/vsc","react-icons/wi"],"trustHostHeader":false,"isExperimentalCompile":false},"htmlLimitedBots":"[\\w-]+-Google|Google-[\\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight","bundlePagesRouterDependencies":false,"configFileName":"next.config.js","turbopack":{"rules":{"*.svg":{"loaders":["@svgr/webpack"],"as":"*.js"}},"root":"/home/user1/Desktop/tmp/phala-blockchain/my-phala-platform"},"_originalRewrites":{"beforeFiles":[],"afterFiles":[{"source":"/api/vm/:path*","destination":"http://8.147.107.221:3001/api/vm/:path*"}],"fallback":[]}}
+// 优化keep-alive超时，提升连接复用（65秒，与nginx标准一致）
+let keepAliveTimeout = parseInt(process.env.KEEP_ALIVE_TIMEOUT, 10) || 65000
 
-process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(nextConfig)
+// 从 next.config.js 读取配置，确保 onDemandEntries 配置正确
+// 在standalone模式下，Next.js会使用构建时的配置，但我们可以通过环境变量覆盖运行时配置
+try {
+  const configPath = path.join(__dirname, 'next.config.js')
+  if (fs.existsSync(configPath)) {
+    delete require.cache[require.resolve(configPath)]
+    const userConfig = require(configPath)
+    
+    // 如果是函数，需要调用它
+    const config = typeof userConfig === 'function' ? userConfig({}, {}) : userConfig
+    
+    // 确保 onDemandEntries 配置正确（24小时，100个页面）
+    // 关键：设置非常大的缓存时间，确保页面编译后一直保留在内存中，不被自动清除
+    const onDemandEntries = {
+      maxInactiveAge: config.onDemandEntries?.maxInactiveAge || 60 * 1000 * 60 * 24,  // 24小时
+      pagesBufferLength: config.onDemandEntries?.pagesBufferLength || 100,        // 100个页面
+    }
+    
+    // 读取standalone配置（如果存在）
+    let standaloneConfig = {}
+    const standaloneConfigPath = path.join(__dirname, '.next', 'standalone', '.next', 'required-server-files.json')
+    if (fs.existsSync(standaloneConfigPath)) {
+      const requiredFiles = JSON.parse(fs.readFileSync(standaloneConfigPath, 'utf8'))
+      if (requiredFiles.config) {
+        standaloneConfig = requiredFiles.config
+      }
+    }
+    
+    // 更新onDemandEntries配置
+    standaloneConfig.onDemandEntries = onDemandEntries
+    
+    // 设置环境变量，Next.js会读取它
+    process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(standaloneConfig)
+    
+    console.log(`✅ 从 next.config.js 加载配置`)
+    console.log(`📦 onDemandEntries: maxInactiveAge=${onDemandEntries.maxInactiveAge}ms (${onDemandEntries.maxInactiveAge/1000/60}分钟), pagesBufferLength=${onDemandEntries.pagesBufferLength}`)
+  } else {
+    console.warn('⚠️  next.config.js 不存在，使用默认配置')
+    // 设置默认的onDemandEntries配置（24小时，100个页面）
+    const defaultConfig = {
+      onDemandEntries: {
+        maxInactiveAge: 60 * 1000 * 60 * 24,  // 24小时
+        pagesBufferLength: 100,            // 100个页面
+      }
+    }
+    process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(defaultConfig)
+  }
+} catch (error) {
+  console.warn('⚠️  读取配置时出错，使用默认配置:', error.message)
+  // 设置默认的onDemandEntries配置
+  const defaultConfig = {
+    onDemandEntries: {
+      maxInactiveAge: 60 * 1000 * 5,  // 5分钟
+      pagesBufferLength: 15,            // 15个页面
+    }
+  }
+  process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(defaultConfig)
+}
 
 require('next')
 const { startServer } = require('next/dist/server/lib/start-server')
@@ -21,18 +83,81 @@ if (
   !Number.isFinite(keepAliveTimeout) ||
   keepAliveTimeout < 0
 ) {
-  keepAliveTimeout = undefined
+  keepAliveTimeout = 65000 // 默认65秒
 }
 
+console.log(`🚀 启动优化的Next.js服务器...`)
+console.log(`📦 Keep-Alive超时: ${keepAliveTimeout}ms`)
+console.log(`⚡ 静态文件缓存已通过中间件优化`)
+
+// 在standalone模式下，Next.js会自动从.standalone目录加载配置
+// 我们通过环境变量已经设置了onDemandEntries
 startServer({
   dir,
   isDev: false,
-  config: nextConfig,
   hostname,
   port: currentPort,
   allowRetry: false,
   keepAliveTimeout,
+}).then((app) => {
+  // 优化HTTP服务器配置，防止连接重置
+  // Next.js的startServer返回的是app对象，HTTP服务器在app.server中
+  if (app && app.server) {
+    const httpServer = app.server
+    
+    // 设置keep-alive超时
+    httpServer.keepAliveTimeout = keepAliveTimeout
+    httpServer.headersTimeout = keepAliveTimeout + 1000 // headersTimeout应该大于keepAliveTimeout
+    
+    // 设置最大连接数
+    httpServer.maxConnections = 1000
+    
+    // 监听错误事件，优雅处理连接重置
+    httpServer.on('clientError', (err, socket) => {
+      // 忽略ECONNRESET和EPIPE错误，这是客户端断开连接的正常情况
+      if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE' && err.code !== 'ECONNABORTED') {
+        console.error('HTTP服务器客户端错误:', err.code, err.message)
+      }
+      if (!socket.destroyed) {
+        socket.destroy()
+      }
+    })
+    
+    // 监听服务器错误
+    httpServer.on('error', (err) => {
+      if (err.code !== 'EADDRINUSE') {
+        console.error('HTTP服务器错误:', err)
+      }
+    })
+    
+    console.log(`✅ HTTP服务器配置优化完成`)
+    console.log(`📦 Keep-Alive超时: ${keepAliveTimeout}ms`)
+    console.log(`📦 Headers超时: ${httpServer.headersTimeout}ms`)
+    console.log(`📦 最大连接数: ${httpServer.maxConnections}`)
+  } else {
+    console.warn('⚠️  无法访问HTTP服务器对象，跳过优化配置')
+  }
+  
+  // 服务器启动后预热首页，避免第一个用户访问时编译
+  setTimeout(() => {
+    try {
+      const warmup = require('./warmup-server.js');
+      // 关键修复：使用127.0.0.1而不是localhost，避免IPv6连接问题导致阻塞
+      const warmupHost = hostname === '0.0.0.0' ? '127.0.0.1' : hostname;
+      warmup(currentPort, warmupHost)
+        .then(() => {
+          console.log('🎉 首页预热完成，新用户访问将更快');
+        })
+        .catch((err) => {
+          console.warn('⚠️  首页预热失败（不影响服务）:', err.message);
+        });
+    } catch (err) {
+      console.warn('⚠️  无法加载预热脚本（不影响服务）:', err.message);
+    }
+  }, 3000); // 等待3秒后开始预热
+  
+  return app
 }).catch((err) => {
-  console.error(err);
+  console.error('服务器启动失败:', err);
   process.exit(1);
 });

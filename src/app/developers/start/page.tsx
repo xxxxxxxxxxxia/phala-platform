@@ -206,7 +206,10 @@ export const rpcCall = async (
   params?: any
 ): Promise<Response> => {
   // 使用 Next.js API 路由作为代理，避免 CORS 问题
-  const port = "9210"; // 后端端口
+  // 从 localStorage 读取端口，如果没有则使用默认值 9210
+  const port = typeof window !== "undefined" 
+    ? (localStorage.getItem("bestHostPort") || "9210")
+    : "9210";
   const proxyUrl = `/api/vm-rpc?host=${encodeURIComponent(
     bestHostIp
   )}&method=${encodeURIComponent(method)}&port=${encodeURIComponent(port)}`;
@@ -312,6 +315,7 @@ function StartPageContent() {
           page: 1,
           page_size: 50,
         });
+        console.log("VM List Data:", data);
         const enrichedVms =
           data.vms?.map((vm) => ({
             ...vm,
@@ -322,7 +326,7 @@ function StartPageContent() {
         setPortMappingEnabled(data.port_mapping_enabled || false);
       } catch (error) {
         console.error("Error loading VM list:", error);
-        message.error("获取 VM 列表失败");
+        // message.error("获取 VM 列表失败");
       } finally {
         if (showLoading) {
           setLoading(false);
@@ -339,14 +343,14 @@ function StartPageContent() {
     }
   }, [bestHostIp, fetchVMList]);
 
-  // 自动刷新 VM 列表（每 3 秒），实现 uptime 的实时更新
+  // 自动刷新 VM 列表（每 5 分钟），实现 uptime 的实时更新
   // 自动刷新时不显示加载状态，避免页面闪烁
   useEffect(() => {
     if (!bestHostIp) return;
 
     const intervalId = setInterval(() => {
       fetchVMList(false); // 不显示加载状态
-    }, 5000); // 每 5 秒刷新一次
+    }, 300000); // 每 5 分钟刷新一次
 
     // 清理定时器
     return () => {
@@ -409,8 +413,9 @@ function StartPageContent() {
 
     // 构建日志URL，参考 console.html 的实现
     // console.html 中使用: /logs?id=${id}&follow=true&ansi=false&lines=50
-    // 这里需要通过 bestHostIp 来构建完整的URL，并添加端口号 9210
-    const baseUrl = `http://${bestHostIp}:9210`;
+    // 从 localStorage 读取端口，如果没有则使用默认值 9210
+    const port = localStorage.getItem("bestHostPort") || "9210";
+    const baseUrl = `http://${bestHostIp}:${port}`;
     const logUrl =
       stream === "stderr"
         ? `${baseUrl}/logs?id=${vmId}&follow=true&ansi=false&lines=50&ch=stderr`
@@ -1945,7 +1950,7 @@ fi`,
                       fontWeight: 500,
                     }}
                   >
-                    最佳资源 IP:
+                    最佳资源地址:
                   </Text>
                   <Text
                     style={{
@@ -1956,13 +1961,13 @@ fi`,
                       letterSpacing: "0.5px",
                     }}
                   >
-                    {bestHostIp}
+                    {bestHostIp}:{typeof window !== "undefined" ? (localStorage.getItem("bestHostPort") || "9210") : "9210"}
                   </Text>
                   <Button
                     type="text"
                     size="small"
                     icon={<CopyOutlined />}
-                    onClick={() => handleCopy(bestHostIp, "最佳资源 IP")}
+                    onClick={() => handleCopy(`${bestHostIp}:${typeof window !== "undefined" ? (localStorage.getItem("bestHostPort") || "9210") : "9210"}`, "最佳资源地址")}
                     style={{
                       color: "#409EFF",
                       padding: "0 6px",
@@ -2532,7 +2537,7 @@ fi`,
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {vm.instance_id || vm.id}
+                            {vm.id}
                           </Text>
                           <Button
                             type="text"

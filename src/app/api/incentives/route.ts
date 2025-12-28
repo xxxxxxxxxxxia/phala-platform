@@ -1,18 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiPromise, WsProvider } from '@polkadot/api';
 import { getWorkersInfo, WorkerInfo } from '../../../lib/phalaApi';
-
-const WS_ENDPOINT = 'ws://127.0.0.1:19944';
-let api: ApiPromise | null = null;
-
-async function getApi(): Promise<ApiPromise> {
-  if (api && api.isConnected) {
-    return api;
-  }
-  const wsProvider = new WsProvider(WS_ENDPOINT);
-  api = await ApiPromise.create({ provider: wsProvider });
-  return api;
-}
+// 注意：此路由主要使用phalaApi中的getWorkersInfo，不需要直接使用API连接
 
 interface IncentiveReward {
   id: string;

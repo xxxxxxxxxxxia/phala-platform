@@ -1,24 +1,10 @@
 // src/app/api/worker-data/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiPromise, WsProvider } from '@polkadot/api';
+import { getPruntimeUrl } from '@/lib/config';
+import { getApi } from '@/lib/polkadotApiManager';
 
 // 配置
-const WS_ENDPOINT = 'ws://localhost:19944';
-const PRUNTIME_ENDPOINT = 'http://localhost:18000';
-
-// 全局API实例
-let api: ApiPromise | null = null;
-
-// 获取API连接
-async function getApi(): Promise<ApiPromise> {
-  if (api && api.isConnected) {
-    return api;
-  }
-
-  const provider = new WsProvider(WS_ENDPOINT);
-  api = await ApiPromise.create({ provider });
-  return api;
-}
+const PRUNTIME_ENDPOINT = getPruntimeUrl();
 
 // 获取Pruntime信息
 async function getPruntimeInfo() {

@@ -169,58 +169,40 @@ const DocsPage = () => {
                   width: 100%;
                 }
                 .config-descriptions .ant-descriptions-item-label {
-                  width: 140px !important;
+                  width: 160px !important;
+                  font-weight: 500;
                 }
                 .config-descriptions .ant-descriptions-item-content {
                   word-break: keep-all;
-                }
-                .config-descriptions tbody tr td:nth-child(1) {
-                  width: 75% !important;
-                }
-                .config-descriptions tbody tr td:nth-child(2) {
-                  width: 25% !important;
+                  font-size: 13px;
+                  line-height: 1.6;
                 }
               `
             }} />
             <div className="config-descriptions">
-              <Descriptions bordered column={2} size="small">
-                <Descriptions.Item label="区块链节点地址" span={1}>
-                  <Text code style={{ whiteSpace: 'nowrap' }}>ws://8.147.107.221:19944</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="备注" span={1}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
+              <Descriptions bordered column={1} size="middle">
+                <Descriptions.Item label="区块链节点地址">
+                  <Text>
                     Substrate区块链网络的WebSocket连接地址，用于前端应用与区块链节点建立实时连接，支持查询链上数据、提交交易、监听区块事件等操作。
                   </Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="中继器服务地址" span={1}>
-                  <Text code style={{ whiteSpace: 'nowrap' }}>http://8.147.107.221:18000</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="备注" span={1}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                <Descriptions.Item label="中继器服务地址">
+                  <Text>
                     pRuntime（隐私运行时）中继服务地址，作为区块链与TEE（可信执行环境）设备之间的通信桥梁。负责转发隐私计算任务到TEE Worker节点，处理加密数据交互，并确保TEE设备与链上合约之间的安全通信。
                   </Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="前端服务地址" span={1}>
-                  <Text code style={{ whiteSpace: 'nowrap' }}>http://8.147.107.221:3000</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="备注" span={1}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                <Descriptions.Item label="前端服务地址">
+                  <Text>
                     Web管理界面的HTTP访问地址，提供链计算平台的用户交互界面。用户可通过该地址访问系统管理、资源监控、合约部署、密钥管理等功能的可视化操作界面，该服务集成了前端应用和后端API代理。
                   </Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="API代理端点" span={1}>
-                  <Text code style={{ whiteSpace: 'nowrap' }}>/api/node-health, /api/pruntime-proxy</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="备注" span={1}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                <Descriptions.Item label="API代理端点">
+                  <Text>
                     前端应用内置的API代理端点，用于解决浏览器跨域（CORS）限制问题。/api/node-health用于代理访问区块链节点的健康检查接口，/api/pruntime-proxy用于代理访问pRuntime中继服务的RPC接口。
                   </Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="健康检查端点" span={1}>
-                  <Text code style={{ whiteSpace: 'nowrap' }}>http://8.147.107.221:19944/health</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="备注" span={1}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                <Descriptions.Item label="健康检查端点">
+                  <Text>
                     区块链节点提供的HTTP健康检查接口，用于监控节点的运行状态和可用性。通过定期访问该端点，可以判断节点是否正常运行、是否已完成同步，以及网络连接是否正常。
                   </Text>
                 </Descriptions.Item>

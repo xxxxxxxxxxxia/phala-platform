@@ -40,7 +40,11 @@ interface NetworkInfo {
 
 // Guest RPC 调用函数
 const guestRpcCall = async (bestHostIp: string, method: string, params?: any): Promise<Response> => {
-    const port = '9210';
+    // 端口改为从 localStorage 读取，默认 9210，便于不同环境切换
+    const port =
+        typeof window !== 'undefined'
+            ? localStorage.getItem('bestHostPort') || '9210'
+            : '9210';
     const proxyUrl = `/api/vm-guest-rpc?host=${encodeURIComponent(bestHostIp)}&method=${encodeURIComponent(
         method,
     )}&port=${encodeURIComponent(port)}`;
@@ -443,6 +447,7 @@ export default function VmDetailPage() {
     const [activeMenuKey, setActiveMenuKey] = useState<string>('overview');
 
     const [bestHostIp, setBestHostIp] = useState<string | null>(null);
+    const [bestHostPort, setBestHostPort] = useState<string>('9210');
     const [vm, setVm] = useState<VMData | null>(null);
     const [vmDetails, setVmDetails] = useState<any | null>(null);
     const [networkInfo, setNetworkInfo] = useState<NetworkInfo | null>(null);
@@ -531,11 +536,19 @@ export default function VmDetailPage() {
 
     // 读取 bestHostIp
     useEffect(() => {
-        const storedBestHostIp = typeof window !== 'undefined' ? localStorage.getItem('bestHostIp') : null;
-        if (storedBestHostIp) {
-            setBestHostIp(storedBestHostIp);
-        } else {
+        if (typeof window === 'undefined') {
             setBestHostIp(DEFAULT_BEST_HOST_IP);
+            setBestHostPort('9210');
+            return;
+        }
+        const storedBestHostIp = localStorage.getItem('bestHostIp');
+        const storedBestHostPort = localStorage.getItem('bestHostPort');
+        setBestHostIp(storedBestHostIp || DEFAULT_BEST_HOST_IP);
+        if (storedBestHostPort) {
+            setBestHostPort(storedBestHostPort);
+        } else {
+            setBestHostPort('9210');
+            localStorage.setItem('bestHostPort', '9210');
         }
     }, []);
 
@@ -661,7 +674,7 @@ export default function VmDetailPage() {
             }
         };
 
-        const intervalId = window.setInterval(refreshDetails, 5000);
+        const intervalId = window.setInterval(refreshDetails, 300000); // 每 5 分钟刷新一次
 
         return () => {
             destroyed = true;
@@ -2069,6 +2082,7 @@ export default function VmDetailPage() {
                             </Tag>
                         </Descriptions.Item>
                         <Descriptions.Item label="最佳主机 IP">{bestHostIp || '未知'}</Descriptions.Item>
+                        <Descriptions.Item label="最佳主机端口">{bestHostPort || '未知'}</Descriptions.Item>
                         <Descriptions.Item label="特性标记">{getFlags(vmDetails || {})}</Descriptions.Item>
                     </Descriptions>
                 </Card>

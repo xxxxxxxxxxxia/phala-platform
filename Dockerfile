@@ -42,6 +42,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/data ./data
 # 复制 docs 目录（包含部署手册等文档）
 COPY --from=builder --chown=nextjs:nodejs /app/docs ./docs
 
+# 复制 server.js（优化的启动脚本）
+COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
+
+# 复制 warmup-server.js（服务器预热脚本）
+COPY --from=builder --chown=nextjs:nodejs /app/warmup-server.js ./warmup-server.js
+
+# 复制 next.config.js（server.js需要读取它来获取正确的配置）
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.js ./next.config.js
+
 # 不再复制phala-blockchain-setup目录，直接使用服务器上的目录
 
 # 切换到非root用户
@@ -54,6 +63,10 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
+# 优化Node.js性能：设置内存限制、DNS优化、禁用source maps
+# 关键：增加堆内存到3GB，充分利用容器内存（4GB），支持100个页面缓存
+# 留1GB给系统和其他进程
+ENV NODE_OPTIONS="--max-old-space-size=3072 --dns-result-order=ipv4first --enable-source-maps=false"
 
 # 启动应用
 CMD ["npm", "start"]

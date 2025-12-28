@@ -1,43 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiPromise, WsProvider } from '@polkadot/api';
 import { options } from '@phala/sdk';
-import { getNodeUrl } from '@/lib/config';
 import { fetchHygonDevices } from '@/lib/hygonDevices';
-
-// 全局 API 实例，复用连接
-let globalApi: ApiPromise | null = null;
-let apiPromise: Promise<ApiPromise> | null = null;
-
-// 连接本地区块链节点（复用连接）
-const getApi = async () => {
-  // 如果已有连接且正常，直接返回
-  if (globalApi && globalApi.isConnected) {
-    return globalApi;
-  }
-
-  // 如果正在连接中，等待连接完成
-  if (apiPromise) {
-    return apiPromise;
-  }
-
-  // 创建新连接
-  apiPromise = (async () => {
-    try {
-      const api = await ApiPromise.create(options({
-        provider: new WsProvider(getNodeUrl()),
-        noInitWarn: true,
-      }));
-      globalApi = api;
-      apiPromise = null;
-      return api;
-    } catch (error) {
-      apiPromise = null;
-      throw error;
-    }
-  })();
-
-  return apiPromise;
-};
+import { getApi } from '@/lib/polkadotApiManager';
 
 // 获取真实Worker数据
 export async function GET(request: NextRequest) {

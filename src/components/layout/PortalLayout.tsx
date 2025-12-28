@@ -24,6 +24,9 @@ const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
     const [currentHash, setCurrentHash] = useState('');
 
     useEffect(() => {
+        // 确保在客户端环境中执行
+        if (typeof window === 'undefined') return;
+
         // 移除 body 的默认 margin/padding，避免黑框
         const body = document.body;
         const html = document.documentElement;
@@ -60,6 +63,9 @@ const PortalLayout: React.FC<PortalLayoutProps> = ({ children }) => {
     }, []);
 
     const handleNavClick = (href: string, e: React.MouseEvent) => {
+        // 确保在客户端环境中执行
+        if (typeof window === 'undefined') return;
+
         // 如果是应用场景链接（指向首页锚点），需要特殊处理
         if (href === '/#scenarios') {
             e.preventDefault();

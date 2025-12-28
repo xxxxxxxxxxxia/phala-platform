@@ -163,7 +163,7 @@ async function fetchWorkerInfo(endpoint: string): Promise<WorkerInsight | null> 
         console.log(`[scheduling/workers] 请求URL: ${infoUrl}`);
         const response = await fetch(infoUrl, {
             cache: "no-store",
-            signal: AbortSignal.timeout(10_000), // 增加到10秒超时
+            signal: AbortSignal.timeout(5_000), // 优化：从10秒减少到5秒，快速失败
         });
         const latencyMs = Date.now() - started;
         if (!response.ok) {
@@ -242,14 +242,15 @@ async function fetchWorkerResponses(): Promise<Map<string, { url: string; data: 
 
     console.log('[scheduling/workers] 开始检查已知worker地址的响应状态...');
 
-    await Promise.all(workerUrls.map(async (url) => {
+    // 优化：使用Promise.allSettled，即使某些worker慢也不会阻塞整个请求
+    const results = await Promise.allSettled(workerUrls.map(async (url) => {
         try {
             // 直接调用worker的info接口获取信息
             const started = Date.now();
             const infoUrl = `${url}/info`;
             const response = await fetch(infoUrl, {
                 cache: "no-store",
-                signal: AbortSignal.timeout(5000),
+                signal: AbortSignal.timeout(5000), // 5秒超时，快速失败
             });
             const latencyMs = Date.now() - started;
 
@@ -257,19 +258,32 @@ async function fetchWorkerResponses(): Promise<Map<string, { url: string; data: 
                 const data = await response.json();
                 if (data.public_key) {
                     console.log(`[scheduling/workers] ${url} 的public_key: ${data.public_key}`);
-                    workerResponses.set(data.public_key.toLowerCase(), {
+                    return {
                         url: url,
                         data: {
                             ...data,
                             latencyMs, // 添加延迟信息
-                        }
-                    });
+                        },
+                        publicKey: data.public_key.toLowerCase()
+                    };
                 }
             }
+            return null;
         } catch (error) {
             console.error(`[scheduling/workers] 检查${url}失败:`, error);
+            return null;
         }
     }));
+
+    // 处理结果，只添加成功的worker
+    results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value) {
+            workerResponses.set(result.value.publicKey, {
+                url: result.value.url,
+                data: result.value.data
+            });
+        }
+    });
 
     console.log(`[scheduling/workers] 找到 ${workerResponses.size} 个有响应的worker`);
     return workerResponses;

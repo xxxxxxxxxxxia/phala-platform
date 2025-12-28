@@ -21,7 +21,7 @@ import developersStyles from './developers.module.css';
 const { Title, Paragraph } = Typography;
 
 // API 基础地址配置 - 可根据需要修改
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://8.147.106.136:8888';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://8.147.106.136:3001';
 
 // 只显示一个主卡片
 const mainCard = {
@@ -100,22 +100,22 @@ export default function DevelopersPage() {
             setLoading(true);
             message.loading('正在调度最佳资源...', 0);
 
-            const response = await fetch(`${API_BASE_URL}/api/host/best`, {
+            const response = await fetch(`http://8.147.106.136:3001/api/scheduled`, {
                 method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
             });
 
             const data = await response.json();
+            console.log('API Response:', data);
+            
             message.destroy();
 
-            if (data.success && data.bestHostIp) {
-                // 将 bestHostIp 保存到 localStorage
-                localStorage.setItem('bestHostIp', data.bestHostIp);
-                message.success(`已找到最佳主机: ${data.bestHostIp}`);
-                // 导航到 start 页面
-                router.push('/developers/start');
+            if (data.message === '调度成功' && data.host && data.scheduledPort) {
+                // 将 host 和 scheduledPort 保存到 localStorage
+                localStorage.setItem('bestHostIp', data.host);
+                localStorage.setItem('bestHostPort', data.scheduledPort.toString());
+                message.success(`已找到最佳主机: ${data.host}:${data.scheduledPort}`);
+                // 导航到登录页面
+                router.push('/developers/login');
             } else {
                 message.error(data.message || '未找到可用主机');
             }
@@ -238,8 +238,8 @@ export default function DevelopersPage() {
                     {/* <div className={styles.heroBadge}>
                         <CodeOutlined /> 应用开发者中心
                     </div> */}
-                    <Title level={2} className={styles.heroTitle}>
-                        支持国产TEE机密计算的容器化应用一键部署
+                    <Title level={1} className={styles.heroTitle}>
+                        <span className={styles.heroHighlight}>支持国产TEE机密计算的容器化应用一键部署</span>
                         {/* 国产TEE · 机密虚拟机 · 容器化应用程序一键部署 */}
                     </Title>
                     <Paragraph className={styles.heroSubtitle}>

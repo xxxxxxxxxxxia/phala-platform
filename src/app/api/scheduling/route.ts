@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { getNodeUrl, getPruntimeUrl } from '@/lib/config';
-
-const WS_ENDPOINT = getNodeUrl();
-let api: ApiPromise | null = null;
+import { getPruntimeUrl } from '@/lib/config';
+import { getApi } from '@/lib/polkadotApiManager';
 
 interface TaskScheduler {
   id: string;
@@ -54,24 +51,15 @@ let schedulingState: SchedulingState = {
   lastUpdate: Date.now()
 };
 
-// 获取API连接
-async function getApi(): Promise<ApiPromise> {
-  if (api) {
-    return api;
-  }
+// 使用全局连接管理器，无需本地getApi函数
 
-  const wsProvider = new WsProvider(WS_ENDPOINT);
-  api = await ApiPromise.create({ provider: wsProvider });
-  return api;
-}
-
-// 获取Worker信息
+// 获取Worker信息（优化超时：从10秒减少到8秒）
 async function getWorkersInfo(): Promise<any[]> {
   try {
     const api = await getApi();
     const workers = await Promise.race([
       api.query.phalaRegistry.workers.entries(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Query timeout')), 10000))
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Query timeout')), 8000))
     ]) as any[];
 
     return workers;

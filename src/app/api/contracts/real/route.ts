@@ -1,25 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiPromise, WsProvider } from '@polkadot/api';
-import { options } from '@phala/sdk';
-import { getNodeUrl } from '@/lib/config';
+import { ApiPromise } from '@polkadot/api';
+import { getApi } from '@/lib/polkadotApiManager';
 
-let api: ApiPromise | null = null;
-
-async function getApi() {
-  if (!api || !api.isConnected) {
-    try {
-      api = await ApiPromise.create(
-        options({
-          provider: new WsProvider(getNodeUrl()),
-          noInitWarn: true,
-        })
-      );
-    } catch (error) {
-      console.error('Failed to connect to blockchain node:', error);
-      throw error;
-    }
-  }
-  return api;
+// 使用全局连接管理器（支持Phala SDK options）
+async function getApiInstance() {
+  return getApi(true); // 使用Phala SDK options
 }
 
 export async function GET(request: NextRequest) {
@@ -29,7 +14,7 @@ export async function GET(request: NextRequest) {
       setTimeout(() => reject(new Error('API timeout')), 3000)
     );
 
-    const apiPromise = getApi().then(async (api) => {
+    const apiPromise = getApiInstance().then(async (api) => {
       const contracts = await getRealContracts(api);
       return {
         success: true,
